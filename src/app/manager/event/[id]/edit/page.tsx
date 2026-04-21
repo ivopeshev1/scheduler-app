@@ -63,7 +63,10 @@ async function saveEventEditAction(formData: FormData) {
     const role = str(formData.get(`role[${key}]`));
     if (!role) continue;
     const needed = Math.max(1, num(formData.get(`needed[${key}]`)) ?? 1);
-    const baseRate = num(formData.get(`baseRate[${key}]`));
+    const rawBaseRateMode = str(formData.get(`baseRateMode[${key}]`));
+    const baseRateMode: "flat" | "standard" = rawBaseRateMode === "standard" ? "standard" : "flat";
+    // In standard mode, baseRate is ignored (each invitee gets their onboarded rate).
+    const baseRate = baseRateMode === "standard" ? null : num(formData.get(`baseRate[${key}]`));
     const vanRate = num(formData.get(`vanRate[${key}]`)) ?? 0;
     const travelRate = num(formData.get(`travelRate[${key}]`)) ?? 0;
     const requiresVan = formData.get(`vanReq[${key}]`) === "on";
@@ -73,7 +76,7 @@ async function saveEventEditAction(formData: FormData) {
       await db.insert(schema.positions).values({
         id: pid, eventId, role: role as any, mode: "pool", needed,
         sortOrder: existingPositions.length + 1,
-        baseRate, vanDrivingRate: vanRate, travelRate,
+        baseRate, baseRateMode, vanDrivingRate: vanRate, travelRate,
         requiresVanDriving: requiresVan, rateType: "flat",
       });
       for (let s = 0; s < needed; s++) {
@@ -123,7 +126,7 @@ async function saveEventEditAction(formData: FormData) {
       }
 
       await db.update(schema.positions).set({
-        role: role as any, needed, baseRate,
+        role: role as any, needed, baseRate, baseRateMode,
         vanDrivingRate: vanRate, travelRate, requiresVanDriving: requiresVan,
       }).where(eq(schema.positions.id, key));
     }
@@ -187,6 +190,7 @@ export default async function EditEventPage({ params }: { params: { id: string }
       role: p.role as any,
       needed: p.needed,
       baseRate: p.baseRate,
+      baseRateMode: (p.baseRateMode ?? "flat") as "flat" | "standard",
       vanDrivingRate: p.vanDrivingRate,
       travelRate: p.travelRate,
       requiresVanDriving: p.requiresVanDriving,

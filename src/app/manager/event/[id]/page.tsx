@@ -5,7 +5,7 @@ import { db, schema } from "@/db/client";
 import { eq } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { summarizePosition } from "@/lib/status";
-import { composeRateLines, sendEmail, escapeHtml } from "@/lib/notifications";
+import { sendEmail, escapeHtml } from "@/lib/notifications";
 import { formatTime, formatDate } from "@/lib/format";
 import { notifyCancellation } from "@/lib/event-notifications";
 import { StaffPicker, type StaffOption } from "@/components/StaffPicker";
@@ -136,13 +136,6 @@ async function sendPendingInvitations(formData: FormData) {
       const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, inv.userId));
       if (!u) continue;
       const position = byPosition.get(inv.positionId)!;
-      const rate = composeRateLines({
-        baseRate: position.baseRate,
-        vanDrivingRate: position.vanDrivingRate,
-        travelRate: position.travelRate,
-        requiresVanDriving: position.requiresVanDriving,
-        rateType: position.rateType,
-      });
       // Van-driving language only goes to the staff member whose position is flagged as the driver.
       const vanLine = position.requiresVanDriving ? `This shift requires driving the van.` : "";
       const vanInstructions = position.requiresVanDriving && event.vanDrivingInstructions
@@ -152,7 +145,27 @@ async function sendPendingInvitations(formData: FormData) {
       const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
       const timeRange = `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`;
 
+      // Base-rate display varies per-invitee when the position is in Standard mode.
+      const baseRateDisplay = (() => {
+        if (position.baseRateMode === "standard") {
+          const rate = profile?.defaultRate;
+          const type = profile?.defaultRateType;
+          if (rate == null) return "Your standard rate (to be confirmed with manager)";
+          if (type === "hourly") return `Your standard rate ($${rate}/hr, as on file)`;
+          if (type === "flat") return `Your standard rate ($${rate} flat, as on file)`;
+          if (type === "both") return `Your standard rate ($${rate} — hourly or flat, per event, as on file)`;
+          return `Your standard rate ($${rate}, as on file)`;
+        }
+        return `$${position.baseRate ?? 0}`;
+      })();
+      const vanAmount = position.requiresVanDriving ? (position.vanDrivingRate ?? 0) : 0;
+      const travel = position.travelRate ?? 0;
+
       // Plain-text version (fallback for clients that strip HTML).
+      const compLinesText: string[] = [`Base rate:      ${baseRateDisplay}`];
+      if (position.requiresVanDriving) compLinesText.push(`Van driving:    $${vanAmount}`);
+      if (travel > 0) compLinesText.push(`Travel comp:    $${travel}`);
+
       const textBody = [
         `Hi ${profile?.firstName ?? ""},`, ``,
         `You're invited to work the following shift:`, ``,
@@ -163,7 +176,8 @@ async function sendPendingInvitations(formData: FormData) {
         `Venue:       ${venue}`,
         `Client:      ${event.clientName}`, ``,
         `Compensation:`,
-        rate.breakdown, ``,
+        ...compLinesText,
+        ``,
         vanLine,
         vanInstructions,
         event.staffNotes ? `Notes: ${event.staffNotes}` : "",
@@ -173,9 +187,6 @@ async function sendPendingInvitations(formData: FormData) {
       ].filter(Boolean).join("\n");
 
       // HTML version — rendered by most clients. Uses inline styles (Gmail strips <style>).
-      const base = position.baseRate ?? 0;
-      const vanAmount = position.requiresVanDriving ? (position.vanDrivingRate ?? 0) : 0;
-      const travel = position.travelRate ?? 0;
       const row = (label: string, value: string, bold = false) =>
         `<tr>` +
         `<td style="padding:4px 16px 4px 0;color:#555;white-space:nowrap;${bold ? "font-weight:600;color:#111;" : ""}">${label}</td>` +
@@ -198,7 +209,7 @@ async function sendPendingInvitations(formData: FormData) {
 
   <p style="margin:0 0 8px;font-weight:600;">Compensation</p>
   <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 24px;">
-    ${row("Base rate", `$${base}`)}
+    ${row("Base rate", escapeHtml(baseRateDisplay))}
     ${position.requiresVanDriving ? row("Van driving", `$${vanAmount}`) : ""}
     ${travel > 0 ? row("Travel comp", `$${travel}`) : ""}
   </table>
@@ -384,11 +395,9 @@ export default async function EventDetailPage({ params }: { params: { id: string
             <tbody>
               {positionsList.map((p, i) => {
                 const s = statuses[i];
-                const rate = composeRateLines({
-                  baseRate: p.baseRate, vanDrivingRate: p.vanDrivingRate,
-                  travelRate: p.travelRate,
-                  requiresVanDriving: p.requiresVanDriving, rateType: p.rateType,
-                });
+                const baseLabel = p.baseRateMode === "standard"
+                  ? "Standard rate"
+                  : `$${p.baseRate ?? 0}`;
                 const staffOptions = buildStaffOptions(p.role, p.id);
                 return (
                   <tr key={p.id} className="border-b align-top">
@@ -396,7 +405,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
                     <td className="py-3 font-medium">{p.role}</td>
                     <td className={`py-3 ${s.state === "pending" ? "status-pending" : "status-confirmed"}`}>{s.label}</td>
                     <td className="py-3 text-sm">
-                      <div>{rate.headline.replace("Rate for this event is ", "")}</div>
+                      <div>{baseLabel}</div>
                       {p.requiresVanDriving && (<div className="text-xs text-gray-500">+ van ${p.vanDrivingRate}</div>)}
                       {(p.travelRate ?? 0) > 0 && (<div className="text-xs text-gray-500">+ travel ${p.travelRate}</div>)}
                     </td>

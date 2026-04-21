@@ -80,6 +80,9 @@ export async function GET(req: Request) {
   )`;
   // Backfill: add travel_rate if positions table was created before this column existed
   await sql`ALTER TABLE positions ADD COLUMN IF NOT EXISTS travel_rate REAL DEFAULT 0`;
+  // Backfill: base_rate_mode lets managers mark a position as "Standard" (use each
+  // invitee's onboarded rate) instead of a flat dollar amount per shift.
+  await sql`ALTER TABLE positions ADD COLUMN IF NOT EXISTS base_rate_mode TEXT NOT NULL DEFAULT 'flat'`;
   await sql`CREATE TABLE IF NOT EXISTS slots (
     id TEXT PRIMARY KEY,
     position_id TEXT NOT NULL REFERENCES positions(id) ON DELETE CASCADE,

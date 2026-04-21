@@ -16,6 +16,7 @@ export type PositionData = {
   role: "Bar Lead" | "Bar Back" | "Bartender" | "Server" | "Cashier";
   needed: number;
   baseRate: number | null;
+  baseRateMode: "flat" | "standard";
   vanDrivingRate: number | null;
   travelRate: number | null;
   requiresVanDriving: boolean;
@@ -130,6 +131,40 @@ function MoneyInput({ name, defaultValue }: { name: string; defaultValue?: numbe
   );
 }
 
+/**
+ * Flat/Standard dropdown + conditional money input. Controlled component so
+ * the dollar field toggles in real time when the manager switches the mode.
+ */
+function BaseRateControl({
+  keyName,
+  defaultMode,
+  defaultAmount,
+}: {
+  keyName: string;
+  defaultMode: "flat" | "standard";
+  defaultAmount: number | string;
+}) {
+  const [mode, setMode] = useState<"flat" | "standard">(defaultMode);
+  return (
+    <>
+      <select
+        name={`baseRateMode[${keyName}]`}
+        value={mode}
+        onChange={(e) => setMode(e.target.value as "flat" | "standard")}
+        className="input text-sm mb-1"
+      >
+        <option value="flat">Flat $</option>
+        <option value="standard">Standard</option>
+      </select>
+      {mode === "flat" ? (
+        <MoneyInput name={`baseRate[${keyName}]`} defaultValue={defaultAmount} />
+      ) : (
+        <div className="text-xs text-gray-500 py-1">Uses onboarded rate</div>
+      )}
+    </>
+  );
+}
+
 /* -------------------- existing row -------------------- */
 
 function ExistingRow({
@@ -189,7 +224,7 @@ function ExistingRow({
         </div>
         <div className="col-span-2">
           <label className="label">Base rate</label>
-          <MoneyInput name={`baseRate[${key}]`} defaultValue={p.baseRate ?? ""} />
+          <BaseRateControl keyName={key} defaultMode={p.baseRateMode} defaultAmount={p.baseRate ?? ""} />
         </div>
         <div className="col-span-2">
           <label className="label">Van add-on</label>
@@ -274,7 +309,7 @@ function NewRow({
       </div>
       <div className="col-span-2">
         <label className="label">Base rate</label>
-        <MoneyInput name={`baseRate[${newKey}]`} />
+        <BaseRateControl keyName={newKey} defaultMode="flat" defaultAmount="" />
       </div>
       <div className="col-span-2">
         <label className="label">Van add-on</label>

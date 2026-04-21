@@ -66,6 +66,8 @@ function PositionRow({
   onToggleVan: (checked: boolean) => void;
   onRemove: () => void;
 }) {
+  const [baseRateMode, setBaseRateMode] = useState<"flat" | "standard">("flat");
+
   return (
     <div className="grid grid-cols-12 gap-3 items-end border rounded-lg p-3">
       <div className="col-span-1">
@@ -84,7 +86,20 @@ function PositionRow({
       </div>
       <div className="col-span-2">
         <label className="label">Base rate</label>
-        <MoneyInput name={`baseRate${index}`} />
+        <select
+          name={`baseRateMode${index}`}
+          value={baseRateMode}
+          onChange={(e) => setBaseRateMode(e.target.value as "flat" | "standard")}
+          className="input text-sm mb-1"
+        >
+          <option value="flat">Flat $</option>
+          <option value="standard">Standard</option>
+        </select>
+        {baseRateMode === "flat" ? (
+          <MoneyInput name={`baseRate${index}`} />
+        ) : (
+          <div className="text-xs text-gray-500 py-1">Uses onboarded rate</div>
+        )}
       </div>
       <div className="col-span-2">
         <label className="label">Van add-on</label>

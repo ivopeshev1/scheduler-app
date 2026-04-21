@@ -79,6 +79,8 @@ export const positions = pgTable("positions", {
   startTime: text("start_time"),
   endTime: text("end_time"),
   baseRate: real("base_rate"),
+  // "flat" = baseRate holds the dollar amount; "standard" = use each invitee's onboarded rate
+  baseRateMode: text("base_rate_mode", { enum: ["flat", "standard"] }).notNull().default("flat"),
   vanDrivingRate: real("van_driving_rate").default(0),
   travelRate: real("travel_rate").default(0),
   requiresVanDriving: boolean("requires_van_driving").notNull().default(false),

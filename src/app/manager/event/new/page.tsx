@@ -40,7 +40,10 @@ async function createEventAction(formData: FormData) {
     const role = str(formData.get(`role${i}`));
     if (!role) continue;
     const needed = Math.max(1, num(formData.get(`needed${i}`)) ?? 1);
-    const baseRate = num(formData.get(`baseRate${i}`));
+    const rawBaseRateMode = str(formData.get(`baseRateMode${i}`));
+    const baseRateMode: "flat" | "standard" = rawBaseRateMode === "standard" ? "standard" : "flat";
+    // Standard mode ignores the typed $ amount — each invitee gets their onboarded rate.
+    const baseRate = baseRateMode === "standard" ? null : num(formData.get(`baseRate${i}`));
     const vanDrivingRate = num(formData.get(`vanRate${i}`)) ?? 0;
     const travelRate = num(formData.get(`travelRate${i}`)) ?? 0;
     const requiresVanDriving = formData.get(`vanReq${i}`) === "on";
@@ -50,7 +53,7 @@ async function createEventAction(formData: FormData) {
       id: pid, eventId, role: role as any,
       mode: "pool", // legacy column; always the same now — Priority/Backup tiers cover it
       needed, sortOrder,
-      baseRate, vanDrivingRate, travelRate, requiresVanDriving,
+      baseRate, baseRateMode, vanDrivingRate, travelRate, requiresVanDriving,
       rateType: "flat",
     });
     for (let s = 0; s < needed; s++) {
