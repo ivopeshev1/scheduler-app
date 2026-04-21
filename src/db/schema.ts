@@ -79,8 +79,11 @@ export const positions = pgTable("positions", {
   startTime: text("start_time"),
   endTime: text("end_time"),
   baseRate: real("base_rate"),
-  // "flat" = baseRate holds the dollar amount; "standard" = use each invitee's onboarded rate
-  baseRateMode: text("base_rate_mode", { enum: ["flat", "standard"] }).notNull().default("flat"),
+  // How to interpret baseRate:
+  //   "standard" → ignore baseRate; use each invitee's onboarded profile rate
+  //   "flat"     → baseRate is the flat dollar amount for the whole shift
+  //   "hourly"   → baseRate is the hourly rate (overrides the staff's onboarded rate)
+  baseRateMode: text("base_rate_mode", { enum: ["flat", "hourly", "standard"] }).notNull().default("standard"),
   vanDrivingRate: real("van_driving_rate").default(0),
   travelRate: real("travel_rate").default(0),
   requiresVanDriving: boolean("requires_van_driving").notNull().default(false),

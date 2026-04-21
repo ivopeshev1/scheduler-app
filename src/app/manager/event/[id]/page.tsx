@@ -145,7 +145,10 @@ async function sendPendingInvitations(formData: FormData) {
       const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
       const timeRange = `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`;
 
-      // Base-rate display varies per-invitee when the position is in Standard mode.
+      // Base-rate display depends on the position's rate mode:
+      //   "standard" — show the staff's onboarded rate (varies per invitee)
+      //   "flat"     — fixed $ for the whole shift
+      //   "hourly"   — $ per hour, overriding the staff's onboarded rate
       const baseRateDisplay = (() => {
         if (position.baseRateMode === "standard") {
           const rate = profile?.defaultRate;
@@ -155,6 +158,9 @@ async function sendPendingInvitations(formData: FormData) {
           if (type === "flat") return `Your standard rate ($${rate} flat, as on file)`;
           if (type === "both") return `Your standard rate ($${rate} — hourly or flat, per event, as on file)`;
           return `Your standard rate ($${rate}, as on file)`;
+        }
+        if (position.baseRateMode === "hourly") {
+          return `$${position.baseRate ?? 0}/hr (for this shift)`;
         }
         return `$${position.baseRate ?? 0}`;
       })();
@@ -395,8 +401,9 @@ export default async function EventDetailPage({ params }: { params: { id: string
             <tbody>
               {positionsList.map((p, i) => {
                 const s = statuses[i];
-                const baseLabel = p.baseRateMode === "standard"
-                  ? "Standard rate"
+                const baseLabel =
+                  p.baseRateMode === "standard" ? "Standard rate"
+                  : p.baseRateMode === "hourly" ? `$${p.baseRate ?? 0}/hr`
                   : `$${p.baseRate ?? 0}`;
                 const staffOptions = buildStaffOptions(p.role, p.id);
                 return (

@@ -64,7 +64,10 @@ async function saveEventEditAction(formData: FormData) {
     if (!role) continue;
     const needed = Math.max(1, num(formData.get(`needed[${key}]`)) ?? 1);
     const rawBaseRateMode = str(formData.get(`baseRateMode[${key}]`));
-    const baseRateMode: "flat" | "standard" = rawBaseRateMode === "standard" ? "standard" : "flat";
+    const baseRateMode: "flat" | "hourly" | "standard" =
+      rawBaseRateMode === "hourly" ? "hourly"
+      : rawBaseRateMode === "flat" ? "flat"
+      : "standard";
     // In standard mode, baseRate is ignored (each invitee gets their onboarded rate).
     const baseRate = baseRateMode === "standard" ? null : num(formData.get(`baseRate[${key}]`));
     const vanRate = num(formData.get(`vanRate[${key}]`)) ?? 0;
@@ -190,7 +193,7 @@ export default async function EditEventPage({ params }: { params: { id: string }
       role: p.role as any,
       needed: p.needed,
       baseRate: p.baseRate,
-      baseRateMode: (p.baseRateMode ?? "flat") as "flat" | "standard",
+      baseRateMode: (p.baseRateMode ?? "standard") as "standard" | "flat" | "hourly",
       vanDrivingRate: p.vanDrivingRate,
       travelRate: p.travelRate,
       requiresVanDriving: p.requiresVanDriving,

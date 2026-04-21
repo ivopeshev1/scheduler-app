@@ -41,7 +41,10 @@ async function createEventAction(formData: FormData) {
     if (!role) continue;
     const needed = Math.max(1, num(formData.get(`needed${i}`)) ?? 1);
     const rawBaseRateMode = str(formData.get(`baseRateMode${i}`));
-    const baseRateMode: "flat" | "standard" = rawBaseRateMode === "standard" ? "standard" : "flat";
+    const baseRateMode: "flat" | "hourly" | "standard" =
+      rawBaseRateMode === "hourly" ? "hourly"
+      : rawBaseRateMode === "flat" ? "flat"
+      : "standard";
     // Standard mode ignores the typed $ amount — each invitee gets their onboarded rate.
     const baseRate = baseRateMode === "standard" ? null : num(formData.get(`baseRate${i}`));
     const vanDrivingRate = num(formData.get(`vanRate${i}`)) ?? 0;

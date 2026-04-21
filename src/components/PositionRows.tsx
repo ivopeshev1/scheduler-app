@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { BaseRateControl } from "@/components/BaseRateControl";
 
 const POSITION_ROLES = ["Bar Lead", "Bar Back", "Bartender", "Server", "Cashier"] as const;
 
@@ -68,8 +69,6 @@ function PositionRow({
 }) {
   // Default to Standard — managers already put each staff member's rate on file
   // at onboarding, so the common case is "use their onboarded rate".
-  const [baseRateMode, setBaseRateMode] = useState<"flat" | "standard">("standard");
-
   return (
     <div className="grid grid-cols-12 gap-3 items-end border rounded-lg p-3">
       <div className="col-span-1">
@@ -88,20 +87,12 @@ function PositionRow({
       </div>
       <div className="col-span-2">
         <label className="label">Base rate</label>
-        <select
-          name={`baseRateMode${index}`}
-          value={baseRateMode}
-          onChange={(e) => setBaseRateMode(e.target.value as "flat" | "standard")}
-          className="input text-sm mb-1"
-        >
-          <option value="flat">Flat $</option>
-          <option value="standard">Standard</option>
-        </select>
-        {baseRateMode === "flat" ? (
-          <MoneyInput name={`baseRate${index}`} />
-        ) : (
-          <div className="text-xs text-gray-500 py-1">Uses onboarded rate</div>
-        )}
+        <BaseRateControl
+          baseRateFieldName={`baseRate${index}`}
+          baseRateModeFieldName={`baseRateMode${index}`}
+          defaultMode="standard"
+          defaultAmount=""
+        />
       </div>
       <div className="col-span-2">
         <label className="label">Van add-on</label>
