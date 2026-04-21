@@ -87,13 +87,12 @@ export function composeRateLines(args: {
   const van = args.requiresVanDriving ? (args.vanDrivingRate ?? 0) : 0;
   const travel = args.travelRate ?? 0;
   const total = base + van + travel;
-  // Compact one-line headline for table/list views.
+  // Compact one-line headline for the manager-side table (still useful there).
   const headline = `Rate for this event is $${total}.`;
-  // Emails use a multi-line breakdown so staff can see exactly how total was built.
+  // Emails list each component separately — no total, staff can add it up themselves.
   const lines: string[] = [`Base rate:      $${base}`];
   if (args.requiresVanDriving) lines.push(`Van driving:    $${van}`);
   if (travel > 0) lines.push(`Travel comp:    $${travel}`);
-  lines.push(`Total:          $${total}`);
   return {
     headline,
     breakdown: lines.join("\n"),

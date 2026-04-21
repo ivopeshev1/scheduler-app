@@ -176,7 +176,6 @@ async function sendPendingInvitations(formData: FormData) {
       const base = position.baseRate ?? 0;
       const vanAmount = position.requiresVanDriving ? (position.vanDrivingRate ?? 0) : 0;
       const travel = position.travelRate ?? 0;
-      const total = base + vanAmount + travel;
       const row = (label: string, value: string, bold = false) =>
         `<tr>` +
         `<td style="padding:4px 16px 4px 0;color:#555;white-space:nowrap;${bold ? "font-weight:600;color:#111;" : ""}">${label}</td>` +
@@ -202,8 +201,6 @@ async function sendPendingInvitations(formData: FormData) {
     ${row("Base rate", `$${base}`)}
     ${position.requiresVanDriving ? row("Van driving", `$${vanAmount}`) : ""}
     ${travel > 0 ? row("Travel comp", `$${travel}`) : ""}
-    <tr><td colspan="2" style="padding:4px 0;border-top:1px solid #ddd;"></td></tr>
-    ${row("Total", `$${total}`, true)}
   </table>
 
   ${vanLine ? `<p style="margin:0 0 12px;">${escapeHtml(vanLine)}</p>` : ""}
