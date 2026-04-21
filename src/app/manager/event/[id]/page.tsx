@@ -207,14 +207,17 @@ export default async function EventDetailPage({ params }: { params: { id: string
     .innerJoin(schema.events, eq(schema.positions.eventId, schema.events.id))
     .where(eq(schema.events.companyId, session.companyId));
 
-  // Build a map: userId -> first busy-with record (pending/accepted only, excluding current position)
+  // Build a map: userId -> busy record for THIS event's date only.
+  // A staff member is "busy" (unselectable) on this event's date if they have a
+  // pending/accepted invite to a DIFFERENT position (same event or different event)
+  // on the same day. Conflicts on OTHER days don't affect selectability here.
   const busyMap = new Map<string, { eventDate: string; clientName: string; role: string; positionId: string }>();
   for (const row of companyInvites) {
     const inv = row.invitation;
     if (inv.status !== "pending" && inv.status !== "accepted") continue;
+    if (row.event.date !== event.date) continue; // Only same-date conflicts matter
     const existing = busyMap.get(inv.userId);
-    // prefer to show the earliest upcoming date
-    if (!existing || row.event.date < existing.eventDate) {
+    if (!existing) {
       busyMap.set(inv.userId, {
         eventDate: row.event.date,
         clientName: row.event.clientName,
