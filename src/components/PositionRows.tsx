@@ -66,7 +66,9 @@ function PositionRow({
   onToggleVan: (checked: boolean) => void;
   onRemove: () => void;
 }) {
-  const [baseRateMode, setBaseRateMode] = useState<"flat" | "standard">("flat");
+  // Default to Standard — managers already put each staff member's rate on file
+  // at onboarding, so the common case is "use their onboarded rate".
+  const [baseRateMode, setBaseRateMode] = useState<"flat" | "standard">("standard");
 
   return (
     <div className="grid grid-cols-12 gap-3 items-end border rounded-lg p-3">

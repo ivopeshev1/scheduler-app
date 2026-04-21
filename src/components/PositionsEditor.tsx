@@ -309,7 +309,7 @@ function NewRow({
       </div>
       <div className="col-span-2">
         <label className="label">Base rate</label>
-        <BaseRateControl keyName={newKey} defaultMode="flat" defaultAmount="" />
+        <BaseRateControl keyName={newKey} defaultMode="standard" defaultAmount="" />
       </div>
       <div className="col-span-2">
         <label className="label">Van add-on</label>
