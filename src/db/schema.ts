@@ -35,6 +35,11 @@ export const staffProfiles = pgTable("staff_profiles", {
   position: text("position", { enum: ["Lead", "Bartender", "Bar Back", "Server", "Cashier"] }).notNull(),
   defaultRate: real("default_rate"),
   defaultRateType: text("default_rate_type", { enum: ["hourly", "flat", "both"] }),
+  canDriveVan: boolean("can_drive_van").default(false),
+  dateOfBirth: text("date_of_birth"),
+  emergencyContactName: text("emergency_contact_name"),
+  emergencyContactPhone: text("emergency_contact_phone"),
+  uniformSize: text("uniform_size"),
 });
 
 export const events = pgTable(

@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
 import { eq } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
+import { headers } from "next/headers";
 
 export default async function ManagerStaffPage() {
   const session = await getSession();
@@ -18,14 +19,25 @@ export default async function ManagerStaffPage() {
     .leftJoin(schema.staffProfiles, eq(schema.users.id, schema.staffProfiles.userId))
     .where(eq(schema.users.companyId, session.companyId));
   const staffRows = rows.filter((r) => r.user.role === "staff");
+  staffRows.sort((a, b) => {
+    const aName = a.profile?.firstName ?? a.user.email;
+    const bName = b.profile?.firstName ?? b.user.email;
+    return aName.localeCompare(bName);
+  });
+
+  // Build base URL for invite links from request headers
+  const h = headers();
+  const host = h.get("host") ?? "localhost:3000";
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  const baseUrl = `${proto}://${host}`;
 
   return (
     <div>
       <AppHeader companyName={company.name} userEmail={user.email} role="manager" />
-      <main className="max-w-5xl mx-auto px-6 py-8">
+      <main className="max-w-6xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-semibold">Staff</h1>
-          <Link href="/manager/staff" className="btn btn-primary">+ Invite staff (coming soon)</Link>
+          <h1 className="text-2xl font-semibold">Staff ({staffRows.length})</h1>
+          <Link href="/manager/staff/new" className="btn btn-primary">+ Add staff</Link>
         </div>
 
         <table className="w-full border-collapse">
@@ -35,25 +47,72 @@ export default async function ManagerStaffPage() {
               <th className="text-left">Position</th>
               <th className="text-left">Rate</th>
               <th className="text-left">City</th>
-              <th className="text-left">Email</th>
               <th className="text-left">Phone</th>
+              <th className="text-left">Van?</th>
+              <th className="text-left">Status</th>
             </tr>
           </thead>
           <tbody>
-            {staffRows.map(({ user, profile }) => (
-              <tr key={user.id} className="border-b">
-                <td className="py-3">{profile ? `${profile.firstName} ${profile.lastName}` : <em className="text-gray-400">Not onboarded</em>}</td>
-                <td className="py-3">{profile?.position ?? "—"}</td>
-                <td className="py-3">{profile?.defaultRate ? `$${profile.defaultRate}${profile.defaultRateType === "hourly" ? "/hr" : ""}` : "—"}</td>
-                <td className="py-3">{profile?.city ?? "—"}</td>
-                <td className="py-3 text-sm text-gray-600">{user.email}</td>
-                <td className="py-3 text-sm text-gray-600">{profile?.phone ?? "—"}</td>
-              </tr>
-            ))}
-            {staffRows.length === 0 && (<tr><td colSpan={6} className="py-8 text-center text-gray-400">No staff yet.</td></tr>)}
+            {staffRows.map(({ user, profile }) => {
+              const inviteUrl = user.inviteToken && !user.inviteAcceptedAt
+                ? `${baseUrl}/invite/${user.inviteToken}`
+                : null;
+              return (
+                <tr key={user.id} className="border-b">
+                  <td className="py-3">
+                    {profile ? (
+                      <>
+                        <div className="font-medium">{profile.firstName} {profile.lastName}</div>
+                        <div className="text-xs text-gray-500">{user.email}</div>
+                      </>
+                    ) : (
+                      <em className="text-gray-400">{user.email}</em>
+                    )}
+                  </td>
+                  <td className="py-3">{profile?.position ?? "—"}</td>
+                  <td className="py-3">
+                    {profile?.defaultRate
+                      ? `$${profile.defaultRate}${profile.defaultRateType === "hourly" ? "/hr" : profile.defaultRateType === "flat" ? " flat" : ""}`
+                      : "—"}
+                  </td>
+                  <td className="py-3">{profile?.city ?? <span className="text-gray-300">—</span>}</td>
+                  <td className="py-3 text-sm text-gray-600">{profile?.phone ?? <span className="text-gray-300">—</span>}</td>
+                  <td className="py-3 text-sm">
+                    {profile?.canDriveVan ? "✓" : <span className="text-gray-300">—</span>}
+                  </td>
+                  <td className="py-3 text-sm">
+                    {user.inviteAcceptedAt ? (
+                      <span className="text-status-confirmed">Onboarded</span>
+                    ) : inviteUrl ? (
+                      <InviteLinkCell url={inviteUrl} />
+                    ) : (
+                      <span className="text-gray-400">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {staffRows.length === 0 && (
+              <tr><td colSpan={7} className="py-8 text-center text-gray-400">No staff yet. Click "+ Add staff" to start.</td></tr>
+            )}
           </tbody>
         </table>
       </main>
+    </div>
+  );
+}
+
+function InviteLinkCell({ url }: { url: string }) {
+  return (
+    <div className="flex flex-col">
+      <span className="status-pending text-xs">Pending onboarding</span>
+      <details className="mt-1">
+        <summary className="text-xs text-gray-500 cursor-pointer underline">Invite link</summary>
+        <div className="mt-1 p-2 bg-gray-50 border rounded text-xs break-all font-mono">
+          {url}
+        </div>
+        <p className="text-xs text-gray-500 mt-1">Copy and email this to the staff member.</p>
+      </details>
     </div>
   );
 }

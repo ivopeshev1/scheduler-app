@@ -59,6 +59,12 @@ export async function GET(req: Request) {
   )`;
   await sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS van_driving_instructions TEXT`;
   await sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`;
+  // New staff-profile fields added for the onboarding flow
+  await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS can_drive_van BOOLEAN DEFAULT false`;
+  await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS date_of_birth TEXT`;
+  await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS emergency_contact_name TEXT`;
+  await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS emergency_contact_phone TEXT`;
+  await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS uniform_size TEXT`;
   await sql`CREATE INDEX IF NOT EXISTS events_company_date_idx ON events(company_id, date)`;
   await sql`CREATE TABLE IF NOT EXISTS positions (
     id TEXT PRIMARY KEY,
