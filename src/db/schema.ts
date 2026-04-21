@@ -1,0 +1,153 @@
+import { pgTable, text, integer, real, boolean, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+
+export const companies = pgTable("companies", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const users = pgTable(
+  "users",
+  {
+    id: text("id").primaryKey(),
+    companyId: text("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    passwordHash: text("password_hash"),
+    role: text("role", { enum: ["manager", "staff"] }).notNull(),
+    inviteToken: text("invite_token"),
+    inviteAcceptedAt: timestamp("invite_accepted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    emailCompanyIdx: uniqueIndex("users_email_company_idx").on(t.email, t.companyId),
+    inviteTokenIdx: index("users_invite_token_idx").on(t.inviteToken),
+  })
+);
+
+export const staffProfiles = pgTable("staff_profiles", {
+  userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  phone: text("phone"),
+  city: text("city"),
+  position: text("position", { enum: ["Lead", "Bartender", "Bar Back", "Server", "Cashier"] }).notNull(),
+  defaultRate: real("default_rate"),
+  defaultRateType: text("default_rate_type", { enum: ["hourly", "flat", "both"] }),
+});
+
+export const events = pgTable(
+  "events",
+  {
+    id: text("id").primaryKey(),
+    companyId: text("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+    date: text("date").notNull(),
+    clientName: text("client_name").notNull(),
+    venue: text("venue"),
+    city: text("city"),
+    eventType: text("event_type"),
+    planner: text("planner"),
+    guestCount: integer("guest_count"),
+    numBars: integer("num_bars"),
+    checkInTime: text("check_in_time"),
+    endTime: text("end_time"),
+    staffNotes: text("staff_notes"),
+    internalNotes: text("internal_notes"),
+    createdBy: text("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    dateIdx: index("events_company_date_idx").on(t.companyId, t.date),
+  })
+);
+
+export const positions = pgTable("positions", {
+  id: text("id").primaryKey(),
+  eventId: text("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
+  role: text("role", { enum: ["Bar Lead", "Bar Back", "Bartender", "Server", "Cashier"] }).notNull(),
+  mode: text("mode", { enum: ["pool", "individual"] }).notNull(),
+  needed: integer("needed").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  startTime: text("start_time"),
+  endTime: text("end_time"),
+  baseRate: real("base_rate"),
+  vanDrivingRate: real("van_driving_rate").default(0),
+  requiresVanDriving: boolean("requires_van_driving").notNull().default(false),
+  rateType: text("rate_type", { enum: ["hourly", "flat"] }).notNull().default("flat"),
+});
+
+export const slots = pgTable("slots", {
+  id: text("id").primaryKey(),
+  positionId: text("position_id").notNull().references(() => positions.id, { onDelete: "cascade" }),
+  index: integer("index").notNull(),
+  acceptedUserId: text("accepted_user_id").references(() => users.id),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+});
+
+export const invitations = pgTable(
+  "invitations",
+  {
+    id: text("id").primaryKey(),
+    positionId: text("position_id").notNull().references(() => positions.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    tier: integer("tier").notNull().default(0),
+    status: text("status", { enum: ["pending", "accepted", "rejected", "expired", "filled"] }).notNull().default("pending"),
+    slotId: text("slot_id").references(() => slots.id),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    respondedAt: timestamp("responded_at", { withTimezone: true }),
+    token: text("token").notNull().unique(),
+  },
+  (t) => ({
+    positionTierIdx: index("invitations_position_tier_idx").on(t.positionId, t.tier),
+    userStatusIdx: index("invitations_user_status_idx").on(t.userId, t.status),
+  })
+);
+
+export const availabilityBlocks = pgTable(
+  "availability_blocks",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    date: text("date").notNull(),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    userDateIdx: uniqueIndex("availability_user_date_idx").on(t.userId, t.date),
+  })
+);
+
+export const autocompleteValues = pgTable(
+  "autocomplete_values",
+  {
+    id: text("id").primaryKey(),
+    companyId: text("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+    field: text("field", { enum: ["venue", "city", "planner", "clientName", "eventType"] }).notNull(),
+    value: text("value").notNull(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    lookupIdx: uniqueIndex("autocomplete_lookup_idx").on(t.companyId, t.field, t.value),
+  })
+);
+
+export const notifications = pgTable("notifications", {
+  id: text("id").primaryKey(),
+  companyId: text("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => users.id),
+  channel: text("channel", { enum: ["email", "sms"] }).notNull(),
+  subject: text("subject"),
+  body: text("body").notNull(),
+  status: text("status", { enum: ["queued", "sent", "failed", "dev-logged"] }).notNull(),
+  errorMessage: text("error_message"),
+  relatedInvitationId: text("related_invitation_id").references(() => invitations.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const sessions = pgTable("sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

@@ -1,0 +1,161 @@
+"use client";
+
+import { useState, useMemo, useRef, useEffect } from "react";
+
+export type StaffOption = {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  city: string | null;
+  defaultRate: number | null;
+  defaultRateType: "hourly" | "flat" | "both" | null;
+  currentTier: number | null;
+  currentStatus: "pending" | "accepted" | "rejected" | "expired" | "filled" | null;
+};
+
+type Props = {
+  positionId: string;
+  eventId: string;
+  role: string;
+  needed: number;
+  mode: "pool" | "individual";
+  staff: StaffOption[];
+  onSave: (formData: FormData) => void;
+};
+
+const TIER_LABELS = ["Priority", "Backup 1", "Backup 2", "Backup 3"] as const;
+
+export function StaffPicker({ positionId, eventId, role, needed, mode, staff, onSave }: Props) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [cityFilter, setCityFilter] = useState<string>("all");
+  const [selections, setSelections] = useState<Record<string, number | null>>(() => {
+    const init: Record<string, number | null> = {};
+    for (const s of staff) init[s.userId] = s.currentTier;
+    return init;
+  });
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const cities = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of staff) if (s.city) set.add(s.city);
+    return Array.from(set).sort();
+  }, [staff]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return staff
+      .slice()
+      .sort((a, b) => a.firstName.localeCompare(b.firstName))
+      .filter((s) => {
+        if (cityFilter !== "all" && s.city !== cityFilter) return false;
+        if (!q) return true;
+        return s.firstName.toLowerCase().includes(q) || s.lastName.toLowerCase().includes(q);
+      });
+  }, [staff, search, cityFilter]);
+
+  const invitedCount = Object.values(selections).filter((t) => t !== null && t !== undefined).length;
+  const priorityCount = Object.values(selections).filter((t) => t === 0).length;
+
+  return (
+    <div className="relative inline-block" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="input text-left flex items-center justify-between gap-2 min-w-[220px]"
+      >
+        <span>{invitedCount === 0 ? "Invite staff…" : `${invitedCount} invited (${priorityCount} priority)`}</span>
+        <span className="text-gray-400">▾</span>
+      </button>
+
+      {open && (
+        <div className="absolute z-20 mt-1 w-[540px] bg-white border rounded-lg shadow-lg p-3 left-0">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-semibold">Invite {role}s</div>
+            <div className="text-xs text-gray-500">Needs {needed} · {mode === "pool" ? "pool (first-accept-wins)" : "individual slots"}</div>
+          </div>
+
+          <input type="text" placeholder="Search by name…" value={search} onChange={(e) => setSearch(e.target.value)} className="input mb-2" autoFocus />
+
+          {cities.length > 0 && (
+            <div className="flex gap-1 mb-3 flex-wrap">
+              <CityPill label="All cities" active={cityFilter === "all"} onClick={() => setCityFilter("all")} />
+              {cities.map((c) => (<CityPill key={c} label={c} active={cityFilter === c} onClick={() => setCityFilter(c)} />))}
+            </div>
+          )}
+
+          <div className="max-h-80 overflow-y-auto border rounded">
+            {filtered.length === 0 ? (
+              <div className="p-4 text-sm text-gray-400 text-center">No {role.toLowerCase()}s match{search ? ` "${search}"` : ""}{cityFilter !== "all" ? ` in ${cityFilter}` : ""}.</div>
+            ) : (
+              filtered.map((s) => {
+                const tier = selections[s.userId];
+                const locked = s.currentStatus === "accepted" || s.currentStatus === "rejected";
+                const checked = tier !== null && tier !== undefined;
+                return (
+                  <label key={s.userId} className={`flex items-center gap-3 px-3 py-2 border-b last:border-b-0 text-sm hover:bg-gray-50 cursor-pointer ${locked ? "opacity-50 pointer-events-none" : ""}`}>
+                    <input type="checkbox" checked={checked} onChange={(e) => {
+                      setSelections((prev) => ({ ...prev, [s.userId]: e.target.checked ? (tier ?? 0) : null }));
+                    }} className="w-4 h-4" />
+                    <div className="flex-1">
+                      <div className="font-medium">{s.firstName} {s.lastName}</div>
+                      <div className="text-xs text-gray-500">
+                        {s.city ?? "—"}
+                        {s.defaultRate ? ` · $${s.defaultRate}${s.defaultRateType === "hourly" ? "/hr" : ""}` : ""}
+                        {s.currentStatus === "accepted" && <span className="ml-2 text-status-confirmed font-medium">Accepted</span>}
+                        {s.currentStatus === "rejected" && <span className="ml-2">Rejected</span>}
+                        {s.currentStatus === "pending" && <span className="ml-2 status-pending">Pending</span>}
+                      </div>
+                    </div>
+                    <select value={checked ? String(tier) : "0"} disabled={!checked}
+                      onChange={(e) => setSelections((prev) => ({ ...prev, [s.userId]: Number(e.target.value) }))}
+                      className="input !w-auto !py-1 text-xs">
+                      {TIER_LABELS.map((label, i) => (<option key={i} value={i}>{label}</option>))}
+                    </select>
+                  </label>
+                );
+              })
+            )}
+          </div>
+
+          <form
+            action={(formData) => {
+              formData.set("eventId", eventId);
+              formData.set("positionId", positionId);
+              formData.set("selections", JSON.stringify(selections));
+              onSave(formData);
+              setOpen(false);
+            }}
+            className="mt-3 flex items-center justify-between"
+          >
+            <span className="text-xs text-gray-500">
+              {priorityCount > 0 ? `${priorityCount} priority invite${priorityCount > 1 ? "s" : ""} will email immediately.` : "No priority invites selected — backup tiers are silent until triggered."}
+            </span>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setOpen(false)} className="btn btn-secondary">Close</button>
+              <button type="submit" className="btn btn-primary">Save</button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CityPill({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick}
+      className={`px-2 py-1 text-xs rounded-full border ${active ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-700 border-gray-300 hover:border-gray-500"}`}>
+      {label}
+    </button>
+  );
+}
