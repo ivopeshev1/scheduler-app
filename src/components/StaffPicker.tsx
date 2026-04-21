@@ -12,6 +12,8 @@ export type StaffOption = {
   defaultRateType: "hourly" | "flat" | "both" | null;
   currentTier: number | null;
   currentStatus: "pending" | "accepted" | "rejected" | "expired" | "filled" | null;
+  // If set, this staff member is already invited/accepted elsewhere — show but make un-selectable
+  busyWith: { eventDate: string; clientName: string; role: string } | null;
 };
 
 type Props = {
@@ -100,11 +102,12 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
             ) : (
               filtered.map((s) => {
                 const tier = selections[s.userId];
-                const locked = s.currentStatus === "accepted" || s.currentStatus === "rejected";
+                const locked = s.currentStatus === "accepted" || s.currentStatus === "rejected" || !!s.busyWith;
                 const checked = tier !== null && tier !== undefined;
                 return (
-                  <label key={s.userId} className={`flex items-center gap-3 px-3 py-2 border-b last:border-b-0 text-sm hover:bg-gray-50 cursor-pointer ${locked ? "opacity-50 pointer-events-none" : ""}`}>
-                    <input type="checkbox" checked={checked} onChange={(e) => {
+                  <label key={s.userId} className={`flex items-center gap-3 px-3 py-2 border-b last:border-b-0 text-sm ${locked ? "opacity-50 cursor-not-allowed bg-gray-50" : "hover:bg-gray-50 cursor-pointer"}`}>
+                    <input type="checkbox" checked={checked} disabled={locked} onChange={(e) => {
+                      if (locked) return;
                       setSelections((prev) => ({ ...prev, [s.userId]: e.target.checked ? (tier ?? 0) : null }));
                     }} className="w-4 h-4" />
                     <div className="flex-1">
@@ -117,9 +120,14 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                       <div className="text-xs text-gray-500">
                         {s.city ?? "—"}
                         {s.defaultRate ? ` · $${s.defaultRate}${s.defaultRateType === "hourly" ? "/hr" : ""}` : ""}
-                        {s.currentStatus === "accepted" && <span className="ml-2 text-status-confirmed font-medium">Accepted</span>}
-                        {s.currentStatus === "rejected" && <span className="ml-2">Rejected</span>}
-                        {s.currentStatus === "pending" && <span className="ml-2 status-pending">Pending</span>}
+                        {s.busyWith && (
+                          <span className="ml-2 text-amber-700 font-medium">
+                            Busy — {s.busyWith.clientName} ({s.busyWith.eventDate}) as {s.busyWith.role}
+                          </span>
+                        )}
+                        {!s.busyWith && s.currentStatus === "accepted" && <span className="ml-2 text-status-confirmed font-medium">Accepted</span>}
+                        {!s.busyWith && s.currentStatus === "rejected" && <span className="ml-2">Rejected</span>}
+                        {!s.busyWith && s.currentStatus === "pending" && <span className="ml-2 status-pending">Pending</span>}
                       </div>
                     </div>
                     <select

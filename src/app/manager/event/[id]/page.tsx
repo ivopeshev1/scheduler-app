@@ -152,12 +152,48 @@ export default async function EventDetailPage({ params }: { params: { id: string
     invitesByPosition[p.id] = await db.select().from(schema.invitations).where(eq(schema.invitations.positionId, p.id));
   }
 
+  // Find every active invitation company-wide, so we can mark staff as "busy"
+  // when they're invited/accepted for another position (any event).
+  const companyInvites = await db
+    .select({
+      invitation: schema.invitations,
+      position: schema.positions,
+      event: schema.events,
+    })
+    .from(schema.invitations)
+    .innerJoin(schema.positions, eq(schema.invitations.positionId, schema.positions.id))
+    .innerJoin(schema.events, eq(schema.positions.eventId, schema.events.id))
+    .where(eq(schema.events.companyId, session.companyId));
+
+  // Build a map: userId -> first busy-with record (pending/accepted only, excluding current position)
+  const busyMap = new Map<string, { eventDate: string; clientName: string; role: string; positionId: string }>();
+  for (const row of companyInvites) {
+    const inv = row.invitation;
+    if (inv.status !== "pending" && inv.status !== "accepted") continue;
+    const existing = busyMap.get(inv.userId);
+    // prefer to show the earliest upcoming date
+    if (!existing || row.event.date < existing.eventDate) {
+      busyMap.set(inv.userId, {
+        eventDate: row.event.date,
+        clientName: row.event.clientName,
+        role: row.position.role,
+        positionId: row.position.id,
+      });
+    }
+  }
+
   function buildStaffOptions(positionRole: string, positionId: string): StaffOption[] {
-    // Show ALL staff — manager can invite anyone to any position.
-    // Their trained position is shown as a tag in the dropdown.
+    // Show ALL staff. If someone is invited/accepted elsewhere (different position,
+    // any event), mark them busyWith so they show but aren't selectable here.
     const invites = invitesByPosition[positionId] ?? [];
     return staffOnly.map((r) => {
       const inv = invites.find((i) => i.userId === r.user.id);
+      const busy = busyMap.get(r.user.id);
+      // Only treat as "busy" if their conflict is with a DIFFERENT position than this one
+      const busyWith =
+        busy && busy.positionId !== positionId
+          ? { eventDate: busy.eventDate, clientName: busy.clientName, role: busy.role }
+          : null;
       return {
         userId: r.user.id,
         firstName: r.profile.firstName,
@@ -168,6 +204,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
         defaultRateType: r.profile.defaultRateType,
         currentTier: inv ? inv.tier : null,
         currentStatus: inv ? inv.status : null,
+        busyWith,
       };
     });
   }
