@@ -11,6 +11,8 @@ import {
   notifyPositionRemoved,
 } from "@/lib/event-notifications";
 import { sendEmail } from "@/lib/notifications";
+import { formatDate } from "@/lib/format";
+import { shellWrap, kvRow, kvTable, greeting, paragraph, banner, signoff } from "@/lib/email-html";
 import { revalidatePath } from "next/cache";
 
 async function saveEventEditAction(formData: FormData) {
@@ -108,17 +110,35 @@ async function saveEventEditAction(formData: FormData) {
             if (pos && inv.sentAt) {
               const [u] = await db.select().from(schema.users).where(eq(schema.users.id, uid));
               const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, uid));
+              const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
+              const companyName = company?.name ?? "Scheduler";
+              const prettyDate = formatDate(event.date);
               if (u) {
+                const textBody = [
+                  `Hi ${profile?.firstName ?? ""},`, ``,
+                  `Your ${pos.role} slot for this shift has been removed.`,
+                  `You no longer need to attend.`, ``,
+                  `Role:   ${pos.role}`,
+                  `Date:   ${prettyDate}`,
+                  `Client: ${event.clientName}`, ``,
+                  `– ${companyName}`,
+                ].join("\n");
+                const htmlBody = shellWrap([
+                  greeting(profile?.firstName, `Your ${pos.role} slot for this shift has been removed.`),
+                  banner("⚠  Shift removed — you no longer need to attend.", "warning"),
+                  kvTable([
+                    kvRow("Role", pos.role),
+                    kvRow("Date", prettyDate),
+                    kvRow("Client", event.clientName),
+                  ]),
+                  paragraph("If you have questions, reach out to your manager.", { muted: true }),
+                  signoff(companyName),
+                ].join("\n"));
                 await sendEmail({
                   to: u.email,
-                  subject: `Shift removed: ${event.clientName} on ${event.date}`,
-                  body: [
-                    `Hi ${profile?.firstName ?? ""},`, ``,
-                    `Your ${pos.role} slot for this event has been removed.`,
-                    `You no longer need to attend.`, ``,
-                    `Client: ${event.clientName}`,
-                    `Date:   ${event.date}`,
-                  ].join("\n"),
+                  subject: `Shift removed: ${event.clientName} on ${prettyDate}`,
+                  body: textBody,
+                  html: htmlBody,
                   companyId: session.companyId,
                   userId: uid,
                 });
