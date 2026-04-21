@@ -53,13 +53,10 @@ export default async function MonthView({ params }: { params: { month: string } 
     <div>
       <AppHeader companyName={company.name} userEmail={user.email} role="manager" />
       <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-4">
-            <Link href={`/manager/month/${fmt(prevMonth)}`} className="btn btn-secondary">← Prev</Link>
-            <h1 className="text-2xl font-semibold">{monthLabel}</h1>
-            <Link href={`/manager/month/${fmt(nextMonth)}`} className="btn btn-secondary">Next →</Link>
-          </div>
-          <Link href={`/manager/event/new?date=${startDate}`} className="btn btn-primary">+ New event</Link>
+        <div className="flex items-center gap-4 mb-8">
+          <Link href={`/manager/month/${fmt(prevMonth)}`} className="btn btn-secondary">← Prev</Link>
+          <h1 className="text-2xl font-semibold">{monthLabel}</h1>
+          <Link href={`/manager/month/${fmt(nextMonth)}`} className="btn btn-secondary">Next →</Link>
         </div>
 
         <div className="space-y-6">
