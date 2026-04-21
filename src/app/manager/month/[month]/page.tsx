@@ -101,10 +101,21 @@ async function EventCard({ event }: { event: typeof schema.events.$inferSelect }
   const statuses = await Promise.all(positionsList.map((p) => summarizePosition(p.id)));
 
   return (
-    <Link key={event.id} href={`/manager/event/${event.id}`} className="border rounded-lg p-4 hover:border-gray-400 bg-white block">
+    <Link
+      key={event.id}
+      href={`/manager/event/${event.id}`}
+      className={`rounded-lg p-4 block ${
+        event.cancelledAt
+          ? "border-2 border-red-500 bg-red-50 hover:bg-red-100"
+          : "border hover:border-gray-400 bg-white"
+      }`}
+    >
+      {event.cancelledAt && (
+        <div className="text-red-700 text-xs font-bold uppercase mb-2">⚠ Cancelled</div>
+      )}
       <div className="flex items-start justify-between">
         <div>
-          <div className="font-semibold">{event.clientName}</div>
+          <div className={`font-semibold ${event.cancelledAt ? "line-through text-gray-500" : ""}`}>{event.clientName}</div>
           <div className="text-sm text-gray-600">
             {event.eventType}
             {event.city ? ` · ${event.city}` : ""}

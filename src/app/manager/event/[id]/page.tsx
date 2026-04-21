@@ -7,6 +7,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { summarizePosition } from "@/lib/status";
 import { composeRateLines, sendEmail } from "@/lib/notifications";
 import { formatTime } from "@/lib/format";
+import { notifyCancellation } from "@/lib/event-notifications";
 import { StaffPicker, type StaffOption } from "@/components/StaffPicker";
 import { nanoid } from "nanoid";
 import { revalidatePath } from "next/cache";
@@ -71,6 +72,41 @@ async function saveInvitations(formData: FormData) {
  * Fire all pending PRIORITY (tier 0) invitations that haven't been sent yet.
  * Backup tiers stay unsent until cascaded.
  */
+async function cancelEventAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "manager") throw new Error("Unauthorized");
+
+  const eventId = String(formData.get("eventId"));
+  const [event] = await db.select().from(schema.events).where(eq(schema.events.id, eventId));
+  if (!event || event.companyId !== session.companyId) throw new Error("Not found");
+  if (event.cancelledAt) {
+    // already cancelled; no-op
+    redirect(`/manager/event/${eventId}`);
+  }
+
+  await db.update(schema.events).set({ cancelledAt: new Date() }).where(eq(schema.events.id, eventId));
+
+  // Re-read so the notification includes the cancelled marker context
+  const [updated] = await db.select().from(schema.events).where(eq(schema.events.id, eventId));
+  if (updated) {
+    await notifyCancellation(updated, session.companyId);
+  }
+
+  revalidatePath(`/manager/event/${eventId}`);
+  redirect(`/manager/event/${eventId}`);
+}
+
+async function uncancelEventAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "manager") throw new Error("Unauthorized");
+  const eventId = String(formData.get("eventId"));
+  await db.update(schema.events).set({ cancelledAt: null }).where(eq(schema.events.id, eventId));
+  revalidatePath(`/manager/event/${eventId}`);
+  redirect(`/manager/event/${eventId}`);
+}
+
 async function sendPendingInvitations(formData: FormData) {
   "use server";
   const session = await getSession();
@@ -234,8 +270,30 @@ export default async function EventDetailPage({ params }: { params: { id: string
       <AppHeader companyName={company.name} userEmail={user.email} role="manager" />
       <main className="max-w-6xl mx-auto px-6 py-8">
         <Link href="/manager" className="text-sm text-gray-500 hover:underline">← Back to calendar</Link>
-        <div className="mt-4">
-          <h1 className="text-3xl font-semibold">{event.clientName}</h1>
+
+        {event.cancelledAt && (
+          <div className="mt-4 p-3 border-2 border-red-500 bg-red-50 rounded-lg flex items-center justify-between">
+            <div className="text-red-700 font-semibold">⚠ EVENT CANCELLED</div>
+            <form action={uncancelEventAction}>
+              <input type="hidden" name="eventId" value={event.id} />
+              <button type="submit" className="btn btn-secondary text-sm">Un-cancel</button>
+            </form>
+          </div>
+        )}
+
+        <div className="mt-4 flex items-start justify-between gap-4">
+          <h1 className={`text-3xl font-semibold ${event.cancelledAt ? "line-through text-gray-400" : ""}`}>{event.clientName}</h1>
+          {!event.cancelledAt && (
+            <div className="flex gap-2">
+              <Link href={`/manager/event/${event.id}/edit`} className="btn btn-secondary">Modify</Link>
+              <form action={cancelEventAction}>
+                <input type="hidden" name="eventId" value={event.id} />
+                <button type="submit" className="btn btn-secondary text-red-600 hover:bg-red-50">Cancel event</button>
+              </form>
+            </div>
+          )}
+        </div>
+        <div className="mt-2">
           <div className="text-gray-600 mt-1">
             {event.eventType ?? "—"}
             {event.venue ? ` · ${event.venue}` : ""}

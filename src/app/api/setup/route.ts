@@ -58,6 +58,7 @@ export async function GET(req: Request) {
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`;
   await sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS van_driving_instructions TEXT`;
+  await sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`;
   await sql`CREATE INDEX IF NOT EXISTS events_company_date_idx ON events(company_id, date)`;
   await sql`CREATE TABLE IF NOT EXISTS positions (
     id TEXT PRIMARY KEY,
