@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
 import { eq, and } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
+import { EditPositionRow } from "@/components/EditPositionRow";
 import { nanoid } from "nanoid";
 import { notifyEventDetailsChanged, notifyPositionRemoved } from "@/lib/event-notifications";
 import { revalidatePath } from "next/cache";
@@ -161,11 +162,22 @@ export default async function EditEventPage({ params }: { params: { id: string }
           <section>
             <h2 className="font-semibold mb-2">Positions</h2>
             <p className="text-sm text-gray-500 mb-4">
-              To remove a position, uncheck the "Keep" box on its row. Invited staff will be notified automatically.
+              Click <strong>Remove this position</strong> to delete an existing position. Invited staff will be notified on save.
             </p>
             <div className="space-y-3">
               {positions.map((p) => (
-                <ExistingPositionRow key={p.id} p={p} />
+                <EditPositionRow
+                  key={p.id}
+                  p={{
+                    id: p.id,
+                    role: p.role as any,
+                    needed: p.needed,
+                    baseRate: p.baseRate,
+                    vanDrivingRate: p.vanDrivingRate,
+                    travelRate: p.travelRate,
+                    requiresVanDriving: p.requiresVanDriving,
+                  }}
+                />
               ))}
               <NewPositionRowSlot />
             </div>
@@ -187,68 +199,6 @@ export default async function EditEventPage({ params }: { params: { id: string }
         </form>
       </main>
     </div>
-  );
-}
-
-function ExistingPositionRow({ p }: { p: typeof schema.positions.$inferSelect }) {
-  const key = p.id;
-  return (
-    <details open className="border rounded-lg p-3" id={`pos-${p.id}`}>
-      <summary className="cursor-pointer text-sm font-medium mb-2">
-        {p.role} · {p.needed} needed · ${p.baseRate ?? 0}
-      </summary>
-      <div className="grid grid-cols-12 gap-2 items-end">
-        <div className="col-span-1">
-          <label className="label">#</label>
-          <input name={`needed[${key}]`} type="number" min={1} defaultValue={p.needed} className="input" />
-        </div>
-        <div className="col-span-3">
-          <label className="label">Role</label>
-          <select name={`role[${key}]`} className="input" defaultValue={p.role}>
-            {POSITION_ROLES.map((r) => (<option key={r} value={r}>{r}</option>))}
-          </select>
-        </div>
-        <div className="col-span-2">
-          <label className="label">Base rate</label>
-          <div className="relative">
-            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
-            <input name={`baseRate[${key}]`} type="number" min={0} step="0.01" defaultValue={p.baseRate ?? ""} className="input pl-6" />
-          </div>
-        </div>
-        <div className="col-span-2">
-          <label className="label">Van add-on</label>
-          <div className="relative">
-            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
-            <input name={`vanRate[${key}]`} type="number" min={0} step="0.01" defaultValue={p.vanDrivingRate ?? ""} className="input pl-6" />
-          </div>
-        </div>
-        <div className="col-span-2">
-          <label className="label">Travel</label>
-          <div className="relative">
-            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
-            <input name={`travelRate[${key}]`} type="number" min={0} step="0.01" defaultValue={p.travelRate ?? ""} className="input pl-6" />
-          </div>
-        </div>
-        <div className="col-span-2 flex items-center gap-2 pb-2">
-          <input id={`vanReq[${key}]`} name={`vanReq[${key}]`} type="checkbox" defaultChecked={p.requiresVanDriving} />
-          <label htmlFor={`vanReq[${key}]`} className="text-xs">Requires van driving</label>
-        </div>
-        <div className="col-span-12 flex justify-end">
-          <RemovePositionButton positionId={p.id} />
-        </div>
-      </div>
-    </details>
-  );
-}
-
-function RemovePositionButton({ positionId }: { positionId: string }) {
-  // Simple "clear the role field" approach via client JS — a visible note + a confirm button would be better,
-  // but for MVP we just let the user empty the role to mark it for removal on save.
-  // Simplest MVP: keep it — remove feature can be upgraded later.
-  return (
-    <span className="text-xs text-gray-500">
-      To remove this position, delete the Role value (pick —) then save.
-    </span>
   );
 }
 
