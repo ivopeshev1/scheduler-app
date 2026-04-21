@@ -15,6 +15,10 @@ const ELIGIBILITY: Record<string, string[]> = {
   "Server":    ["Server"], "Cashier":   ["Cashier"],
 };
 
+/**
+ * Draft-save invitations for one position.
+ * No emails go out here — manager hits the master "Send invitations" button to fire them.
+ */
 async function saveInvitations(formData: FormData) {
   "use server";
   const session = await getSession();
@@ -25,8 +29,7 @@ async function saveInvitations(formData: FormData) {
   const selections = JSON.parse(String(formData.get("selections") ?? "{}")) as Record<string, number | null>;
 
   const [position] = await db.select().from(schema.positions).where(eq(schema.positions.id, positionId));
-  const [event] = await db.select().from(schema.events).where(eq(schema.events.id, eventId));
-  if (!position || !event) throw new Error("Not found");
+  if (!position) throw new Error("Position not found");
 
   const existing = await db.select().from(schema.invitations).where(eq(schema.invitations.positionId, positionId));
 
@@ -35,50 +38,89 @@ async function saveInvitations(formData: FormData) {
     const current = existing.find((e) => e.userId === userId);
 
     if (tier === null) {
-      if (current && current.status === "pending") {
+      // Deselected — only cancel if not yet sent
+      if (current && current.status === "pending" && !current.sentAt) {
         await db.delete(schema.invitations).where(eq(schema.invitations.id, current.id));
       }
       continue;
     }
 
     if (current) {
-      if (current.status === "pending") {
+      if (current.status === "pending" && !current.sentAt) {
+        // Can still change tier on unsent drafts
         await db.update(schema.invitations).set({ tier }).where(eq(schema.invitations.id, current.id));
       }
     } else {
-      const id = nanoid();
-      const shouldSendNow = tier === 0;
       await db.insert(schema.invitations).values({
-        id, positionId, userId, tier, status: "pending",
-        sentAt: shouldSendNow ? new Date() : null, token: nanoid(32),
+        id: nanoid(),
+        positionId,
+        userId,
+        tier,
+        status: "pending",
+        sentAt: null,
+        token: nanoid(32),
       });
+    }
+  }
 
-      if (shouldSendNow) {
-        const [user] = await db.select().from(schema.users).where(eq(schema.users.id, userId));
-        const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, userId));
-        if (user) {
-          const rate = composeRateLines({
-            baseRate: position.baseRate, vanDrivingRate: position.vanDrivingRate,
-            requiresVanDriving: position.requiresVanDriving, rateType: position.rateType,
-          });
-          await sendEmail({
-            to: user.email,
-            subject: `Shift invite: ${event.clientName} on ${event.date}`,
-            body: [
-              `Hi ${profile?.firstName ?? ""},`, ``,
-              `You're invited to work the following event:`, ``,
-              `Client:   ${event.clientName}`,
-              `Date:     ${event.date}`,
-              `Time:     ${event.checkInTime ?? "TBD"} – ${event.endTime ?? "TBD"}`,
-              `Venue:    ${event.venue ?? ""} ${event.city ? `(${event.city})` : ""}`.trim(),
-              `Role:     ${position.role}`, ``, rate.combined, ``,
-              event.staffNotes ? `Notes: ${event.staffNotes}` : "", ``,
-              `Accept or reject this shift at your staff dashboard.`,
-            ].filter(Boolean).join("\n"),
-            companyId: session.companyId, userId, relatedInvitationId: id,
-          });
-        }
-      }
+  revalidatePath(`/manager/event/${eventId}`);
+}
+
+/**
+ * Fire all pending PRIORITY (tier 0) invitations that haven't been sent yet.
+ * Backup tiers stay unsent until cascaded.
+ */
+async function sendPendingInvitations(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "manager") throw new Error("Unauthorized");
+
+  const eventId = String(formData.get("eventId"));
+  const [event] = await db.select().from(schema.events).where(eq(schema.events.id, eventId));
+  if (!event || event.companyId !== session.companyId) throw new Error("Not found");
+
+  const positionsForEvent = await db.select().from(schema.positions).where(eq(schema.positions.eventId, eventId));
+  const byPosition = new Map(positionsForEvent.map((p) => [p.id, p]));
+
+  let sentCount = 0;
+  for (const p of positionsForEvent) {
+    const pending = await db
+      .select()
+      .from(schema.invitations)
+      .where(eq(schema.invitations.positionId, p.id));
+    const toSend = pending.filter((i) => i.status === "pending" && i.tier === 0 && !i.sentAt);
+
+    for (const inv of toSend) {
+      const [u] = await db.select().from(schema.users).where(eq(schema.users.id, inv.userId));
+      const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, inv.userId));
+      if (!u) continue;
+      const position = byPosition.get(inv.positionId)!;
+      const rate = composeRateLines({
+        baseRate: position.baseRate,
+        vanDrivingRate: position.vanDrivingRate,
+        requiresVanDriving: position.requiresVanDriving,
+        rateType: position.rateType,
+      });
+      await sendEmail({
+        to: u.email,
+        subject: `Shift invite: ${event.clientName} on ${event.date}`,
+        body: [
+          `Hi ${profile?.firstName ?? ""},`, ``,
+          `You're invited to work the following event:`, ``,
+          `Client:   ${event.clientName}`,
+          `Date:     ${event.date}`,
+          `Time:     ${event.checkInTime ?? "TBD"} – ${event.endTime ?? "TBD"}`,
+          `Venue:    ${event.venue ?? ""} ${event.city ? `(${event.city})` : ""}`.trim(),
+          `Role:     ${position.role}`, ``, rate.combined, ``,
+          event.staffNotes ? `Notes: ${event.staffNotes}` : "", ``,
+          `Accept or reject this shift at your staff dashboard.`,
+        ].filter(Boolean).join("\n"),
+        companyId: session.companyId,
+        userId: inv.userId,
+        relatedInvitationId: inv.id,
+      });
+      await db.update(schema.invitations).set({ sentAt: new Date() }).where(eq(schema.invitations.id, inv.id));
+      sentCount += 1;
     }
   }
 
@@ -131,6 +173,18 @@ export default async function EventDetailPage({ params }: { params: { id: string
   }
 
   const statuses = await Promise.all(positionsList.map((p) => summarizePosition(p.id)));
+
+  // Count draft priority invites waiting to be sent
+  let pendingPrioritySends = 0;
+  let pendingBackupDrafts = 0;
+  let alreadySent = 0;
+  for (const invs of Object.values(invitesByPosition)) {
+    for (const inv of invs) {
+      if (inv.status === "pending" && !inv.sentAt && inv.tier === 0) pendingPrioritySends += 1;
+      else if (inv.status === "pending" && !inv.sentAt && inv.tier > 0) pendingBackupDrafts += 1;
+      else if (inv.sentAt) alreadySent += 1;
+    }
+  }
 
   return (
     <div>
@@ -192,6 +246,38 @@ export default async function EventDetailPage({ params }: { params: { id: string
               {positionsList.length === 0 && (<tr><td colSpan={6} className="py-6 text-center text-gray-400">No positions yet.</td></tr>)}
             </tbody>
           </table>
+        </section>
+
+        {/* Master send-invites bar */}
+        <section className="mt-6 border rounded-lg bg-gray-50 px-4 py-4 flex items-center justify-between gap-4">
+          <div className="text-sm">
+            {pendingPrioritySends > 0 ? (
+              <>
+                <strong>{pendingPrioritySends}</strong> priority invite{pendingPrioritySends > 1 ? "s" : ""} ready to send.
+                {pendingBackupDrafts > 0 && <> {pendingBackupDrafts} backup draft{pendingBackupDrafts > 1 ? "s" : ""} saved (silent until needed).</>}
+                {alreadySent > 0 && <> {alreadySent} already sent.</>}
+              </>
+            ) : alreadySent > 0 ? (
+              <>
+                All priority invites sent ({alreadySent}).
+                {pendingBackupDrafts > 0 && <> {pendingBackupDrafts} backup draft{pendingBackupDrafts > 1 ? "s" : ""} standing by.</>}
+              </>
+            ) : (
+              <span className="text-gray-500">No invites set up yet. Open the "Invite staff" dropdown on any position above to start.</span>
+            )}
+          </div>
+          <form action={sendPendingInvitations}>
+            <input type="hidden" name="eventId" value={event.id} />
+            <button
+              type="submit"
+              disabled={pendingPrioritySends === 0}
+              className={`btn ${pendingPrioritySends === 0 ? "btn-secondary opacity-50 cursor-not-allowed" : "btn-primary"}`}
+            >
+              {pendingPrioritySends === 0
+                ? "Nothing to send"
+                : `Send ${pendingPrioritySends} priority invite${pendingPrioritySends > 1 ? "s" : ""}`}
+            </button>
+          </form>
         </section>
 
         <section className="mt-8 grid md:grid-cols-2 gap-6">

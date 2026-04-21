@@ -122,10 +122,21 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                         {s.currentStatus === "pending" && <span className="ml-2 status-pending">Pending</span>}
                       </div>
                     </div>
-                    <select value={checked ? String(tier) : "0"} disabled={!checked}
-                      onChange={(e) => setSelections((prev) => ({ ...prev, [s.userId]: Number(e.target.value) }))}
-                      className="input !w-auto !py-1 text-xs">
-                      {TIER_LABELS.map((label, i) => (<option key={i} value={i}>{label}</option>))}
+                    <select
+                      value={checked ? String(tier) : ""}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setSelections((prev) => ({
+                          ...prev,
+                          [s.userId]: v === "" ? null : Number(v),
+                        }));
+                      }}
+                      className="input !w-auto !py-1 text-xs"
+                    >
+                      <option value="">Not invited</option>
+                      {TIER_LABELS.map((label, i) => (
+                        <option key={i} value={i}>{label}</option>
+                      ))}
                     </select>
                   </label>
                 );
