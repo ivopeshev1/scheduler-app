@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { summarizePosition } from "@/lib/status";
 import { composeRateLines, sendEmail } from "@/lib/notifications";
-import { formatTime } from "@/lib/format";
+import { formatTime, formatDate } from "@/lib/format";
 import { notifyCancellation } from "@/lib/event-notifications";
 import { StaffPicker, type StaffOption } from "@/components/StaffPicker";
 import { nanoid } from "nanoid";
@@ -116,8 +116,12 @@ async function sendPendingInvitations(formData: FormData) {
   const [event] = await db.select().from(schema.events).where(eq(schema.events.id, eventId));
   if (!event || event.companyId !== session.companyId) throw new Error("Not found");
 
+  const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
+  const companyName = company?.name ?? "Scheduler";
+
   const positionsForEvent = await db.select().from(schema.positions).where(eq(schema.positions.eventId, eventId));
   const byPosition = new Map(positionsForEvent.map((p) => [p.id, p]));
+  const prettyDate = formatDate(event.date);
 
   let sentCount = 0;
   for (const p of positionsForEvent) {
@@ -139,23 +143,31 @@ async function sendPendingInvitations(formData: FormData) {
         requiresVanDriving: position.requiresVanDriving,
         rateType: position.rateType,
       });
+      // Van-driving language only goes to the staff member whose position is flagged as the driver.
+      const vanLine = position.requiresVanDriving ? `This shift requires driving the van.` : "";
       const vanInstructions = position.requiresVanDriving && event.vanDrivingInstructions
-        ? `\nVan driving instructions: ${event.vanDrivingInstructions}\n`
+        ? `Van driving instructions: ${event.vanDrivingInstructions}`
         : "";
       await sendEmail({
         to: u.email,
-        subject: `Shift invite: ${event.clientName} on ${event.date}`,
+        subject: `${companyName} invite to a shift — ${prettyDate}`,
         body: [
           `Hi ${profile?.firstName ?? ""},`, ``,
-          `You're invited to work the following event:`, ``,
-          `Client:   ${event.clientName}`,
-          `Date:     ${event.date}`,
-          `Time:     ${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`,
-          `Venue:    ${event.venue ?? ""} ${event.city ? `(${event.city})` : ""}`.trim(),
-          `Role:     ${position.role}`, ``, rate.combined, ``,
-          event.staffNotes ? `Notes: ${event.staffNotes}` : "",
+          `You're invited to work the following shift:`, ``,
+          `Client:     ${event.clientName}`,
+          event.eventType ? `Event type: ${event.eventType}` : "",
+          `Date:       ${prettyDate}`,
+          `Time:       ${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`,
+          `Venue:      ${event.venue ?? ""} ${event.city ? `(${event.city})` : ""}`.trim(),
+          `Role:       ${position.role}`, ``,
+          `Compensation:`,
+          rate.breakdown, ``,
+          vanLine,
           vanInstructions,
-          `Accept or reject this shift at your staff dashboard.`,
+          event.staffNotes ? `Notes: ${event.staffNotes}` : "",
+          ``,
+          `Accept or reject this shift at your staff dashboard.`, ``,
+          `– ${companyName}`,
         ].filter(Boolean).join("\n"),
         companyId: session.companyId,
         userId: inv.userId,

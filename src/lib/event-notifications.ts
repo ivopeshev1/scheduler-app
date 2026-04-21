@@ -1,7 +1,7 @@
 import { db, schema } from "@/db/client";
 import { eq } from "drizzle-orm";
 import { sendEmail } from "@/lib/notifications";
-import { formatTime } from "@/lib/format";
+import { formatTime, formatDate } from "@/lib/format";
 
 type EventRow = typeof schema.events.$inferSelect;
 
@@ -22,12 +22,12 @@ export async function notifyCancellation(event: EventRow, companyId: string) {
       if (!u) continue;
       await sendEmail({
         to: u.email,
-        subject: `CANCELLED: ${event.clientName} on ${event.date}`,
+        subject: `CANCELLED: ${event.clientName} on ${formatDate(event.date)}`,
         body: [
           `Hi ${profile?.firstName ?? ""},`, ``,
           `The following event has been CANCELLED. You no longer need to attend.`, ``,
           `Client: ${event.clientName}`,
-          `Date:   ${event.date}`,
+          `Date:   ${formatDate(event.date)}`,
           `Time:   ${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`,
           `Role:   ${p.role}`, ``,
           `Sorry for the short notice.`,
@@ -55,14 +55,14 @@ export async function notifyEventDetailsChanged(event: EventRow, companyId: stri
       if (!u) continue;
       await sendEmail({
         to: u.email,
-        subject: `Update: ${event.clientName} on ${event.date}`,
+        subject: `Update: ${event.clientName} on ${formatDate(event.date)}`,
         body: [
           `Hi ${profile?.firstName ?? ""},`, ``,
           `The event you were invited to has been updated:`, ``,
           changeSummary, ``,
           `Current details:`,
           `Client: ${event.clientName}`,
-          `Date:   ${event.date}`,
+          `Date:   ${formatDate(event.date)}`,
           `Time:   ${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`,
           `Venue:  ${event.venue ?? ""} ${event.city ? `(${event.city})` : ""}`.trim(),
         ].join("\n"),
@@ -91,13 +91,13 @@ export async function notifyPositionRemoved(
     if (!u) continue;
     await sendEmail({
       to: u.email,
-      subject: `Position removed: ${event.clientName} on ${event.date}`,
+      subject: `Position removed: ${event.clientName} on ${formatDate(event.date)}`,
       body: [
         `Hi ${profile?.firstName ?? ""},`, ``,
         `The ${removedRole} position you were invited to has been removed from this event.`,
         `You no longer need to attend.`, ``,
         `Client: ${event.clientName}`,
-        `Date:   ${event.date}`,
+        `Date:   ${formatDate(event.date)}`,
       ].join("\n"),
       companyId,
       userId: inv.userId,

@@ -71,14 +71,16 @@ export function composeRateLines(args: {
   const van = args.requiresVanDriving ? (args.vanDrivingRate ?? 0) : 0;
   const travel = args.travelRate ?? 0;
   const total = base + van + travel;
+  // Compact one-line headline for table/list views.
   const headline = `Rate for this event is $${total}.`;
-  const van_note = args.requiresVanDriving
-    ? "This event requires van driving."
-    : "This event does not require van driving.";
-  const travel_note = travel > 0 ? ` Travel comp: $${travel}.` : "";
+  // Emails use a multi-line breakdown so staff can see exactly how total was built.
+  const lines: string[] = [`Base rate:      $${base}`];
+  if (args.requiresVanDriving) lines.push(`Van driving:    $${van}`);
+  if (travel > 0) lines.push(`Travel comp:    $${travel}`);
+  lines.push(`Total:          $${total}`);
   return {
     headline,
-    note: van_note + travel_note,
-    combined: `${headline} ${van_note}${travel_note}`,
+    breakdown: lines.join("\n"),
+    requiresVanDriving: args.requiresVanDriving,
   };
 }
