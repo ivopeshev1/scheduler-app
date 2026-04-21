@@ -4,22 +4,24 @@ import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
 import { eq, and } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
-import { EditPositionRow } from "@/components/EditPositionRow";
+import { PositionsEditor, type PositionData, type InvitedStaff } from "@/components/PositionsEditor";
 import { nanoid } from "nanoid";
-import { notifyEventDetailsChanged, notifyPositionRemoved } from "@/lib/event-notifications";
+import {
+  notifyEventDetailsChanged,
+  notifyPositionRemoved,
+} from "@/lib/event-notifications";
+import { sendEmail } from "@/lib/notifications";
 import { revalidatePath } from "next/cache";
-
-const POSITION_ROLES = ["Bar Lead", "Bar Back", "Bartender", "Server", "Cashier"] as const;
 
 async function saveEventEditAction(formData: FormData) {
   "use server";
   const session = await getSession();
   if (!session || session.role !== "manager") throw new Error("Unauthorized");
+
   const eventId = String(formData.get("eventId"));
   const [event] = await db.select().from(schema.events).where(eq(schema.events.id, eventId));
   if (!event || event.companyId !== session.companyId) throw new Error("Not found");
 
-  // Read new event-level values
   const newValues = {
     date: String(formData.get("date")),
     clientName: String(formData.get("clientName") ?? "").trim(),
@@ -36,7 +38,6 @@ async function saveEventEditAction(formData: FormData) {
     vanDrivingInstructions: str(formData.get("vanDrivingInstructions")),
   };
 
-  // Detect event-level changes
   const changes: string[] = [];
   if (newValues.date !== event.date) changes.push(`Date: ${event.date} → ${newValues.date}`);
   if (newValues.checkInTime !== event.checkInTime) changes.push(`Check-in time updated`);
@@ -51,8 +52,7 @@ async function saveEventEditAction(formData: FormData) {
   const existingPositions = await db.select().from(schema.positions).where(eq(schema.positions.eventId, eventId));
   const keptPositionIds = new Set<string>();
 
-  // Parse position rows from form — they're keyed by existing id OR "new-<index>"
-  // Collect unique row keys
+  // Collect all unique row keys by looking at role[<key>] entries
   const rowKeys = new Set<string>();
   for (const [k] of formData.entries()) {
     const m = /^role\[(.+)\]$/.exec(k);
@@ -69,7 +69,6 @@ async function saveEventEditAction(formData: FormData) {
     const requiresVan = formData.get(`vanReq[${key}]`) === "on";
 
     if (key.startsWith("new-")) {
-      // Brand-new position — no notification needed per Ivo's rules
       const pid = nanoid();
       await db.insert(schema.positions).values({
         id: pid, eventId, role: role as any, mode: "pool", needed,
@@ -81,8 +80,48 @@ async function saveEventEditAction(formData: FormData) {
         await db.insert(schema.slots).values({ id: nanoid(), positionId: pid, index: s });
       }
     } else {
-      // Existing position — update
       keptPositionIds.add(key);
+
+      // Partial-removal: un-invite selected users + notify them + free their slots
+      const unInviteIds = formData.getAll(`unInvite[${key}]`).map((v) => String(v));
+      if (unInviteIds.length > 0) {
+        const [pos] = await db.select().from(schema.positions).where(eq(schema.positions.id, key));
+        for (const uid of unInviteIds) {
+          const [inv] = await db.select().from(schema.invitations).where(
+            and(eq(schema.invitations.positionId, key), eq(schema.invitations.userId, uid)),
+          );
+          if (inv) {
+            // Free their slot if they were accepted
+            if (inv.slotId) {
+              await db.update(schema.slots)
+                .set({ acceptedUserId: null, acceptedAt: null })
+                .where(eq(schema.slots.id, inv.slotId));
+            }
+            await db.delete(schema.invitations).where(eq(schema.invitations.id, inv.id));
+            // Notify them
+            if (pos && inv.sentAt) {
+              const [u] = await db.select().from(schema.users).where(eq(schema.users.id, uid));
+              const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, uid));
+              if (u) {
+                await sendEmail({
+                  to: u.email,
+                  subject: `Shift removed: ${event.clientName} on ${event.date}`,
+                  body: [
+                    `Hi ${profile?.firstName ?? ""},`, ``,
+                    `Your ${pos.role} slot for this event has been removed.`,
+                    `You no longer need to attend.`, ``,
+                    `Client: ${event.clientName}`,
+                    `Date:   ${event.date}`,
+                  ].join("\n"),
+                  companyId: session.companyId,
+                  userId: uid,
+                });
+              }
+            }
+          }
+        }
+      }
+
       await db.update(schema.positions).set({
         role: role as any, needed, baseRate,
         vanDrivingRate: vanRate, travelRate, requiresVanDriving: requiresVan,
@@ -90,16 +129,14 @@ async function saveEventEditAction(formData: FormData) {
     }
   }
 
-  // Remove positions that were deleted (not in the form submission)
+  // Full-removal: any existing position NOT in the form gets deleted, and its invited/accepted get notified
   for (const existing of existingPositions) {
     if (keptPositionIds.has(existing.id)) continue;
-    // Notify invited/accepted about removal
     const invites = await db.select().from(schema.invitations).where(eq(schema.invitations.positionId, existing.id));
     await notifyPositionRemoved(event, existing.role, invites, session.companyId);
     await db.delete(schema.positions).where(eq(schema.positions.id, existing.id));
   }
 
-  // Notify for event-level changes
   if (changes.length > 0) {
     const [updated] = await db.select().from(schema.events).where(eq(schema.events.id, eventId));
     if (updated) {
@@ -126,6 +163,36 @@ export default async function EditEventPage({ params }: { params: { id: string }
   const [user] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
   const positions = await db.select().from(schema.positions).where(eq(schema.positions.eventId, event.id));
   positions.sort((a, b) => a.sortOrder - b.sortOrder);
+
+  // Load invited staff (pending or accepted) for each position
+  const positionsWithStaff: PositionData[] = [];
+  for (const p of positions) {
+    const invites = await db.select().from(schema.invitations).where(eq(schema.invitations.positionId, p.id));
+    const active = invites.filter((i) => i.status === "pending" || i.status === "accepted");
+    const invitedStaff: InvitedStaff[] = [];
+    for (const inv of active) {
+      const [u] = await db.select().from(schema.users).where(eq(schema.users.id, inv.userId));
+      const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, inv.userId));
+      if (profile) {
+        invitedStaff.push({
+          userId: inv.userId,
+          firstName: profile.firstName,
+          lastName: profile.lastName,
+          status: inv.status as any,
+        });
+      }
+    }
+    positionsWithStaff.push({
+      id: p.id,
+      role: p.role as any,
+      needed: p.needed,
+      baseRate: p.baseRate,
+      vanDrivingRate: p.vanDrivingRate,
+      travelRate: p.travelRate,
+      requiresVanDriving: p.requiresVanDriving,
+      invitedStaff,
+    });
+  }
 
   const autocomplete = await db.select().from(schema.autocompleteValues).where(eq(schema.autocompleteValues.companyId, session.companyId));
   const suggestions = {
@@ -161,26 +228,7 @@ export default async function EditEventPage({ params }: { params: { id: string }
 
           <section>
             <h2 className="font-semibold mb-2">Positions</h2>
-            <p className="text-sm text-gray-500 mb-4">
-              Click <strong>Remove this position</strong> to delete an existing position. Invited staff will be notified on save.
-            </p>
-            <div className="space-y-3">
-              {positions.map((p) => (
-                <EditPositionRow
-                  key={p.id}
-                  p={{
-                    id: p.id,
-                    role: p.role as any,
-                    needed: p.needed,
-                    baseRate: p.baseRate,
-                    vanDrivingRate: p.vanDrivingRate,
-                    travelRate: p.travelRate,
-                    requiresVanDriving: p.requiresVanDriving,
-                  }}
-                />
-              ))}
-              <NewPositionRowSlot />
-            </div>
+            <PositionsEditor positions={positionsWithStaff} />
           </section>
 
           <section className="grid md:grid-cols-2 gap-4">
@@ -199,54 +247,6 @@ export default async function EditEventPage({ params }: { params: { id: string }
         </form>
       </main>
     </div>
-  );
-}
-
-function NewPositionRowSlot() {
-  // One empty row with a keyed name prefix "new-0". Can be extended to multiple new rows later.
-  const key = "new-0";
-  return (
-    <details className="border border-dashed rounded-lg p-3">
-      <summary className="cursor-pointer text-sm text-gray-500">+ Add a new position</summary>
-      <div className="grid grid-cols-12 gap-2 items-end mt-3">
-        <div className="col-span-1">
-          <label className="label">#</label>
-          <input name={`needed[${key}]`} type="number" min={1} defaultValue={1} className="input" />
-        </div>
-        <div className="col-span-3">
-          <label className="label">Role</label>
-          <select name={`role[${key}]`} className="input" defaultValue="">
-            <option value="">—</option>
-            {POSITION_ROLES.map((r) => (<option key={r} value={r}>{r}</option>))}
-          </select>
-        </div>
-        <div className="col-span-2">
-          <label className="label">Base rate</label>
-          <div className="relative">
-            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
-            <input name={`baseRate[${key}]`} type="number" min={0} step="0.01" className="input pl-6" />
-          </div>
-        </div>
-        <div className="col-span-2">
-          <label className="label">Van add-on</label>
-          <div className="relative">
-            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
-            <input name={`vanRate[${key}]`} type="number" min={0} step="0.01" className="input pl-6" />
-          </div>
-        </div>
-        <div className="col-span-2">
-          <label className="label">Travel</label>
-          <div className="relative">
-            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
-            <input name={`travelRate[${key}]`} type="number" min={0} step="0.01" className="input pl-6" />
-          </div>
-        </div>
-        <div className="col-span-2 flex items-center gap-2 pb-2">
-          <input id={`vanReq[${key}]`} name={`vanReq[${key}]`} type="checkbox" />
-          <label htmlFor={`vanReq[${key}]`} className="text-xs">Requires van driving</label>
-        </div>
-      </div>
-    </details>
   );
 }
 
