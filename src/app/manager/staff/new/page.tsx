@@ -7,7 +7,6 @@ import { AppHeader } from "@/components/AppHeader";
 import { nanoid } from "nanoid";
 
 const POSITION_ROLES = ["Lead", "Bartender", "Bar Back", "Server", "Cashier"] as const;
-const UNIFORM_SIZES = ["XS", "S", "M", "L", "XL", "XXL"] as const;
 
 async function addStaffAction(formData: FormData) {
   "use server";
@@ -19,12 +18,13 @@ async function addStaffAction(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const position = String(formData.get("position") ?? "").trim() as typeof POSITION_ROLES[number];
   const rate = num(formData.get("defaultRate"));
+  const rateType = (str(formData.get("defaultRateType")) ?? "hourly") as "hourly" | "flat" | "both";
+  const canDriveVan = formData.get("canDriveVan") === "on";
 
   if (!firstName || !lastName || !email || !position || rate === null) {
     throw new Error("First name, last name, email, position, and rate are required");
   }
 
-  // Check for duplicate email in this company
   const existing = await db.select().from(schema.users).where(
     and(eq(schema.users.companyId, session.companyId), eq(schema.users.email, email)),
   );
@@ -46,16 +46,11 @@ async function addStaffAction(formData: FormData) {
     userId,
     firstName,
     lastName,
-    phone: str(formData.get("phone")),
-    city: str(formData.get("city")),
     position,
     defaultRate: rate,
-    defaultRateType: (str(formData.get("defaultRateType")) as any) ?? "hourly",
-    canDriveVan: formData.get("canDriveVan") === "on",
-    dateOfBirth: str(formData.get("dateOfBirth")),
-    emergencyContactName: str(formData.get("emergencyContactName")),
-    emergencyContactPhone: str(formData.get("emergencyContactPhone")),
-    uniformSize: str(formData.get("uniformSize")),
+    defaultRateType: rateType,
+    canDriveVan,
+    // Everything else stays NULL — staff fills it via the invite link
   });
 
   redirect("/manager/staff");
@@ -75,63 +70,44 @@ export default async function AddStaffPage() {
   return (
     <div>
       <AppHeader companyName={company.name} userEmail={user.email} role="manager" />
-      <main className="max-w-4xl mx-auto px-6 py-8">
+      <main className="max-w-3xl mx-auto px-6 py-8">
         <Link href="/manager/staff" className="text-sm text-gray-500 hover:underline">← Back to staff</Link>
-        <h1 className="text-2xl font-semibold mt-2 mb-6">Add staff member</h1>
+        <h1 className="text-2xl font-semibold mt-2 mb-2">Add staff member</h1>
+        <p className="text-sm text-gray-600 mb-6">
+          Fill in the fields below. The staff member will receive an invite link to set their password and complete
+          the rest of their profile (city, phone, date of birth, emergency contact, uniform size).
+        </p>
 
-        <form action={addStaffAction} className="space-y-6">
-          <section>
-            <h2 className="font-semibold mb-3 text-sm uppercase text-gray-500">Required</h2>
-            <div className="grid md:grid-cols-2 gap-4">
-              <Field label="First name (as on tax docs)" name="firstName" required />
-              <Field label="Last name (as on tax docs)" name="lastName" required />
-              <Field label="Email" name="email" type="email" required />
-              <div>
-                <label className="label" htmlFor="position">Position</label>
-                <select id="position" name="position" className="input" required defaultValue="">
-                  <option value="" disabled>—</option>
-                  {POSITION_ROLES.map((r) => (<option key={r} value={r}>{r}</option>))}
-                </select>
-              </div>
-              <div>
-                <label className="label" htmlFor="defaultRate">Default rate ($)</label>
-                <input id="defaultRate" name="defaultRate" type="number" min={0} step="0.01" className="input" required />
-              </div>
-              <div>
-                <label className="label" htmlFor="defaultRateType">Rate type</label>
-                <select id="defaultRateType" name="defaultRateType" className="input" defaultValue="hourly">
-                  <option value="hourly">Hourly</option>
-                  <option value="flat">Flat</option>
-                  <option value="both">Both (depends on event)</option>
-                </select>
-              </div>
+        <form action={addStaffAction} className="space-y-4">
+          <div className="grid md:grid-cols-2 gap-4">
+            <Field label="First name (as on tax docs)" name="firstName" required />
+            <Field label="Last name (as on tax docs)" name="lastName" required />
+            <Field label="Email" name="email" type="email" required />
+            <div>
+              <label className="label" htmlFor="position">Position</label>
+              <select id="position" name="position" className="input" required defaultValue="">
+                <option value="" disabled>—</option>
+                {POSITION_ROLES.map((r) => (<option key={r} value={r}>{r}</option>))}
+              </select>
             </div>
-          </section>
-
-          <section>
-            <h2 className="font-semibold mb-1 text-sm uppercase text-gray-500">Optional</h2>
-            <p className="text-xs text-gray-500 mb-3">
-              Leave blank and the staff member can fill these in themselves via the invite link.
-            </p>
-            <div className="grid md:grid-cols-2 gap-4">
-              <Field label="City" name="city" />
-              <Field label="Cell phone" name="phone" type="tel" />
-              <Field label="Date of birth" name="dateOfBirth" type="date" />
-              <div>
-                <label className="label" htmlFor="uniformSize">Uniform size</label>
-                <select id="uniformSize" name="uniformSize" className="input" defaultValue="">
-                  <option value="">—</option>
-                  {UNIFORM_SIZES.map((s) => (<option key={s} value={s}>{s}</option>))}
-                </select>
-              </div>
-              <Field label="Emergency contact name" name="emergencyContactName" />
-              <Field label="Emergency contact phone" name="emergencyContactPhone" type="tel" />
-              <div className="md:col-span-2 flex items-center gap-2">
-                <input id="canDriveVan" name="canDriveVan" type="checkbox" />
-                <label htmlFor="canDriveVan" className="text-sm">Can drive the van</label>
-              </div>
+            <div>
+              <label className="label" htmlFor="defaultRate">Default rate ($)</label>
+              <input id="defaultRate" name="defaultRate" type="number" min={0} step="0.01" className="input" required />
             </div>
-          </section>
+            <div>
+              <label className="label" htmlFor="defaultRateType">Rate type</label>
+              <select id="defaultRateType" name="defaultRateType" className="input" defaultValue="hourly">
+                <option value="hourly">Hourly</option>
+                <option value="flat">Flat</option>
+                <option value="both">Both (depends on event)</option>
+              </select>
+            </div>
+            <div className="md:col-span-2 flex items-center gap-2 border-t pt-3">
+              <input id="canDriveVan" name="canDriveVan" type="checkbox" className="w-4 h-4" />
+              <label htmlFor="canDriveVan" className="text-sm">Can drive the van</label>
+              <span className="text-xs text-gray-500 ml-2">(gates them out of van-driver invitations if unchecked)</span>
+            </div>
+          </div>
 
           <div className="flex gap-3 pt-4 border-t">
             <button type="submit" className="btn btn-primary">Add staff</button>

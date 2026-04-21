@@ -50,6 +50,7 @@ export default async function ManagerStaffPage() {
               <th className="text-left">Phone</th>
               <th className="text-left">Van?</th>
               <th className="text-left">Status</th>
+              <th className="text-left"></th>
             </tr>
           </thead>
           <tbody>
@@ -89,11 +90,21 @@ export default async function ManagerStaffPage() {
                       <span className="text-gray-400">—</span>
                     )}
                   </td>
+                  <td className="py-3 text-right">
+                    {profile && (
+                      <Link
+                        href={`/manager/staff/${user.id}/edit`}
+                        className="text-sm underline text-gray-600 hover:text-black"
+                      >
+                        Modify
+                      </Link>
+                    )}
+                  </td>
                 </tr>
               );
             })}
             {staffRows.length === 0 && (
-              <tr><td colSpan={7} className="py-8 text-center text-gray-400">No staff yet. Click "+ Add staff" to start.</td></tr>
+              <tr><td colSpan={8} className="py-8 text-center text-gray-400">No staff yet. Click "+ Add staff" to start.</td></tr>
             )}
           </tbody>
         </table>
