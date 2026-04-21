@@ -7,6 +7,7 @@ export type StaffOption = {
   firstName: string;
   lastName: string;
   city: string | null;
+  position: "Lead" | "Bartender" | "Bar Back" | "Server" | "Cashier";
   defaultRate: number | null;
   defaultRateType: "hourly" | "flat" | "both" | null;
   currentTier: number | null;
@@ -107,7 +108,12 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                       setSelections((prev) => ({ ...prev, [s.userId]: e.target.checked ? (tier ?? 0) : null }));
                     }} className="w-4 h-4" />
                     <div className="flex-1">
-                      <div className="font-medium">{s.firstName} {s.lastName}</div>
+                      <div className="font-medium flex items-center gap-2">
+                        {s.firstName} {s.lastName}
+                        <span className="text-[10px] uppercase tracking-wide bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
+                          {s.position}
+                        </span>
+                      </div>
                       <div className="text-xs text-gray-500">
                         {s.city ?? "—"}
                         {s.defaultRate ? ` · $${s.defaultRate}${s.defaultRateType === "hourly" ? "/hr" : ""}` : ""}

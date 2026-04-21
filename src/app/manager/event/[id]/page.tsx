@@ -111,19 +111,23 @@ export default async function EventDetailPage({ params }: { params: { id: string
   }
 
   function buildStaffOptions(positionRole: string, positionId: string): StaffOption[] {
-    const eligibleRoles = ELIGIBILITY[positionRole] ?? [positionRole];
+    // Show ALL staff — manager can invite anyone to any position.
+    // Their trained position is shown as a tag in the dropdown.
     const invites = invitesByPosition[positionId] ?? [];
-    return staffOnly
-      .filter((r) => eligibleRoles.includes(r.profile.position))
-      .map((r) => {
-        const inv = invites.find((i) => i.userId === r.user.id);
-        return {
-          userId: r.user.id, firstName: r.profile.firstName, lastName: r.profile.lastName,
-          city: r.profile.city, defaultRate: r.profile.defaultRate,
-          defaultRateType: r.profile.defaultRateType,
-          currentTier: inv ? inv.tier : null, currentStatus: inv ? inv.status : null,
-        };
-      });
+    return staffOnly.map((r) => {
+      const inv = invites.find((i) => i.userId === r.user.id);
+      return {
+        userId: r.user.id,
+        firstName: r.profile.firstName,
+        lastName: r.profile.lastName,
+        city: r.profile.city,
+        position: r.profile.position,
+        defaultRate: r.profile.defaultRate,
+        defaultRateType: r.profile.defaultRateType,
+        currentTier: inv ? inv.tier : null,
+        currentStatus: inv ? inv.status : null,
+      };
+    });
   }
 
   const statuses = await Promise.all(positionsList.map((p) => summarizePosition(p.id)));
