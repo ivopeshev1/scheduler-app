@@ -157,7 +157,7 @@ async function sendPendingInvitations(formData: FormData) {
           `Client:     ${event.clientName}`,
           event.eventType ? `Event type: ${event.eventType}` : "",
           `Date:       ${prettyDate}`,
-          `Time:       ${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`,
+          `Approx time: ${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`,
           `Venue:      ${event.venue ?? ""} ${event.city ? `(${event.city})` : ""}`.trim(),
           `Role:       ${position.role}`, ``,
           `Compensation:`,
