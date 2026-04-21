@@ -84,7 +84,7 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
         <div className="absolute z-20 mt-1 w-[540px] bg-white border rounded-lg shadow-lg p-3 left-0">
           <div className="flex items-center justify-between mb-2">
             <div className="text-sm font-semibold">Invite {role}s</div>
-            <div className="text-xs text-gray-500">Needs {needed} · {mode === "pool" ? "pool (first-accept-wins)" : "individual slots"}</div>
+            <div className="text-xs text-gray-500">Needs {needed} · first-accept-wins</div>
           </div>
 
           <input type="text" placeholder="Search by name…" value={search} onChange={(e) => setSearch(e.target.value)} className="input mb-2" autoFocus />

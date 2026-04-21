@@ -38,7 +38,6 @@ async function createEventAction(formData: FormData) {
   for (const i of Array.from(positionIndexes).sort((a, b) => a - b)) {
     const role = str(formData.get(`role${i}`));
     if (!role) continue;
-    const mode = (str(formData.get(`mode${i}`)) ?? "pool") as "pool" | "individual";
     const needed = Math.max(1, num(formData.get(`needed${i}`)) ?? 1);
     const baseRate = num(formData.get(`baseRate${i}`));
     const vanDrivingRate = num(formData.get(`vanRate${i}`)) ?? 0;
@@ -47,9 +46,11 @@ async function createEventAction(formData: FormData) {
 
     const pid = nanoid();
     await db.insert(schema.positions).values({
-      id: pid, eventId, role: role as any, mode, needed, sortOrder,
+      id: pid, eventId, role: role as any,
+      mode: "pool", // legacy column; always the same now — Priority/Backup tiers cover it
+      needed, sortOrder,
       baseRate, vanDrivingRate, travelRate, requiresVanDriving,
-      rateType: "flat", // UI no longer surfaces this; default kept for schema compat
+      rateType: "flat",
     });
     for (let s = 0; s < needed; s++) {
       await db.insert(schema.slots).values({ id: nanoid(), positionId: pid, index: s });

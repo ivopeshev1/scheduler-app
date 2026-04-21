@@ -28,30 +28,11 @@ export function PositionRows() {
 }
 
 function PositionRow({ index }: { index: number }) {
-  const [needed, setNeeded] = useState(1);
-  const [mode, setMode] = useState<"pool" | "individual">("individual");
-  const [modeTouched, setModeTouched] = useState(false);
-
-  // Auto-derive mode from # unless the user has manually overridden it
-  function handleNeededChange(v: number) {
-    setNeeded(v);
-    if (!modeTouched) {
-      setMode(v <= 1 ? "individual" : "pool");
-    }
-  }
-
   return (
     <div className="grid grid-cols-12 gap-2 items-end border rounded-lg p-3">
       <div className="col-span-1">
         <label className="label">#</label>
-        <input
-          name={`needed${index}`}
-          type="number"
-          min={1}
-          value={needed}
-          onChange={(e) => handleNeededChange(Math.max(1, Number(e.target.value) || 1))}
-          className="input"
-        />
+        <input name={`needed${index}`} type="number" min={1} defaultValue={1} className="input" />
       </div>
       <div className="col-span-3">
         <label className="label">Role</label>
@@ -60,21 +41,6 @@ function PositionRow({ index }: { index: number }) {
           {POSITION_ROLES.map((r) => (
             <option key={r} value={r}>{r}</option>
           ))}
-        </select>
-      </div>
-      <div className="col-span-2">
-        <label className="label">Mode</label>
-        <select
-          name={`mode${index}`}
-          className="input"
-          value={mode}
-          onChange={(e) => {
-            setMode(e.target.value as "pool" | "individual");
-            setModeTouched(true);
-          }}
-        >
-          <option value="pool">Pool</option>
-          <option value="individual">Individual</option>
         </select>
       </div>
       <div className="col-span-2">
@@ -98,7 +64,7 @@ function PositionRow({ index }: { index: number }) {
           <input name={`travelRate${index}`} type="number" min={0} step="0.01" className="input pl-6" />
         </div>
       </div>
-      <div className="col-span-12 flex items-center gap-2">
+      <div className="col-span-2 flex items-center gap-2 pb-2">
         <input id={`vanReq${index}`} name={`vanReq${index}`} type="checkbox" />
         <label htmlFor={`vanReq${index}`} className="text-xs">Requires van driving</label>
       </div>

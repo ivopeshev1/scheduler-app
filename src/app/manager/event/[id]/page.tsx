@@ -252,7 +252,6 @@ export default async function EventDetailPage({ params }: { params: { id: string
               <tr className="border-b">
                 <th className="text-left py-2 w-12">#</th>
                 <th className="text-left">Position</th>
-                <th className="text-left">Mode</th>
                 <th className="text-left">Staff / Status</th>
                 <th className="text-left">Rate</th>
                 <th className="text-left">Invite staff</th>
@@ -271,7 +270,6 @@ export default async function EventDetailPage({ params }: { params: { id: string
                   <tr key={p.id} className="border-b align-top">
                     <td className="py-3">{p.needed}</td>
                     <td className="py-3 font-medium">{p.role}</td>
-                    <td className="py-3 text-sm text-gray-600 capitalize">{p.mode}</td>
                     <td className={`py-3 ${s.state === "pending" ? "status-pending" : "status-confirmed"}`}>{s.label}</td>
                     <td className="py-3 text-sm">
                       <div>{rate.headline.replace("Rate for this event is ", "")}</div>
@@ -284,7 +282,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
                   </tr>
                 );
               })}
-              {positionsList.length === 0 && (<tr><td colSpan={6} className="py-6 text-center text-gray-400">No positions yet.</td></tr>)}
+              {positionsList.length === 0 && (<tr><td colSpan={5} className="py-6 text-center text-gray-400">No positions yet.</td></tr>)}
             </tbody>
           </table>
         </section>
