@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { summarizePosition } from "@/lib/status";
 import { composeRateLines, sendEmail } from "@/lib/notifications";
+import { formatTime } from "@/lib/format";
 import { StaffPicker, type StaffOption } from "@/components/StaffPicker";
 import { nanoid } from "nanoid";
 import { revalidatePath } from "next/cache";
@@ -109,7 +110,7 @@ async function sendPendingInvitations(formData: FormData) {
           `You're invited to work the following event:`, ``,
           `Client:   ${event.clientName}`,
           `Date:     ${event.date}`,
-          `Time:     ${event.checkInTime ?? "TBD"} – ${event.endTime ?? "TBD"}`,
+          `Time:     ${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`,
           `Venue:    ${event.venue ?? ""} ${event.city ? `(${event.city})` : ""}`.trim(),
           `Role:     ${position.role}`, ``, rate.combined, ``,
           event.staffNotes ? `Notes: ${event.staffNotes}` : "", ``,
@@ -236,7 +237,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
             {event.city ? `, ${event.city}` : ""}
           </div>
           <div className="text-gray-600">
-            {event.date} · {event.checkInTime ?? "—"} to {event.endTime ?? "—"}
+            {event.date} · {formatTime(event.checkInTime)} to {formatTime(event.endTime)}
             {event.guestCount ? ` · ${event.guestCount} guests` : ""}
             {event.numBars ? ` · ${event.numBars} bars` : ""}
             {event.planner ? ` · Planner: ${event.planner}` : ""}

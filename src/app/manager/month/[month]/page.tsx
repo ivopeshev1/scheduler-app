@@ -5,6 +5,7 @@ import { db, schema } from "@/db/client";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { summarizePosition } from "@/lib/status";
+import { formatTime } from "@/lib/format";
 
 function parseMonth(m: string) {
   const match = /^(\d{4})-(\d{2})$/.exec(m);
@@ -112,8 +113,8 @@ async function EventCard({ event }: { event: typeof schema.events.$inferSelect }
           </div>
         </div>
         <div className="text-sm text-gray-500">
-          {event.checkInTime ?? ""}
-          {event.endTime ? ` – ${event.endTime}` : ""}
+          {event.checkInTime ? formatTime(event.checkInTime) : ""}
+          {event.endTime ? ` – ${formatTime(event.endTime)}` : ""}
         </div>
       </div>
       <table className="w-full mt-3 text-sm">
