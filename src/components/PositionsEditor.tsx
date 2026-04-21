@@ -171,12 +171,12 @@ function ExistingRow({
 
   return (
     <>
-      <div className={`grid grid-cols-12 gap-2 items-end border rounded-lg p-3 ${partiallyRemoved ? "border-amber-300 bg-amber-50" : ""}`}>
-        <div className="col-span-2">
+      <div className={`grid grid-cols-12 gap-3 items-end border rounded-lg p-3 ${partiallyRemoved ? "border-amber-300 bg-amber-50" : ""}`}>
+        <div className="col-span-1">
           <label className="label">#</label>
           <input name={`needed[${key}]`} type="number" min={1} defaultValue={reducedNeeded} className="input" />
         </div>
-        <div className="col-span-2">
+        <div className="col-span-3">
           <label className="label">Role</label>
           <input
             name={`role[${key}]`}
@@ -184,6 +184,7 @@ function ExistingRow({
             autoComplete="off"
             defaultValue={p.role}
             className="input"
+            placeholder="type or pick…"
           />
         </div>
         <div className="col-span-2">
@@ -256,18 +257,19 @@ function NewRow({
   onRemove: () => void;
 }) {
   return (
-    <div className="grid grid-cols-12 gap-2 items-end border border-dashed rounded-lg p-3">
-      <div className="col-span-2">
+    <div className="grid grid-cols-12 gap-3 items-end border border-dashed rounded-lg p-3">
+      <div className="col-span-1">
         <label className="label">#</label>
         <input name={`needed[${newKey}]`} type="number" min={1} defaultValue={1} className="input" />
       </div>
-      <div className="col-span-2">
+      <div className="col-span-3">
         <label className="label">Role</label>
         <input
           name={`role[${newKey}]`}
           list="role-suggestions"
           autoComplete="off"
           className="input"
+          placeholder="type or pick…"
         />
       </div>
       <div className="col-span-2">

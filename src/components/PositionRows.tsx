@@ -67,19 +67,19 @@ function PositionRow({
   onRemove: () => void;
 }) {
   return (
-    <div className="grid grid-cols-12 gap-2 items-end border rounded-lg p-3">
-      <div className="col-span-2">
+    <div className="grid grid-cols-12 gap-3 items-end border rounded-lg p-3">
+      <div className="col-span-1">
         <label className="label">#</label>
         <input name={`needed${index}`} type="number" min={1} defaultValue={1} className="input" />
       </div>
-      <div className="col-span-2">
+      <div className="col-span-3">
         <label className="label">Role</label>
         <input
           name={`role${index}`}
           list="role-suggestions"
           autoComplete="off"
           className="input"
-          placeholder=""
+          placeholder="type or pick…"
         />
       </div>
       <div className="col-span-2">

@@ -206,7 +206,7 @@ export default async function EditEventPage({ params }: { params: { id: string }
   return (
     <div>
       <AppHeader companyName={company.name} userEmail={user.email} role="manager" />
-      <main className="max-w-3xl mx-auto px-6 py-8">
+      <main className="max-w-5xl mx-auto px-6 py-8">
         <Link href={`/manager/event/${event.id}`} className="text-sm text-gray-500 hover:underline">← Back to event</Link>
         <h1 className="text-2xl font-semibold mt-2 mb-6">Modify event</h1>
 

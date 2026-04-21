@@ -108,7 +108,7 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
   return (
     <div>
       <AppHeader companyName={company.name} userEmail={user.email} role="manager" />
-      <main className="max-w-3xl mx-auto px-6 py-8">
+      <main className="max-w-5xl mx-auto px-6 py-8">
         <Link href="/manager" className="text-sm text-gray-500 hover:underline">← Back to calendar</Link>
         <h1 className="text-2xl font-semibold mt-2 mb-6">New event</h1>
         <form action={createEventAction} className="space-y-6">
