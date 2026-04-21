@@ -87,11 +87,13 @@ async function DayRow({ day, weekday, dateStr, events }: {
         <div className="text-sm text-gray-500 uppercase tracking-wide">{weekday}</div>
       </div>
       <div className="flex-1 grid md:grid-cols-2 gap-4">
-        {events.length === 0 ? (
-          <Link href={`/manager/event/new?date=${dateStr}`} className="border border-dashed rounded-lg p-4 text-gray-400 text-sm hover:border-gray-400 hover:text-gray-600">+ Add event for this day</Link>
-        ) : (
-          await Promise.all(events.map((ev) => EventCard({ event: ev })))
-        )}
+        {await Promise.all(events.map((ev) => EventCard({ event: ev })))}
+        <Link
+          href={`/manager/event/new?date=${dateStr}`}
+          className="border border-dashed rounded-lg p-4 text-gray-400 text-sm hover:border-gray-400 hover:text-gray-600 flex items-center justify-center min-h-[96px]"
+        >
+          {events.length === 0 ? "+ Add event for this day" : "+ Add another event"}
+        </Link>
       </div>
     </div>
   );
