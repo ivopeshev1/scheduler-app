@@ -5,7 +5,7 @@ import { db, schema } from "@/db/client";
 import { eq } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { summarizePosition } from "@/lib/status";
-import { composeRateLines, sendEmail } from "@/lib/notifications";
+import { composeRateLines, sendEmail, escapeHtml } from "@/lib/notifications";
 import { formatTime, formatDate } from "@/lib/format";
 import { notifyCancellation } from "@/lib/event-notifications";
 import { StaffPicker, type StaffOption } from "@/components/StaffPicker";
@@ -148,27 +148,77 @@ async function sendPendingInvitations(formData: FormData) {
       const vanInstructions = position.requiresVanDriving && event.vanDrivingInstructions
         ? `Van driving instructions: ${event.vanDrivingInstructions}`
         : "";
+
+      const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
+      const timeRange = `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`;
+
+      // Plain-text version (fallback for clients that strip HTML).
+      const textBody = [
+        `Hi ${profile?.firstName ?? ""},`, ``,
+        `You're invited to work the following shift:`, ``,
+        `Role:        ${position.role}`,
+        event.eventType ? `Event type:  ${event.eventType}` : "",
+        `Date:        ${prettyDate}`,
+        `Approx time: ${timeRange}`,
+        `Venue:       ${venue}`,
+        `Client:      ${event.clientName}`, ``,
+        `Compensation:`,
+        rate.breakdown, ``,
+        vanLine,
+        vanInstructions,
+        event.staffNotes ? `Notes: ${event.staffNotes}` : "",
+        ``,
+        `Accept or reject this shift at your staff dashboard.`, ``,
+        `– ${companyName}`,
+      ].filter(Boolean).join("\n");
+
+      // HTML version — rendered by most clients. Uses inline styles (Gmail strips <style>).
+      const base = position.baseRate ?? 0;
+      const vanAmount = position.requiresVanDriving ? (position.vanDrivingRate ?? 0) : 0;
+      const travel = position.travelRate ?? 0;
+      const total = base + vanAmount + travel;
+      const row = (label: string, value: string, bold = false) =>
+        `<tr>` +
+        `<td style="padding:4px 16px 4px 0;color:#555;white-space:nowrap;${bold ? "font-weight:600;color:#111;" : ""}">${label}</td>` +
+        `<td style="padding:4px 0;${bold ? "font-weight:600;" : ""}">${value}</td>` +
+        `</tr>`;
+
+      const htmlBody = `
+<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;line-height:1.5;font-size:15px;max-width:560px;margin:0 auto;padding:24px;">
+  <p style="margin:0 0 12px;">Hi ${escapeHtml(profile?.firstName ?? "")},</p>
+  <p style="margin:0 0 20px;">You're invited to work the following shift:</p>
+
+  <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 24px;">
+    ${row("Role", escapeHtml(position.role))}
+    ${event.eventType ? row("Event type", escapeHtml(event.eventType)) : ""}
+    ${row("Date", escapeHtml(prettyDate))}
+    ${row("Approx time", escapeHtml(timeRange))}
+    ${row("Venue", escapeHtml(venue))}
+    ${row("Client", escapeHtml(event.clientName))}
+  </table>
+
+  <p style="margin:0 0 8px;font-weight:600;">Compensation</p>
+  <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 24px;">
+    ${row("Base rate", `$${base}`)}
+    ${position.requiresVanDriving ? row("Van driving", `$${vanAmount}`) : ""}
+    ${travel > 0 ? row("Travel comp", `$${travel}`) : ""}
+    <tr><td colspan="2" style="padding:4px 0;border-top:1px solid #ddd;"></td></tr>
+    ${row("Total", `$${total}`, true)}
+  </table>
+
+  ${vanLine ? `<p style="margin:0 0 12px;">${escapeHtml(vanLine)}</p>` : ""}
+  ${vanInstructions ? `<p style="margin:0 0 12px;color:#555;">${escapeHtml(vanInstructions)}</p>` : ""}
+  ${event.staffNotes ? `<p style="margin:0 0 12px;"><strong>Notes:</strong> ${escapeHtml(event.staffNotes)}</p>` : ""}
+
+  <p style="margin:24px 0 0;">Accept or reject this shift at your staff dashboard.</p>
+  <p style="margin:24px 0 0;color:#555;">– ${escapeHtml(companyName)}</p>
+</body></html>`.trim();
+
       await sendEmail({
         to: u.email,
         subject: `${companyName} invite to a shift — ${prettyDate}`,
-        body: [
-          `Hi ${profile?.firstName ?? ""},`, ``,
-          `You're invited to work the following shift:`, ``,
-          `Role:        ${position.role}`,
-          event.eventType ? `Event type:  ${event.eventType}` : "",
-          `Date:        ${prettyDate}`,
-          `Approx time: ${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`,
-          `Venue:       ${event.venue ?? ""} ${event.city ? `(${event.city})` : ""}`.trim(),
-          `Client:      ${event.clientName}`, ``,
-          `Compensation:`,
-          rate.breakdown, ``,
-          vanLine,
-          vanInstructions,
-          event.staffNotes ? `Notes: ${event.staffNotes}` : "",
-          ``,
-          `Accept or reject this shift at your staff dashboard.`, ``,
-          `– ${companyName}`,
-        ].filter(Boolean).join("\n"),
+        body: textBody,
+        html: htmlBody,
         companyId: session.companyId,
         userId: inv.userId,
         relatedInvitationId: inv.id,

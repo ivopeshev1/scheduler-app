@@ -4,7 +4,8 @@ import { nanoid } from "nanoid";
 type SendEmailInput = {
   to: string;
   subject: string;
-  body: string;
+  body: string;       // plain-text fallback (always provided)
+  html?: string;      // optional HTML body — rendered by most clients
   companyId: string;
   userId?: string;
   relatedInvitationId?: string;
@@ -29,18 +30,20 @@ export async function sendEmail(input: SendEmailInput) {
   }
 
   try {
+    const payload: Record<string, unknown> = {
+      from: process.env.EMAIL_FROM ?? "Scheduler <onboarding@resend.dev>",
+      to: input.to,
+      subject: input.subject,
+      text: input.body,
+    };
+    if (input.html) payload.html = input.html;
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        from: process.env.EMAIL_FROM ?? "Scheduler <onboarding@resend.dev>",
-        to: input.to,
-        subject: input.subject,
-        text: input.body,
-      }),
+      body: JSON.stringify(payload),
     });
     const status = res.ok ? "sent" : "failed";
     await db.insert(schema.notifications).values({
@@ -58,6 +61,19 @@ export async function sendEmail(input: SendEmailInput) {
   } catch (err) {
     return { ok: false as const, error: String(err) };
   }
+}
+
+/**
+ * Tiny helper: HTML-escape user-supplied strings so we don't break the layout
+ * if someone puts "<" or "&" in a venue name.
+ */
+export function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 export function composeRateLines(args: {
