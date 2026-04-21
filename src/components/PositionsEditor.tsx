@@ -54,6 +54,9 @@ export function PositionsEditor({ positions }: { positions: PositionData[] }) {
 
   return (
     <div className="space-y-3">
+      <datalist id="role-suggestions">
+        {POSITION_ROLES.map((r) => (<option key={r} value={r} />))}
+      </datalist>
       {positions.map((p) => {
         const r = removals[p.id];
         const isVan = vanKey === p.id;
@@ -111,6 +114,22 @@ export function PositionsEditor({ positions }: { positions: PositionData[] }) {
   );
 }
 
+function MoneyInput({ name, defaultValue }: { name: string; defaultValue?: number | string }) {
+  return (
+    <div className="flex items-stretch border border-gray-300 rounded-md focus-within:border-gray-500 focus-within:ring-2 focus-within:ring-gray-200">
+      <span className="flex items-center px-2 text-gray-500 text-sm bg-gray-50 border-r border-gray-300 rounded-l-md">$</span>
+      <input
+        name={name}
+        type="number"
+        min={0}
+        step="0.01"
+        defaultValue={defaultValue}
+        className="flex-1 px-2 py-2 text-sm rounded-r-md outline-none"
+      />
+    </div>
+  );
+}
+
 /* -------------------- existing row -------------------- */
 
 function ExistingRow({
@@ -153,36 +172,31 @@ function ExistingRow({
   return (
     <>
       <div className={`grid grid-cols-12 gap-2 items-end border rounded-lg p-3 ${partiallyRemoved ? "border-amber-300 bg-amber-50" : ""}`}>
-        <div className="col-span-1">
+        <div className="col-span-2">
           <label className="label">#</label>
           <input name={`needed[${key}]`} type="number" min={1} defaultValue={reducedNeeded} className="input" />
         </div>
-        <div className="col-span-3">
+        <div className="col-span-2">
           <label className="label">Role</label>
-          <select name={`role[${key}]`} className="input" defaultValue={p.role}>
-            {POSITION_ROLES.map((r) => (<option key={r} value={r}>{r}</option>))}
-          </select>
+          <input
+            name={`role[${key}]`}
+            list="role-suggestions"
+            autoComplete="off"
+            defaultValue={p.role}
+            className="input"
+          />
         </div>
         <div className="col-span-2">
           <label className="label">Base rate</label>
-          <div className="relative">
-            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
-            <input name={`baseRate[${key}]`} type="number" min={0} step="0.01" defaultValue={p.baseRate ?? ""} className="input pl-6" />
-          </div>
+          <MoneyInput name={`baseRate[${key}]`} defaultValue={p.baseRate ?? ""} />
         </div>
         <div className="col-span-2">
           <label className="label">Van add-on</label>
-          <div className="relative">
-            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
-            <input name={`vanRate[${key}]`} type="number" min={0} step="0.01" defaultValue={p.vanDrivingRate ?? ""} className="input pl-6" />
-          </div>
+          <MoneyInput name={`vanRate[${key}]`} defaultValue={p.vanDrivingRate ?? ""} />
         </div>
         <div className="col-span-2">
           <label className="label">Travel</label>
-          <div className="relative">
-            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
-            <input name={`travelRate[${key}]`} type="number" min={0} step="0.01" defaultValue={p.travelRate ?? ""} className="input pl-6" />
-          </div>
+          <MoneyInput name={`travelRate[${key}]`} defaultValue={p.travelRate ?? ""} />
         </div>
         <div className="col-span-1 flex items-center gap-1 pb-2">
           <input
@@ -243,37 +257,30 @@ function NewRow({
 }) {
   return (
     <div className="grid grid-cols-12 gap-2 items-end border border-dashed rounded-lg p-3">
-      <div className="col-span-1">
+      <div className="col-span-2">
         <label className="label">#</label>
         <input name={`needed[${newKey}]`} type="number" min={1} defaultValue={1} className="input" />
       </div>
-      <div className="col-span-3">
+      <div className="col-span-2">
         <label className="label">Role</label>
-        <select name={`role[${newKey}]`} className="input" defaultValue="">
-          <option value="">—</option>
-          {POSITION_ROLES.map((r) => (<option key={r} value={r}>{r}</option>))}
-        </select>
+        <input
+          name={`role[${newKey}]`}
+          list="role-suggestions"
+          autoComplete="off"
+          className="input"
+        />
       </div>
       <div className="col-span-2">
         <label className="label">Base rate</label>
-        <div className="relative">
-          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
-          <input name={`baseRate[${newKey}]`} type="number" min={0} step="0.01" className="input pl-6" />
-        </div>
+        <MoneyInput name={`baseRate[${newKey}]`} />
       </div>
       <div className="col-span-2">
         <label className="label">Van add-on</label>
-        <div className="relative">
-          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
-          <input name={`vanRate[${newKey}]`} type="number" min={0} step="0.01" className="input pl-6" />
-        </div>
+        <MoneyInput name={`vanRate[${newKey}]`} />
       </div>
       <div className="col-span-2">
         <label className="label">Travel</label>
-        <div className="relative">
-          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
-          <input name={`travelRate[${newKey}]`} type="number" min={0} step="0.01" className="input pl-6" />
-        </div>
+        <MoneyInput name={`travelRate[${newKey}]`} />
       </div>
       <div className="col-span-1 flex items-center gap-1 pb-2">
         <input

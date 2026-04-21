@@ -7,17 +7,21 @@ const POSITION_ROLES = ["Bar Lead", "Bar Back", "Bartender", "Server", "Cashier"
 export function PositionRows() {
   const [rowIds, setRowIds] = useState<number[]>([0]);
   const [nextId, setNextId] = useState(1);
-  // Only one row may be the van-driver; tracked here at parent level
   const [vanDriverRow, setVanDriverRow] = useState<number | null>(null);
 
   return (
     <div className="space-y-3">
+      {/* Shared datalist for role suggestions — input also accepts custom typed values */}
+      <datalist id="role-suggestions">
+        {POSITION_ROLES.map((r) => (<option key={r} value={r} />))}
+      </datalist>
       {rowIds.map((id) => (
         <PositionRow
           key={id}
           index={id}
           isVanDriver={vanDriverRow === id}
           onToggleVan={(checked) => setVanDriverRow(checked ? id : null)}
+          onRemove={() => setRowIds((rows) => rows.filter((r) => r !== id))}
         />
       ))}
       <button
@@ -30,9 +34,23 @@ export function PositionRows() {
       >
         + Add another position
       </button>
-      <p className="text-xs text-gray-500">
-        Only one position can be designated the van driver per event.
-      </p>
+      <p className="text-xs text-gray-500">Only one position can be designated the van driver per event.</p>
+    </div>
+  );
+}
+
+function MoneyInput({ name, defaultValue }: { name: string; defaultValue?: number | string }) {
+  return (
+    <div className="flex items-stretch border border-gray-300 rounded-md focus-within:border-gray-500 focus-within:ring-2 focus-within:ring-gray-200">
+      <span className="flex items-center px-2 text-gray-500 text-sm bg-gray-50 border-r border-gray-300 rounded-l-md">$</span>
+      <input
+        name={name}
+        type="number"
+        min={0}
+        step="0.01"
+        defaultValue={defaultValue}
+        className="flex-1 px-2 py-2 text-sm rounded-r-md outline-none"
+      />
     </div>
   );
 }
@@ -41,48 +59,42 @@ function PositionRow({
   index,
   isVanDriver,
   onToggleVan,
+  onRemove,
 }: {
   index: number;
   isVanDriver: boolean;
   onToggleVan: (checked: boolean) => void;
+  onRemove: () => void;
 }) {
   return (
     <div className="grid grid-cols-12 gap-2 items-end border rounded-lg p-3">
-      <div className="col-span-1">
+      <div className="col-span-2">
         <label className="label">#</label>
         <input name={`needed${index}`} type="number" min={1} defaultValue={1} className="input" />
       </div>
-      <div className="col-span-3">
+      <div className="col-span-2">
         <label className="label">Role</label>
-        <select name={`role${index}`} className="input" defaultValue="">
-          <option value="">—</option>
-          {POSITION_ROLES.map((r) => (
-            <option key={r} value={r}>{r}</option>
-          ))}
-        </select>
+        <input
+          name={`role${index}`}
+          list="role-suggestions"
+          autoComplete="off"
+          className="input"
+          placeholder=""
+        />
       </div>
       <div className="col-span-2">
         <label className="label">Base rate</label>
-        <div className="relative">
-          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
-          <input name={`baseRate${index}`} type="number" min={0} step="0.01" className="input pl-6" />
-        </div>
+        <MoneyInput name={`baseRate${index}`} />
       </div>
       <div className="col-span-2">
         <label className="label">Van add-on</label>
-        <div className="relative">
-          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
-          <input name={`vanRate${index}`} type="number" min={0} step="0.01" className="input pl-6" />
-        </div>
+        <MoneyInput name={`vanRate${index}`} />
       </div>
       <div className="col-span-2">
         <label className="label">Travel</label>
-        <div className="relative">
-          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
-          <input name={`travelRate${index}`} type="number" min={0} step="0.01" className="input pl-6" />
-        </div>
+        <MoneyInput name={`travelRate${index}`} />
       </div>
-      <div className="col-span-2 flex items-center gap-2 pb-2">
+      <div className="col-span-1 flex items-center gap-1 pb-2">
         <input
           id={`vanReq${index}`}
           name={`vanReq${index}`}
@@ -90,7 +102,18 @@ function PositionRow({
           checked={isVanDriver}
           onChange={(e) => onToggleVan(e.target.checked)}
         />
-        <label htmlFor={`vanReq${index}`} className="text-xs">Requires van driving</label>
+        <label htmlFor={`vanReq${index}`} className="text-xs">Van</label>
+      </div>
+      <div className="col-span-1 pb-1 flex justify-end">
+        <button
+          type="button"
+          onClick={onRemove}
+          className="text-red-600 hover:bg-red-50 text-lg w-8 h-8 rounded border border-red-200 flex items-center justify-center"
+          title="Remove row"
+          aria-label="Remove row"
+        >
+          ×
+        </button>
       </div>
     </div>
   );
