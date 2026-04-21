@@ -20,7 +20,7 @@ export function kvRow(label: string, value: string, opts?: { bold?: boolean }): 
   return (
     `<tr>` +
     `<td style="padding:4px 16px 4px 0;color:#555;white-space:nowrap;${bold ? "font-weight:600;color:#111;" : ""}">${escapeHtml(label)}</td>` +
-    `<td style="padding:4px 0;${bold ? "font-weight:600;" : ""}">${value}</td>` +
+    `<td style="padding:4px 0;${bold ? "font-weight:600;" : ""}">${escapeHtml(value)}</td>` +
     `</tr>`
   );
 }
