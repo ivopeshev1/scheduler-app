@@ -41,7 +41,7 @@ export function PositionRows() {
 
 function MoneyInput({ name, defaultValue }: { name: string; defaultValue?: number | string }) {
   return (
-    <div className="flex items-stretch border border-gray-300 rounded-md focus-within:border-gray-500 focus-within:ring-2 focus-within:ring-gray-200">
+    <div className="flex items-stretch border border-gray-300 rounded-md focus-within:border-gray-500 focus-within:ring-2 focus-within:ring-gray-200 max-w-[110px]">
       <span className="flex items-center px-2 text-gray-500 text-sm bg-gray-50 border-r border-gray-300 rounded-l-md">$</span>
       <input
         name={name}
@@ -49,7 +49,7 @@ function MoneyInput({ name, defaultValue }: { name: string; defaultValue?: numbe
         min={0}
         step="0.01"
         defaultValue={defaultValue}
-        className="flex-1 px-2 py-2 text-sm rounded-r-md outline-none"
+        className="flex-1 min-w-0 px-2 py-2 text-sm rounded-r-md outline-none"
       />
     </div>
   );
