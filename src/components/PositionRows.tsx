@@ -7,11 +7,18 @@ const POSITION_ROLES = ["Bar Lead", "Bar Back", "Bartender", "Server", "Cashier"
 export function PositionRows() {
   const [rowIds, setRowIds] = useState<number[]>([0]);
   const [nextId, setNextId] = useState(1);
+  // Only one row may be the van-driver; tracked here at parent level
+  const [vanDriverRow, setVanDriverRow] = useState<number | null>(null);
 
   return (
     <div className="space-y-3">
       {rowIds.map((id) => (
-        <PositionRow key={id} index={id} />
+        <PositionRow
+          key={id}
+          index={id}
+          isVanDriver={vanDriverRow === id}
+          onToggleVan={(checked) => setVanDriverRow(checked ? id : null)}
+        />
       ))}
       <button
         type="button"
@@ -23,11 +30,22 @@ export function PositionRows() {
       >
         + Add another position
       </button>
+      <p className="text-xs text-gray-500">
+        Only one position can be designated the van driver per event.
+      </p>
     </div>
   );
 }
 
-function PositionRow({ index }: { index: number }) {
+function PositionRow({
+  index,
+  isVanDriver,
+  onToggleVan,
+}: {
+  index: number;
+  isVanDriver: boolean;
+  onToggleVan: (checked: boolean) => void;
+}) {
   return (
     <div className="grid grid-cols-12 gap-2 items-end border rounded-lg p-3">
       <div className="col-span-1">
@@ -65,7 +83,13 @@ function PositionRow({ index }: { index: number }) {
         </div>
       </div>
       <div className="col-span-2 flex items-center gap-2 pb-2">
-        <input id={`vanReq${index}`} name={`vanReq${index}`} type="checkbox" />
+        <input
+          id={`vanReq${index}`}
+          name={`vanReq${index}`}
+          type="checkbox"
+          checked={isVanDriver}
+          onChange={(e) => onToggleVan(e.target.checked)}
+        />
         <label htmlFor={`vanReq${index}`} className="text-xs">Requires van driving</label>
       </div>
     </div>

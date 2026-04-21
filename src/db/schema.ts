@@ -54,6 +54,7 @@ export const events = pgTable(
     endTime: text("end_time"),
     staffNotes: text("staff_notes"),
     internalNotes: text("internal_notes"),
+    vanDrivingInstructions: text("van_driving_instructions"),
     createdBy: text("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

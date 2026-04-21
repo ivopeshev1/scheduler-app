@@ -103,6 +103,9 @@ async function sendPendingInvitations(formData: FormData) {
         requiresVanDriving: position.requiresVanDriving,
         rateType: position.rateType,
       });
+      const vanInstructions = position.requiresVanDriving && event.vanDrivingInstructions
+        ? `\nVan driving instructions: ${event.vanDrivingInstructions}\n`
+        : "";
       await sendEmail({
         to: u.email,
         subject: `Shift invite: ${event.clientName} on ${event.date}`,
@@ -114,7 +117,8 @@ async function sendPendingInvitations(formData: FormData) {
           `Time:     ${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`,
           `Venue:    ${event.venue ?? ""} ${event.city ? `(${event.city})` : ""}`.trim(),
           `Role:     ${position.role}`, ``, rate.combined, ``,
-          event.staffNotes ? `Notes: ${event.staffNotes}` : "", ``,
+          event.staffNotes ? `Notes: ${event.staffNotes}` : "",
+          vanInstructions,
           `Accept or reject this shift at your staff dashboard.`,
         ].filter(Boolean).join("\n"),
         companyId: session.companyId,

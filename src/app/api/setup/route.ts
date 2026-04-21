@@ -53,9 +53,11 @@ export async function GET(req: Request) {
     guest_count INTEGER, num_bars INTEGER,
     check_in_time TEXT, end_time TEXT,
     staff_notes TEXT, internal_notes TEXT,
+    van_driving_instructions TEXT,
     created_by TEXT REFERENCES users(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`;
+  await sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS van_driving_instructions TEXT`;
   await sql`CREATE INDEX IF NOT EXISTS events_company_date_idx ON events(company_id, date)`;
   await sql`CREATE TABLE IF NOT EXISTS positions (
     id TEXT PRIMARY KEY,
