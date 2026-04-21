@@ -99,6 +99,7 @@ async function sendPendingInvitations(formData: FormData) {
       const rate = composeRateLines({
         baseRate: position.baseRate,
         vanDrivingRate: position.vanDrivingRate,
+        travelRate: position.travelRate,
         requiresVanDriving: position.requiresVanDriving,
         rateType: position.rateType,
       });
@@ -262,6 +263,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
                 const s = statuses[i];
                 const rate = composeRateLines({
                   baseRate: p.baseRate, vanDrivingRate: p.vanDrivingRate,
+                  travelRate: p.travelRate,
                   requiresVanDriving: p.requiresVanDriving, rateType: p.rateType,
                 });
                 const staffOptions = buildStaffOptions(p.role, p.id);
@@ -274,6 +276,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
                     <td className="py-3 text-sm">
                       <div>{rate.headline.replace("Rate for this event is ", "")}</div>
                       {p.requiresVanDriving && (<div className="text-xs text-gray-500">+ van ${p.vanDrivingRate}</div>)}
+                      {(p.travelRate ?? 0) > 0 && (<div className="text-xs text-gray-500">+ travel ${p.travelRate}</div>)}
                     </td>
                     <td className="py-3">
                       <StaffPicker positionId={p.id} eventId={event.id} role={p.role} needed={p.needed} mode={p.mode} staff={staffOptions} onSave={saveInvitations} />

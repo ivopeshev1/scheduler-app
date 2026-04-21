@@ -65,9 +65,12 @@ export async function GET(req: Request) {
     needed INTEGER NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0,
     start_time TEXT, end_time TEXT,
     base_rate REAL, van_driving_rate REAL DEFAULT 0,
+    travel_rate REAL DEFAULT 0,
     requires_van_driving BOOLEAN NOT NULL DEFAULT false,
     rate_type TEXT NOT NULL DEFAULT 'flat' CHECK (rate_type IN ('hourly','flat'))
   )`;
+  // Backfill: add travel_rate if positions table was created before this column existed
+  await sql`ALTER TABLE positions ADD COLUMN IF NOT EXISTS travel_rate REAL DEFAULT 0`;
   await sql`CREATE TABLE IF NOT EXISTS slots (
     id TEXT PRIMARY KEY,
     position_id TEXT NOT NULL REFERENCES positions(id) ON DELETE CASCADE,

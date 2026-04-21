@@ -73,6 +73,7 @@ export const positions = pgTable("positions", {
   endTime: text("end_time"),
   baseRate: real("base_rate"),
   vanDrivingRate: real("van_driving_rate").default(0),
+  travelRate: real("travel_rate").default(0),
   requiresVanDriving: boolean("requires_van_driving").notNull().default(false),
   rateType: text("rate_type", { enum: ["hourly", "flat"] }).notNull().default("flat"),
 });

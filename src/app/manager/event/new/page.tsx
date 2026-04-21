@@ -2,11 +2,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
+import { PositionRows } from "@/components/PositionRows";
 import { nanoid } from "nanoid";
-
-const POSITION_ROLES = ["Bar Lead", "Bar Back", "Bartender", "Server", "Cashier"] as const;
 
 async function createEventAction(formData: FormData) {
   "use server";
@@ -28,26 +27,37 @@ async function createEventAction(formData: FormData) {
     createdBy: session.userId,
   });
 
-  for (let i = 0; i < 12; i++) {
+  // Scan form data for position rows — there's no fixed count now
+  const positionIndexes = new Set<number>();
+  for (const [key] of formData.entries()) {
+    const m = /^role(\d+)$/.exec(key);
+    if (m) positionIndexes.add(Number(m[1]));
+  }
+
+  let sortOrder = 0;
+  for (const i of Array.from(positionIndexes).sort((a, b) => a - b)) {
     const role = str(formData.get(`role${i}`));
     if (!role) continue;
     const mode = (str(formData.get(`mode${i}`)) ?? "pool") as "pool" | "individual";
     const needed = Math.max(1, num(formData.get(`needed${i}`)) ?? 1);
     const baseRate = num(formData.get(`baseRate${i}`));
     const vanDrivingRate = num(formData.get(`vanRate${i}`)) ?? 0;
+    const travelRate = num(formData.get(`travelRate${i}`)) ?? 0;
     const requiresVanDriving = formData.get(`vanReq${i}`) === "on";
-    const rateType = (str(formData.get(`rateType${i}`)) ?? "flat") as "flat" | "hourly";
 
     const pid = nanoid();
     await db.insert(schema.positions).values({
-      id: pid, eventId, role: role as any, mode, needed, sortOrder: i,
-      baseRate, vanDrivingRate, requiresVanDriving, rateType,
+      id: pid, eventId, role: role as any, mode, needed, sortOrder,
+      baseRate, vanDrivingRate, travelRate, requiresVanDriving,
+      rateType: "flat", // UI no longer surfaces this; default kept for schema compat
     });
     for (let s = 0; s < needed; s++) {
       await db.insert(schema.slots).values({ id: nanoid(), positionId: pid, index: s });
     }
+    sortOrder += 1;
   }
 
+  // Persist autocomplete values for next time
   const ac = [
     { field: "venue" as const, value: str(formData.get("venue")) },
     { field: "city" as const, value: str(formData.get("city")) },
@@ -57,7 +67,10 @@ async function createEventAction(formData: FormData) {
   ];
   for (const { field, value } of ac) {
     if (!value) continue;
-    const existing = await db.select().from(schema.autocompleteValues).where(eq(schema.autocompleteValues.value, value));
+    const existing = await db
+      .select()
+      .from(schema.autocompleteValues)
+      .where(and(eq(schema.autocompleteValues.companyId, session.companyId), eq(schema.autocompleteValues.field, field), eq(schema.autocompleteValues.value, value)));
     if (existing.length === 0) {
       await db.insert(schema.autocompleteValues).values({ id: nanoid(), companyId: session.companyId, field, value });
     }
@@ -78,6 +91,18 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
   const [user] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
   const defaultDate = searchParams.date ?? new Date().toISOString().slice(0, 10);
 
+  const autocomplete = await db
+    .select()
+    .from(schema.autocompleteValues)
+    .where(eq(schema.autocompleteValues.companyId, session.companyId));
+  const suggestions = {
+    venue: autocomplete.filter((a) => a.field === "venue").map((a) => a.value).sort(),
+    city: autocomplete.filter((a) => a.field === "city").map((a) => a.value).sort(),
+    planner: autocomplete.filter((a) => a.field === "planner").map((a) => a.value).sort(),
+    eventType: autocomplete.filter((a) => a.field === "eventType").map((a) => a.value).sort(),
+    clientName: autocomplete.filter((a) => a.field === "clientName").map((a) => a.value).sort(),
+  };
+
   return (
     <div>
       <AppHeader companyName={company.name} userEmail={user.email} role="manager" />
@@ -87,11 +112,11 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
         <form action={createEventAction} className="space-y-6">
           <section className="grid md:grid-cols-2 gap-4">
             <Field label="Date" name="date" type="date" defaultValue={defaultDate} required />
-            <Field label="Client name" name="clientName" placeholder="Marisa Cooper" required />
-            <Field label="Venue" name="venue" placeholder="Private Estate" />
-            <Field label="City" name="city" placeholder="Santa Barbara" />
-            <Field label="Event type" name="eventType" placeholder="Wedding" />
-            <Field label="Planner" name="planner" placeholder="Tamara Jensen" />
+            <AutocompleteField label="Client name" name="clientName" listId="ac-clientName" options={suggestions.clientName} required />
+            <AutocompleteField label="Venue" name="venue" listId="ac-venue" options={suggestions.venue} />
+            <AutocompleteField label="City" name="city" listId="ac-city" options={suggestions.city} />
+            <AutocompleteField label="Event type" name="eventType" listId="ac-eventType" options={suggestions.eventType} />
+            <AutocompleteField label="Planner" name="planner" listId="ac-planner" options={suggestions.planner} />
             <Field label="Guest count" name="guestCount" type="number" />
             <Field label="Number of bars" name="numBars" type="number" />
             <Field label="Check-in time" name="checkInTime" type="time" />
@@ -101,16 +126,14 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
           <section>
             <h2 className="font-semibold mb-2">Positions</h2>
             <p className="text-sm text-gray-500 mb-4">
-              Up to 12 position lines. <strong>Pool</strong> = multiple staff compete, first-accept-wins. <strong>Individual</strong> = one specific person per slot.
+              Add as many positions as you need. <strong>Pool</strong> = multiple staff compete, first-accept-wins. <strong>Individual</strong> = specific person per slot.
             </p>
-            <div className="space-y-3">
-              {Array.from({ length: 5 }).map((_, i) => (<PositionRow key={i} index={i} />))}
-            </div>
+            <PositionRows />
           </section>
 
           <section className="grid md:grid-cols-2 gap-4">
-            <div><label className="label" htmlFor="staffNotes">Staff notes (visible to invited staff)</label><textarea id="staffNotes" name="staffNotes" className="input" rows={3} placeholder="e.g. White shirt required" /></div>
-            <div><label className="label" htmlFor="internalNotes">Internal notes</label><textarea id="internalNotes" name="internalNotes" className="input" rows={3} placeholder="Manager-only reminders" /></div>
+            <div><label className="label" htmlFor="staffNotes">Staff notes (visible to invited staff)</label><textarea id="staffNotes" name="staffNotes" className="input" rows={3} /></div>
+            <div><label className="label" htmlFor="internalNotes">Internal notes</label><textarea id="internalNotes" name="internalNotes" className="input" rows={3} /></div>
           </section>
 
           <div className="flex gap-3">
@@ -123,40 +146,27 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
   );
 }
 
-function Field({ label, name, type = "text", placeholder, required, defaultValue }: {
-  label: string; name: string; type?: string; placeholder?: string; required?: boolean; defaultValue?: string | number;
+function Field({ label, name, type = "text", required, defaultValue }: {
+  label: string; name: string; type?: string; required?: boolean; defaultValue?: string | number;
 }) {
   return (
     <div>
       <label className="label" htmlFor={name}>{label}</label>
-      <input id={name} name={name} type={type} placeholder={placeholder} required={required} defaultValue={defaultValue} className="input" />
+      <input id={name} name={name} type={type} required={required} defaultValue={defaultValue} className="input" />
     </div>
   );
 }
 
-function PositionRow({ index }: { index: number }) {
+function AutocompleteField({ label, name, listId, options, required }: {
+  label: string; name: string; listId: string; options: string[]; required?: boolean;
+}) {
   return (
-    <div className="grid grid-cols-12 gap-2 items-end border rounded-lg p-3">
-      <div className="col-span-1"><label className="label">#</label><input name={`needed${index}`} type="number" min={1} defaultValue={1} className="input" /></div>
-      <div className="col-span-3"><label className="label">Role</label>
-        <select name={`role${index}`} className="input" defaultValue="">
-          <option value="">—</option>
-          {POSITION_ROLES.map((r) => (<option key={r} value={r}>{r}</option>))}
-        </select>
-      </div>
-      <div className="col-span-2"><label className="label">Mode</label>
-        <select name={`mode${index}`} className="input" defaultValue="pool">
-          <option value="pool">Pool</option><option value="individual">Individual</option>
-        </select>
-      </div>
-      <div className="col-span-2"><label className="label">Base rate</label><input name={`baseRate${index}`} type="number" min={0} step="0.01" className="input" placeholder="0" /></div>
-      <div className="col-span-2"><label className="label">Van add-on</label><input name={`vanRate${index}`} type="number" min={0} step="0.01" className="input" placeholder="0" /></div>
-      <div className="col-span-1"><label className="label">Type</label>
-        <select name={`rateType${index}`} className="input" defaultValue="flat">
-          <option value="flat">Flat</option><option value="hourly">Hrly</option>
-        </select>
-      </div>
-      <div className="col-span-1 flex items-center gap-1 pb-2"><input id={`vanReq${index}`} name={`vanReq${index}`} type="checkbox" /><label htmlFor={`vanReq${index}`} className="text-xs">Van</label></div>
+    <div>
+      <label className="label" htmlFor={name}>{label}</label>
+      <input id={name} name={name} list={listId} autoComplete="off" required={required} className="input" />
+      <datalist id={listId}>
+        {options.map((o) => (<option key={o} value={o} />))}
+      </datalist>
     </div>
   );
 }

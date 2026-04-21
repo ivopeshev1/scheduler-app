@@ -63,16 +63,22 @@ export async function sendEmail(input: SendEmailInput) {
 export function composeRateLines(args: {
   baseRate: number | null;
   vanDrivingRate: number | null;
+  travelRate?: number | null;
   requiresVanDriving: boolean;
-  rateType: "hourly" | "flat";
+  rateType?: "hourly" | "flat";
 }) {
   const base = args.baseRate ?? 0;
   const van = args.requiresVanDriving ? (args.vanDrivingRate ?? 0) : 0;
-  const total = base + van;
-  const rateSuffix = args.rateType === "hourly" ? "/hour" : " flat";
-  const headline = `Rate for this event is $${total}${rateSuffix}.`;
-  const note = args.requiresVanDriving
+  const travel = args.travelRate ?? 0;
+  const total = base + van + travel;
+  const headline = `Rate for this event is $${total}.`;
+  const van_note = args.requiresVanDriving
     ? "This event requires van driving."
     : "This event does not require van driving.";
-  return { headline, note, combined: `${headline} ${note}` };
+  const travel_note = travel > 0 ? ` Travel comp: $${travel}.` : "";
+  return {
+    headline,
+    note: van_note + travel_note,
+    combined: `${headline} ${van_note}${travel_note}`,
+  };
 }
