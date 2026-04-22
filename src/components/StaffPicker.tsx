@@ -102,7 +102,11 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
             ) : (
               filtered.map((s) => {
                 const tier = selections[s.userId];
-                const locked = s.currentStatus === "accepted" || s.currentStatus === "rejected" || !!s.busyWith;
+                const alreadyOnThisPosition = s.currentTier !== null && s.currentTier !== undefined;
+                // Lock rules:
+                //  - If staff is already on THIS position → always unlocked (manager needs to be able to remove them)
+                //  - Otherwise, lock if they're busy elsewhere on this date, or they rejected a prior invite here
+                const locked = !alreadyOnThisPosition && (!!s.busyWith || s.currentStatus === "rejected");
                 const checked = tier !== null && tier !== undefined;
                 return (
                   <label key={s.userId} className={`flex items-center gap-3 px-3 py-2 border-b last:border-b-0 text-sm ${locked ? "opacity-50 cursor-not-allowed bg-gray-50" : "hover:bg-gray-50 cursor-pointer"}`}>
@@ -120,14 +124,22 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                       <div className="text-xs text-gray-500">
                         {s.city ?? "—"}
                         {s.defaultRate ? ` · $${s.defaultRate}${s.defaultRateType === "hourly" ? "/hr" : ""}` : ""}
-                        {s.busyWith && (
+                        {/* Status label priority: current-position status wins over busy-elsewhere,
+                            because if they're already on this position the busy-elsewhere message
+                            is misleading (it's telling us about a secondary invite, not a real conflict). */}
+                        {s.currentStatus === "accepted" && <span className="ml-2 text-status-confirmed font-medium">Accepted</span>}
+                        {s.currentStatus === "rejected" && <span className="ml-2">Rejected</span>}
+                        {s.currentStatus === "pending" && <span className="ml-2 status-pending">Pending</span>}
+                        {!alreadyOnThisPosition && s.busyWith && (
                           <span className="ml-2 text-amber-700 font-medium">
                             Busy — {s.busyWith.clientName} ({s.busyWith.eventDate}) as {s.busyWith.role}
                           </span>
                         )}
-                        {!s.busyWith && s.currentStatus === "accepted" && <span className="ml-2 text-status-confirmed font-medium">Accepted</span>}
-                        {!s.busyWith && s.currentStatus === "rejected" && <span className="ml-2">Rejected</span>}
-                        {!s.busyWith && s.currentStatus === "pending" && <span className="ml-2 status-pending">Pending</span>}
+                        {alreadyOnThisPosition && s.busyWith && (
+                          <span className="ml-2 text-red-600 font-medium">
+                            ⚠ Also invited as {s.busyWith.role} — remove one
+                          </span>
+                        )}
                       </div>
                     </div>
                     <select

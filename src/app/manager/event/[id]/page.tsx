@@ -62,12 +62,23 @@ async function saveInvitations(formData: FormData) {
     const current = existing.find((e) => e.userId === userId);
 
     if (tier === null) {
-      // Deselected. Two sub-cases:
-      //   - Unsent draft: silent delete, nobody was ever notified.
-      //   - Already sent (pending): staff got an invite email, so we MUST tell them
-      //     the shift was pulled before deleting the invitation.
-      if (current && current.status === "pending") {
-        if (current.sentAt) {
+      // Deselected. Cases:
+      //   - Unsent draft (pending, no sentAt): silent delete, nobody was notified yet.
+      //   - Sent pending (pending, sentAt): staff got an invite email → send "shift removed".
+      //   - Accepted: free their slot + send "shift removed" email.
+      // Rejected/expired: leave the record as-is (it's already terminal; removing it
+      // would lose the audit trail).
+      if (current && (current.status === "pending" || current.status === "accepted")) {
+        const wasEverNotified = !!current.sentAt;
+
+        // Free the slot if they had accepted (removes them from the confirmed staffing)
+        if (current.slotId) {
+          await db.update(schema.slots)
+            .set({ acceptedUserId: null, acceptedAt: null })
+            .where(eq(schema.slots.id, current.slotId));
+        }
+
+        if (wasEverNotified) {
           const [u] = await db.select().from(schema.users).where(eq(schema.users.id, userId));
           const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, userId));
           const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
