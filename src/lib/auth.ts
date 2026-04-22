@@ -53,6 +53,11 @@ export async function signInWithPassword(email: string, password: string) {
   if (!user || !user.passwordHash) return { ok: false as const, error: "Invalid email or password" };
   const valid = bcrypt.compareSync(password, user.passwordHash);
   if (!valid) return { ok: false as const, error: "Invalid email or password" };
+  // First successful login marks the invite as accepted — the Team page uses this
+  // to show "Pending first login" vs. "Active" for managers invited by an owner.
+  if (!user.inviteAcceptedAt) {
+    await db.update(schema.users).set({ inviteAcceptedAt: new Date() }).where(eq(schema.users.id, user.id));
+  }
   await createSession({ userId: user.id, companyId: user.companyId, role: user.role });
   return { ok: true as const, user };
 }
