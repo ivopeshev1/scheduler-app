@@ -6,6 +6,23 @@ import { eq } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { revalidatePath } from "next/cache";
 
+/**
+ * Google Drive share URLs point to a viewer page, not the raw image, so browsers
+ * can't render them in an <img> tag. Detect the common forms and rewrite them
+ * to the thumbnail endpoint (which serves the actual image bytes).
+ */
+function normalizeLogoUrl(raw: string): string | null {
+  if (!raw) return null;
+  // https://drive.google.com/file/d/<ID>/view?usp=…
+  const m1 = /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/.exec(raw);
+  if (m1) return `https://drive.google.com/thumbnail?id=${m1[1]}&sz=w400`;
+  // https://drive.google.com/open?id=<ID>
+  const m2 = /drive\.google\.com\/open\?.*id=([a-zA-Z0-9_-]+)/.exec(raw);
+  if (m2) return `https://drive.google.com/thumbnail?id=${m2[1]}&sz=w400`;
+  // Already a thumbnail/uc URL, or any other provider — leave it alone
+  return raw;
+}
+
 async function saveCompanyAction(formData: FormData) {
   "use server";
   const session = await getSession();
@@ -13,7 +30,7 @@ async function saveCompanyAction(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   const logoUrlRaw = String(formData.get("logoUrl") ?? "").trim();
   if (!name) throw new Error("Company name is required");
-  const logoUrl = logoUrlRaw || null;
+  const logoUrl = normalizeLogoUrl(logoUrlRaw);
 
   await db
     .update(schema.companies)
