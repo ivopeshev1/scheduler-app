@@ -199,22 +199,28 @@ function ExistingRow({
           />
         </div>
         <div className="col-span-2">
-          <label className="label">Van add-on</label>
-          <MoneyInput name={`vanRate[${key}]`} defaultValue={p.vanDrivingRate ?? ""} />
-        </div>
-        <div className="col-span-2">
           <label className="label">Travel</label>
           <MoneyInput name={`travelRate[${key}]`} defaultValue={p.travelRate ?? ""} />
         </div>
-        <div className="col-span-1 flex items-center gap-1 pb-2">
-          <input
-            id={`vanReq[${key}]`}
-            name={`vanReq[${key}]`}
-            type="checkbox"
-            checked={isVan}
-            onChange={(e) => onToggleVan(e.target.checked)}
-          />
-          <label htmlFor={`vanReq[${key}]`} className="text-xs">Van</label>
+        <div className="col-span-3">
+          <label className="label">Van driver</label>
+          <div className="flex items-center gap-2 h-[38px]">
+            <input
+              id={`vanReq[${key}]`}
+              name={`vanReq[${key}]`}
+              type="checkbox"
+              checked={isVan}
+              onChange={(e) => onToggleVan(e.target.checked)}
+              className="w-4 h-4"
+            />
+            {!isVan ? (
+              <label htmlFor={`vanReq[${key}]`} className="text-sm text-gray-500">
+                Check to assign
+              </label>
+            ) : (
+              <MoneyInput name={`vanRate[${key}]`} defaultValue={p.vanDrivingRate ?? ""} />
+            )}
+          </div>
         </div>
         <div className="col-span-1 pb-1 flex justify-end">
           <button
@@ -289,22 +295,28 @@ function NewRow({
         />
       </div>
       <div className="col-span-2">
-        <label className="label">Van add-on</label>
-        <MoneyInput name={`vanRate[${newKey}]`} />
-      </div>
-      <div className="col-span-2">
         <label className="label">Travel</label>
         <MoneyInput name={`travelRate[${newKey}]`} />
       </div>
-      <div className="col-span-1 flex items-center gap-1 pb-2">
-        <input
-          id={`vanReq[${newKey}]`}
-          name={`vanReq[${newKey}]`}
-          type="checkbox"
-          checked={isVan}
-          onChange={(e) => onToggleVan(e.target.checked)}
-        />
-        <label htmlFor={`vanReq[${newKey}]`} className="text-xs">Van</label>
+      <div className="col-span-3">
+        <label className="label">Van driver</label>
+        <div className="flex items-center gap-2 h-[38px]">
+          <input
+            id={`vanReq[${newKey}]`}
+            name={`vanReq[${newKey}]`}
+            type="checkbox"
+            checked={isVan}
+            onChange={(e) => onToggleVan(e.target.checked)}
+            className="w-4 h-4"
+          />
+          {!isVan ? (
+            <label htmlFor={`vanReq[${newKey}]`} className="text-sm text-gray-500">
+              Check to assign
+            </label>
+          ) : (
+            <MoneyInput name={`vanRate[${newKey}]`} />
+          )}
+        </div>
       </div>
       <div className="col-span-1 pb-1 flex justify-end">
         <button

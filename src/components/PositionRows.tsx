@@ -95,22 +95,28 @@ function PositionRow({
         />
       </div>
       <div className="col-span-2">
-        <label className="label">Van add-on</label>
-        <MoneyInput name={`vanRate${index}`} />
-      </div>
-      <div className="col-span-2">
         <label className="label">Travel</label>
         <MoneyInput name={`travelRate${index}`} />
       </div>
-      <div className="col-span-1 flex items-center gap-1 pb-2">
-        <input
-          id={`vanReq${index}`}
-          name={`vanReq${index}`}
-          type="checkbox"
-          checked={isVanDriver}
-          onChange={(e) => onToggleVan(e.target.checked)}
-        />
-        <label htmlFor={`vanReq${index}`} className="text-xs">Van</label>
+      <div className="col-span-3">
+        <label className="label">Van driver</label>
+        <div className="flex items-center gap-2 h-[38px]">
+          <input
+            id={`vanReq${index}`}
+            name={`vanReq${index}`}
+            type="checkbox"
+            checked={isVanDriver}
+            onChange={(e) => onToggleVan(e.target.checked)}
+            className="w-4 h-4"
+          />
+          {!isVanDriver ? (
+            <label htmlFor={`vanReq${index}`} className="text-sm text-gray-500">
+              Check to assign
+            </label>
+          ) : (
+            <MoneyInput name={`vanRate${index}`} />
+          )}
+        </div>
       </div>
       <div className="col-span-1 pb-1 flex justify-end">
         <button
