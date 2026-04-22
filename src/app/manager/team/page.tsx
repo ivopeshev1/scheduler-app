@@ -245,9 +245,13 @@ export default async function TeamPage() {
                       <span className="text-gray-400"> · last welcomed {new Date(u.inviteAcceptedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
                     )}
                   </div>
-                  {pending && (
+                  {!u.isOwner && (
                     <details className="mt-2">
-                      <summary className="text-xs text-gray-500 cursor-pointer underline">Re-send welcome email with a new password</summary>
+                      <summary className="text-xs text-gray-500 cursor-pointer underline">
+                        {pending
+                          ? "Re-send welcome email with a new password"
+                          : "Reset their password & re-send login email"}
+                      </summary>
                       <form action={resendWelcomeAction} className="mt-2 flex items-end gap-2">
                         <input type="hidden" name="userId" value={u.id} />
                         <div className="flex-1">
@@ -264,6 +268,11 @@ export default async function TeamPage() {
                         </div>
                         <button type="submit" className="btn btn-secondary text-sm">Send</button>
                       </form>
+                      {!pending && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          This overwrites their current password. They&apos;ll need to use the new one you set here.
+                        </p>
+                      )}
                     </details>
                   )}
                 </div>
