@@ -10,6 +10,7 @@ import { formatTime, formatDate } from "@/lib/format";
 import { notifyCancellation } from "@/lib/event-notifications";
 import { shellWrap, kvRow, kvTable, greeting, banner, paragraph, signoff } from "@/lib/email-html";
 import { StaffPicker, type StaffOption } from "@/components/StaffPicker";
+import { DeleteEventForm } from "@/components/DeleteEventForm";
 import { nanoid } from "nanoid";
 import { revalidatePath } from "next/cache";
 
@@ -201,6 +202,42 @@ async function uncancelEventAction(formData: FormData) {
   await db.update(schema.events).set({ cancelledAt: null }).where(eq(schema.events.id, eventId));
   revalidatePath(`/manager/event/${eventId}`);
   redirect(`/manager/event/${eventId}`);
+}
+
+/**
+ * Hard-delete an event. Unlike cancelEventAction, this sends NO emails and
+ * leaves no record visible to staff. For mistakenly-created events or test
+ * events the manager wants gone silently. Cascade-deletes positions → slots
+ * and positions → invitations. Notifications referencing those invitations
+ * have their FK nulled out first so the cascade doesn't choke on the
+ * dangling reference.
+ */
+async function deleteEventAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "manager") throw new Error("Unauthorized");
+  const eventId = String(formData.get("eventId"));
+  const [event] = await db.select().from(schema.events).where(eq(schema.events.id, eventId));
+  if (!event || event.companyId !== session.companyId) throw new Error("Not found");
+
+  // Gather all invitation IDs for this event so we can null the notification FK
+  const positions = await db.select({ id: schema.positions.id }).from(schema.positions).where(eq(schema.positions.eventId, eventId));
+  for (const p of positions) {
+    const invites = await db.select({ id: schema.invitations.id }).from(schema.invitations).where(eq(schema.invitations.positionId, p.id));
+    for (const inv of invites) {
+      await db.update(schema.notifications)
+        .set({ relatedInvitationId: null })
+        .where(eq(schema.notifications.relatedInvitationId, inv.id));
+    }
+  }
+
+  // Nuke the event. Cascade handles positions, slots, invitations.
+  await db.delete(schema.events).where(eq(schema.events.id, eventId));
+
+  // Go back to the month view the event lived in
+  const month = event.date.slice(0, 7);
+  revalidatePath(`/manager/month/${month}`);
+  redirect(`/manager/month/${month}`);
 }
 
 async function sendPendingInvitations(formData: FormData) {
@@ -460,15 +497,20 @@ export default async function EventDetailPage({ params }: { params: { id: string
 
         <div className="mt-4 flex items-start justify-between gap-4">
           <h1 className={`text-3xl font-semibold ${event.cancelledAt ? "line-through text-gray-400" : ""}`}>{event.clientName}</h1>
-          {!event.cancelledAt && (
-            <div className="flex gap-2">
-              <Link href={`/manager/event/${event.id}/edit`} className="btn btn-secondary">Modify</Link>
-              <form action={cancelEventAction}>
-                <input type="hidden" name="eventId" value={event.id} />
-                <button type="submit" className="btn btn-secondary text-red-600 hover:bg-red-50">Cancel event</button>
-              </form>
-            </div>
-          )}
+          <div className="flex gap-2 items-start">
+            {!event.cancelledAt && (
+              <>
+                <Link href={`/manager/event/${event.id}/edit`} className="btn btn-secondary">Modify</Link>
+                <form action={cancelEventAction}>
+                  <input type="hidden" name="eventId" value={event.id} />
+                  <button type="submit" className="btn btn-secondary text-red-600 hover:bg-red-50">Cancel event</button>
+                </form>
+              </>
+            )}
+            {/* Hard delete — silent, irreversible. Separate from Cancel so
+                a stray click doesn't nuke a live event. */}
+            <DeleteEventForm eventId={event.id} action={deleteEventAction} />
+          </div>
         </div>
         <div className="mt-2">
           <div className="text-gray-600 mt-1">
