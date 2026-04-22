@@ -94,10 +94,33 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
 
       {open && (
         <div className="absolute z-20 mt-1 w-[540px] bg-white border rounded-lg shadow-lg p-3 left-0">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-sm font-semibold">Invite {role}s</div>
-            <div className="text-xs text-gray-500">Needs {needed} · first-accept-wins</div>
-          </div>
+          {/* Header row with Close/Save buttons on the right so the manager can
+              act without scrolling past the staff list. */}
+          <form
+            action={async (formData) => {
+              formData.set("eventId", eventId);
+              formData.set("positionId", positionId);
+              formData.set("selections", JSON.stringify(selections));
+              await onSave(formData);
+              router.refresh();
+              setOpen(false);
+            }}
+            className="flex items-center justify-between gap-3 mb-3 pb-3 border-b"
+          >
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold">Invite {role}s</div>
+              <div className="text-xs text-gray-500 truncate">
+                Needs {needed} · first-accept-wins ·{" "}
+                {priorityCount > 0
+                  ? `${priorityCount} priority invite${priorityCount > 1 ? "s" : ""} will email immediately`
+                  : "backups are silent until triggered"}
+              </div>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <button type="button" onClick={() => setOpen(false)} className="btn btn-secondary">Close</button>
+              <button type="submit" className="btn btn-primary">Save</button>
+            </div>
+          </form>
 
           <input type="text" placeholder="Search by name…" value={search} onChange={(e) => setSearch(e.target.value)} className="input mb-2" autoFocus />
 
@@ -176,29 +199,6 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
             )}
           </div>
 
-          <form
-            action={async (formData) => {
-              formData.set("eventId", eventId);
-              formData.set("positionId", positionId);
-              formData.set("selections", JSON.stringify(selections));
-              // Await the server action so revalidatePath finishes before we
-              // trigger the client-side refresh. router.refresh() then forces
-              // Next.js to re-fetch the RSC tree so status labels + busy
-              // detection reflect the new DB state immediately.
-              await onSave(formData);
-              router.refresh();
-              setOpen(false);
-            }}
-            className="mt-3 flex items-center justify-between"
-          >
-            <span className="text-xs text-gray-500">
-              {priorityCount > 0 ? `${priorityCount} priority invite${priorityCount > 1 ? "s" : ""} will email immediately.` : "No priority invites selected — backup tiers are silent until triggered."}
-            </span>
-            <div className="flex gap-2">
-              <button type="button" onClick={() => setOpen(false)} className="btn btn-secondary">Close</button>
-              <button type="submit" className="btn btn-primary">Save</button>
-            </div>
-          </form>
         </div>
       )}
     </div>
