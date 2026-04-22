@@ -8,6 +8,7 @@ import { summarizePosition } from "@/lib/status";
 import { sendEmail, escapeHtml } from "@/lib/notifications";
 import { formatTime, formatDate } from "@/lib/format";
 import { notifyCancellation } from "@/lib/event-notifications";
+import { shellWrap, kvRow, kvTable, greeting, banner, paragraph, signoff } from "@/lib/email-html";
 import { StaffPicker, type StaffOption } from "@/components/StaffPicker";
 import { nanoid } from "nanoid";
 import { revalidatePath } from "next/cache";
@@ -61,8 +62,48 @@ async function saveInvitations(formData: FormData) {
     const current = existing.find((e) => e.userId === userId);
 
     if (tier === null) {
-      // Deselected — only cancel if not yet sent
-      if (current && current.status === "pending" && !current.sentAt) {
+      // Deselected. Two sub-cases:
+      //   - Unsent draft: silent delete, nobody was ever notified.
+      //   - Already sent (pending): staff got an invite email, so we MUST tell them
+      //     the shift was pulled before deleting the invitation.
+      if (current && current.status === "pending") {
+        if (current.sentAt) {
+          const [u] = await db.select().from(schema.users).where(eq(schema.users.id, userId));
+          const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, userId));
+          const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
+          const companyName = company?.name ?? "Scheduler";
+          const prettyDate = formatDate(event.date);
+          if (u) {
+            const textBody = [
+              `Hi ${profile?.firstName ?? ""},`, ``,
+              `Your ${position.role} slot for this shift has been removed.`,
+              `You no longer need to attend.`, ``,
+              `Role:   ${position.role}`,
+              `Date:   ${prettyDate}`,
+              `Client: ${event.clientName}`, ``,
+              `– ${companyName}`,
+            ].join("\n");
+            const htmlBody = shellWrap([
+              greeting(profile?.firstName, `Your ${position.role} slot for this shift has been removed.`),
+              banner("⚠  Shift removed — you no longer need to attend.", "warning"),
+              kvTable([
+                kvRow("Role", position.role),
+                kvRow("Date", prettyDate),
+                kvRow("Client", event.clientName),
+              ]),
+              paragraph("If you have questions, reach out to your manager.", { muted: true }),
+              signoff(companyName),
+            ].join("\n"));
+            await sendEmail({
+              to: u.email,
+              subject: `Shift removed: ${event.clientName} on ${prettyDate}`,
+              body: textBody,
+              html: htmlBody,
+              companyId: session.companyId,
+              userId,
+            });
+          }
+        }
         await db.delete(schema.invitations).where(eq(schema.invitations.id, current.id));
       }
       continue;
