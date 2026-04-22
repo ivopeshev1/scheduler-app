@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 export type StaffOption = {
   userId: string;
@@ -29,6 +30,7 @@ type Props = {
 const TIER_LABELS = ["Priority", "Backup 1", "Backup 2", "Backup 3"] as const;
 
 export function StaffPicker({ positionId, eventId, role, needed, mode, staff, onSave }: Props) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [cityFilter, setCityFilter] = useState<string>("all");
@@ -37,6 +39,13 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
     for (const s of staff) init[s.userId] = s.currentTier;
     return init;
   });
+  // Re-sync selections when the server sends fresh staff props (e.g. after a
+  // save). Without this, the modal can keep stale tiers from prior renders.
+  useEffect(() => {
+    const next: Record<string, number | null> = {};
+    for (const s of staff) next[s.userId] = s.currentTier;
+    setSelections(next);
+  }, [staff]);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -165,11 +174,16 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
           </div>
 
           <form
-            action={(formData) => {
+            action={async (formData) => {
               formData.set("eventId", eventId);
               formData.set("positionId", positionId);
               formData.set("selections", JSON.stringify(selections));
-              onSave(formData);
+              // Await the server action so revalidatePath finishes before we
+              // trigger the client-side refresh. router.refresh() then forces
+              // Next.js to re-fetch the RSC tree so status labels + busy
+              // detection reflect the new DB state immediately.
+              await onSave(formData);
+              router.refresh();
               setOpen(false);
             }}
             className="mt-3 flex items-center justify-between"
