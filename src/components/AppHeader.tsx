@@ -44,6 +44,7 @@ export function AppHeader({ companyName, userEmail, role, logoUrl }: Props) {
             <>
               <Link href="/manager" className="text-gray-700 hover:text-black">Calendar</Link>
               <Link href="/manager/staff" className="text-gray-700 hover:text-black">Staff</Link>
+              <Link href="/manager/notifications" className="text-gray-700 hover:text-black">Notifications</Link>
               <Link href="/manager/settings" className="text-gray-700 hover:text-black">Settings</Link>
             </>
           )}
