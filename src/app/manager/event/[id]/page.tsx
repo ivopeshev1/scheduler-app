@@ -32,8 +32,29 @@ async function saveInvitations(formData: FormData) {
 
   const [position] = await db.select().from(schema.positions).where(eq(schema.positions.id, positionId));
   if (!position) throw new Error("Position not found");
+  const [event] = await db.select().from(schema.events).where(eq(schema.events.id, position.eventId));
+  if (!event) throw new Error("Event not found");
 
   const existing = await db.select().from(schema.invitations).where(eq(schema.invitations.positionId, positionId));
+
+  // Pull every active invite for this company on the SAME DATE as this event so we can
+  // reject any attempt to double-invite the same person to two positions on the same day
+  // (either within this event or a different event on the same date).
+  const sameDayInvites = await db
+    .select({ inv: schema.invitations, pos: schema.positions, ev: schema.events })
+    .from(schema.invitations)
+    .innerJoin(schema.positions, eq(schema.invitations.positionId, schema.positions.id))
+    .innerJoin(schema.events, eq(schema.positions.eventId, schema.events.id))
+    .where(eq(schema.events.companyId, session.companyId));
+
+  function hasSameDayConflictElsewhere(userId: string): boolean {
+    return sameDayInvites.some((r) =>
+      r.inv.userId === userId &&
+      r.ev.date === event.date &&
+      r.pos.id !== positionId &&
+      (r.inv.status === "pending" || r.inv.status === "accepted")
+    );
+  }
 
   for (const [userId, tierRaw] of Object.entries(selections)) {
     const tier = tierRaw === null || tierRaw === undefined ? null : Number(tierRaw);
@@ -53,6 +74,8 @@ async function saveInvitations(formData: FormData) {
         await db.update(schema.invitations).set({ tier }).where(eq(schema.invitations.id, current.id));
       }
     } else {
+      // Guard: skip inserting if the same staff is already active on a different position on this date
+      if (hasSameDayConflictElsewhere(userId)) continue;
       await db.insert(schema.invitations).values({
         id: nanoid(),
         positionId,
