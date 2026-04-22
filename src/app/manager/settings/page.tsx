@@ -35,20 +35,10 @@ async function saveCompanyAction(formData: FormData) {
   if (!name) throw new Error("Company name is required");
   const logoUrl = normalizeLogoUrl(logoUrlRaw);
 
-  // Priority expire days: blank or 0 → null (no auto-expiry). Otherwise clamp
-  // to a sensible range (1–60 days).
-  const expireRaw = String(formData.get("priorityExpireDays") ?? "").trim();
-  let priorityExpireDays: number | null = null;
-  if (expireRaw) {
-    const n = Number(expireRaw);
-    if (Number.isFinite(n) && n >= 1) {
-      priorityExpireDays = Math.min(60, Math.max(1, Math.floor(n)));
-    }
-  }
-
+  // Notification rules (priorityExpireDays etc.) moved to /manager/notifications
   await db
     .update(schema.companies)
-    .set({ name, logoUrl, priorityExpireDays })
+    .set({ name, logoUrl })
     .where(eq(schema.companies.id, session.companyId));
 
   revalidatePath("/manager");
@@ -124,38 +114,12 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
             )}
           </div>
 
-          <section className="pt-6 border-t">
-            <h2 className="font-semibold mb-1">Notifications</h2>
-            <p className="text-sm text-gray-600 mb-4">
-              Rules that control how invitations age out and how backups get promoted.
-            </p>
+          <p className="text-sm text-gray-500 pt-4 border-t">
+            Looking for invite-expiry / backup-cascade rules? Those moved to the{" "}
+            <Link href="/manager/notifications" className="underline">Notifications</Link> page.
+          </p>
 
-            <div>
-              <label htmlFor="priorityExpireDays" className="label">
-                Auto-expire priority invites after
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  id="priorityExpireDays"
-                  name="priorityExpireDays"
-                  type="number"
-                  min={1}
-                  max={60}
-                  defaultValue={company.priorityExpireDays ?? ""}
-                  placeholder="—"
-                  className="input w-24"
-                />
-                <span className="text-sm text-gray-700">days with no response</span>
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
-                When a priority invite sits that long without the staff accepting or rejecting, it auto-expires.
-                The lowest-tier backup is promoted to priority and emailed. If no backup exists, you get
-                a heads-up email instead. Leave blank to disable auto-expiry (you handle all re-invites manually).
-              </p>
-            </div>
-          </section>
-
-          <div className="flex gap-3 pt-4 border-t">
+          <div className="flex gap-3 pt-4">
             <button type="submit" className="btn btn-primary">Save</button>
             <Link href="/manager" className="btn btn-secondary">Cancel</Link>
           </div>

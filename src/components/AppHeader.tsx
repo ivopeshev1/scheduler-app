@@ -52,7 +52,10 @@ export function AppHeader({ companyName, userEmail, role, logoUrl, isOwner, canE
             <>
               <Link href="/manager" className="text-gray-700 hover:text-black">Calendar</Link>
               <Link href="/manager/staff" className="text-gray-700 hover:text-black">Staff</Link>
-              <Link href="/manager/notifications" className="text-gray-700 hover:text-black">Notifications</Link>
+              <Link href="/manager/log" className="text-gray-700 hover:text-black">Log</Link>
+              {showSettings && (
+                <Link href="/manager/notifications" className="text-gray-700 hover:text-black">Notifications</Link>
+              )}
               {showTeam && (
                 <Link href="/manager/team" className="text-gray-700 hover:text-black">Team</Link>
               )}
