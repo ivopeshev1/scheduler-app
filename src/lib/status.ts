@@ -49,12 +49,12 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
     if (invited > 1) {
       return { label: `${invited} Invited`, state: "pending" };
     }
-    // No sent invites; is there a draft?
+    // No sent invites; is there a draft (i.e., a backup queued but not yet emailed)?
     if (drafted === 1) {
-      return { label: `${await firstNameOf(draftInvites[0].userId)} (draft)`, state: "pending" };
+      return { label: `${await firstNameOf(draftInvites[0].userId)} (backup)`, state: "pending" };
     }
     if (drafted > 1) {
-      return { label: `${drafted} Drafted`, state: "pending" };
+      return { label: `${drafted} Backups`, state: "pending" };
     }
     return { label: "Open", state: "pending" };
   }
@@ -64,7 +64,7 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
   const parts: string[] = [];
   if (filled > 0) parts.push(`${filled} Confirmed`);
   if (invited > 0) parts.push(`${invited} Invited`);
-  if (drafted > 0) parts.push(`${drafted} Drafted`);
+  if (drafted > 0) parts.push(`${drafted} ${drafted === 1 ? "Backup" : "Backups"}`);
   if (open > 0) parts.push(`${open} Open`);
   return { label: parts.join(" / "), state: "pending" };
 }
