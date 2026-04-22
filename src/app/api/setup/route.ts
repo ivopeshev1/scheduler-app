@@ -87,6 +87,10 @@ export async function GET(req: Request) {
   await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS logo_url TEXT`;
   // Travel comp moves from position-level to per-invitation (varies per staff)
   await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS travel_rate REAL`;
+  // Auto-expire unresponded priority invites after N days (null = never)
+  await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS priority_expire_days INTEGER`;
+  // Soft-delete for staff members who quit / are no longer active
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`;
   await sql`CREATE TABLE IF NOT EXISTS slots (
     id TEXT PRIMARY KEY,
     position_id TEXT NOT NULL REFERENCES positions(id) ON DELETE CASCADE,

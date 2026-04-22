@@ -6,6 +6,9 @@ export const companies = pgTable("companies", {
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   logoUrl: text("logo_url"),
+  // Auto-expire priority invites after this many days if no response. NULL means
+  // never auto-expire (manager handles manually). Set per-company via Settings.
+  priorityExpireDays: integer("priority_expire_days"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -19,6 +22,10 @@ export const users = pgTable(
     role: text("role", { enum: ["manager", "staff"] }).notNull(),
     inviteToken: text("invite_token"),
     inviteAcceptedAt: timestamp("invite_accepted_at", { withTimezone: true }),
+    // Soft-delete: when archived, filtered out of staff list and all pickers.
+    // Pending invitations can still exist in the DB; manager handles any
+    // accepted shifts through Edit Event before archiving.
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
