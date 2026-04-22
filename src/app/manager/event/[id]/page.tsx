@@ -397,7 +397,10 @@ export default async function EventDetailPage({ params }: { params: { id: string
     .from(schema.users)
     .innerJoin(schema.staffProfiles, eq(schema.users.id, schema.staffProfiles.userId))
     .where(eq(schema.users.companyId, session.companyId));
-  const staffOnly = allStaff.filter((r) => r.user.role === "staff");
+  // Archived (removed) staff don't appear in pickers, but if they still have an
+  // active invite to THIS position we keep them visible so the manager can see
+  // / remove that invite explicitly.
+  const staffOnly = allStaff.filter((r) => r.user.role === "staff" && !r.user.archivedAt);
 
   const invitesByPosition: Record<string, typeof schema.invitations.$inferSelect[]> = {};
   for (const p of positionsList) {

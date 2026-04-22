@@ -1,10 +1,58 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getSession } from "@/lib/auth";
+import { getSession, makeInviteToken } from "@/lib/auth";
 import { db, schema } from "@/db/client";
-import { eq } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { headers } from "next/headers";
+import { revalidatePath } from "next/cache";
+
+async function archiveStaffAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "manager") throw new Error("Unauthorized");
+  const userId = String(formData.get("userId"));
+
+  const [target] = await db.select().from(schema.users).where(eq(schema.users.id, userId));
+  if (!target || target.companyId !== session.companyId || target.role !== "staff") throw new Error("Not found");
+
+  // Refuse if they have any accepted shifts — manager must unwind those first via Edit Event
+  const invites = await db.select().from(schema.invitations).where(eq(schema.invitations.userId, userId));
+  const hasAccepted = invites.some((i) => i.status === "accepted");
+  if (hasAccepted) {
+    throw new Error(
+      `Cannot remove: this staff member has accepted shifts. Remove them from those shifts first via Edit Event.`
+    );
+  }
+
+  // Silently cancel any pending invitations (no emails — same-day they might have gotten an
+  // invite but if we're archiving them, they're no longer part of the roster).
+  for (const inv of invites) {
+    if (inv.status === "pending") {
+      await db.delete(schema.invitations).where(eq(schema.invitations.id, inv.id));
+    }
+  }
+
+  await db.update(schema.users).set({ archivedAt: new Date() }).where(eq(schema.users.id, userId));
+  revalidatePath("/manager/staff");
+}
+
+async function resendInviteAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "manager") throw new Error("Unauthorized");
+  const userId = String(formData.get("userId"));
+
+  const [target] = await db.select().from(schema.users).where(eq(schema.users.id, userId));
+  if (!target || target.companyId !== session.companyId) throw new Error("Not found");
+  if (target.inviteAcceptedAt) throw new Error("Staff already onboarded — nothing to resend");
+
+  // Generate a new token, invalidating any prior link. Manager copies the new
+  // URL from the staff page and shares it however they want (email, text, etc).
+  const newToken = makeInviteToken();
+  await db.update(schema.users).set({ inviteToken: newToken }).where(eq(schema.users.id, userId));
+  revalidatePath("/manager/staff");
+}
 
 export default async function ManagerStaffPage() {
   const session = await getSession();
@@ -17,7 +65,7 @@ export default async function ManagerStaffPage() {
   const rows = await db.select({ user: schema.users, profile: schema.staffProfiles })
     .from(schema.users)
     .leftJoin(schema.staffProfiles, eq(schema.users.id, schema.staffProfiles.userId))
-    .where(eq(schema.users.companyId, session.companyId));
+    .where(and(eq(schema.users.companyId, session.companyId), isNull(schema.users.archivedAt)));
   const staffRows = rows.filter((r) => r.user.role === "staff");
   staffRows.sort((a, b) => {
     const aName = a.profile?.firstName ?? a.user.email;
@@ -85,26 +133,38 @@ export default async function ManagerStaffPage() {
                     {user.inviteAcceptedAt ? (
                       <span className="text-status-confirmed">Onboarded</span>
                     ) : inviteUrl ? (
-                      <InviteLinkCell url={inviteUrl} />
+                      <InviteLinkCell url={inviteUrl} userId={user.id} />
                     ) : (
                       <span className="text-gray-400">—</span>
                     )}
                   </td>
                   <td className="py-3 text-right">
-                    {profile && (
-                      <Link
-                        href={`/manager/staff/${user.id}/edit`}
-                        className="text-sm underline text-gray-600 hover:text-black"
-                      >
-                        Modify
-                      </Link>
-                    )}
+                    <div className="flex gap-3 justify-end items-center">
+                      {profile && (
+                        <Link
+                          href={`/manager/staff/${user.id}/edit`}
+                          className="text-sm underline text-gray-600 hover:text-black"
+                        >
+                          Modify
+                        </Link>
+                      )}
+                      <form action={archiveStaffAction}>
+                        <input type="hidden" name="userId" value={user.id} />
+                        <button
+                          type="submit"
+                          className="text-sm text-red-600 hover:underline"
+                          title="Remove this staff member (soft-delete)"
+                        >
+                          Remove
+                        </button>
+                      </form>
+                    </div>
                   </td>
                 </tr>
               );
             })}
             {staffRows.length === 0 && (
-              <tr><td colSpan={8} className="py-8 text-center text-gray-400">No staff yet. Click "+ Add staff" to start.</td></tr>
+              <tr><td colSpan={8} className="py-8 text-center text-gray-400">No staff yet. Click &quot;+ Add staff&quot; to start.</td></tr>
             )}
           </tbody>
         </table>
@@ -113,7 +173,7 @@ export default async function ManagerStaffPage() {
   );
 }
 
-function InviteLinkCell({ url }: { url: string }) {
+function InviteLinkCell({ url, userId }: { url: string; userId: string }) {
   return (
     <div className="flex flex-col">
       <span className="status-pending text-xs">Pending onboarding</span>
@@ -123,6 +183,16 @@ function InviteLinkCell({ url }: { url: string }) {
           {url}
         </div>
         <p className="text-xs text-gray-500 mt-1">Copy and email this to the staff member.</p>
+        <form action={resendInviteAction} className="mt-2">
+          <input type="hidden" name="userId" value={userId} />
+          <button
+            type="submit"
+            className="text-xs text-gray-600 underline hover:text-black"
+            title="Generate a fresh link (the old one stops working)"
+          >
+            Regenerate link
+          </button>
+        </form>
       </details>
     </div>
   );
