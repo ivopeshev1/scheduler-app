@@ -33,7 +33,7 @@ export default async function ManagerStaffPage() {
 
   return (
     <div>
-      <AppHeader companyName={company.name} userEmail={user.email} role="manager" />
+      <AppHeader companyName={company.name} userEmail={user.email} role="manager" logoUrl={company.logoUrl} />
       <main className="max-w-6xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-semibold">Staff ({staffRows.length})</h1>

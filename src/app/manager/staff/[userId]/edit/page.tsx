@@ -71,7 +71,7 @@ export default async function EditStaffPage({ params }: { params: { userId: stri
 
   return (
     <div>
-      <AppHeader companyName={company.name} userEmail={me.email} role="manager" />
+      <AppHeader companyName={company.name} userEmail={me.email} role="manager" logoUrl={company.logoUrl} />
       <main className="max-w-3xl mx-auto px-6 py-8">
         <Link href="/manager/staff" className="text-sm text-gray-500 hover:underline">← Back to staff</Link>
         <h1 className="text-2xl font-semibold mt-2 mb-2">Modify {profile.firstName} {profile.lastName}</h1>
