@@ -85,6 +85,8 @@ export async function GET(req: Request) {
   await sql`ALTER TABLE positions ADD COLUMN IF NOT EXISTS base_rate_mode TEXT NOT NULL DEFAULT 'flat'`;
   // Backfill: logo_url for company branding (shown in the header)
   await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS logo_url TEXT`;
+  // Travel comp moves from position-level to per-invitation (varies per staff)
+  await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS travel_rate REAL`;
   await sql`CREATE TABLE IF NOT EXISTS slots (
     id TEXT PRIMARY KEY,
     position_id TEXT NOT NULL REFERENCES positions(id) ON DELETE CASCADE,

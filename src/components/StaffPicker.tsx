@@ -13,6 +13,8 @@ export type StaffOption = {
   defaultRateType: "hourly" | "flat" | "both" | null;
   currentTier: number | null;
   currentStatus: "pending" | "accepted" | "rejected" | "expired" | "filled" | null;
+  // Travel comp already stored on THIS invitation, if any
+  currentTravelRate: number | null;
   // If set, this staff member is already invited/accepted elsewhere — show but make un-selectable
   busyWith: { eventDate: string; clientName: string; role: string } | null;
 };
@@ -39,15 +41,27 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
     for (const s of staff) init[s.userId] = s.currentTier;
     return init;
   });
-  // Re-sync selections when the server sends fresh staff props, BUT only when
-  // the modal is closed — otherwise we'd clobber the user's in-progress edits
-  // every time React re-renders during a session (e.g. after another picker
-  // on the same page saves and triggers router.refresh).
+  // Per-invitee travel rate, keyed by userId. "" or undefined = no travel.
+  const [travelRates, setTravelRates] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const s of staff) {
+      init[s.userId] = s.currentTravelRate != null ? String(s.currentTravelRate) : "";
+    }
+    return init;
+  });
+  // Re-sync selections and travel rates when the server sends fresh staff props,
+  // BUT only when the modal is closed — otherwise we'd clobber the user's
+  // in-progress edits every time React re-renders during a session.
   useEffect(() => {
     if (open) return;
-    const next: Record<string, number | null> = {};
-    for (const s of staff) next[s.userId] = s.currentTier;
-    setSelections(next);
+    const nextSel: Record<string, number | null> = {};
+    const nextTravel: Record<string, string> = {};
+    for (const s of staff) {
+      nextSel[s.userId] = s.currentTier;
+      nextTravel[s.userId] = s.currentTravelRate != null ? String(s.currentTravelRate) : "";
+    }
+    setSelections(nextSel);
+    setTravelRates(nextTravel);
   }, [staff, open]);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -101,6 +115,9 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
               formData.set("eventId", eventId);
               formData.set("positionId", positionId);
               formData.set("selections", JSON.stringify(selections));
+              // Serialize the per-invitee travel rates alongside selections. Empty
+              // strings get dropped; the server parses each as a number or null.
+              formData.set("travelRates", JSON.stringify(travelRates));
               await onSave(formData);
               router.refresh();
               setOpen(false);
@@ -177,6 +194,27 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                         )}
                       </div>
                     </div>
+                    {/* Travel comp for this specific invitee — only shown when
+                        they're checked, since travel only makes sense for
+                        people you're actually inviting. Blank = no travel. */}
+                    {checked && (
+                      <div className="flex items-center gap-1 text-xs">
+                        <span className="text-gray-500">Travel $</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={travelRates[s.userId] ?? ""}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setTravelRates((prev) => ({ ...prev, [s.userId]: v }));
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          placeholder="0"
+                          className="w-14 border border-gray-300 rounded px-1.5 py-1 text-xs outline-none focus:border-gray-500"
+                        />
+                      </div>
+                    )}
                     <select
                       value={checked ? String(tier) : ""}
                       onChange={(e) => {

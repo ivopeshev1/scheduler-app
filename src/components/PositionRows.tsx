@@ -85,7 +85,7 @@ function PositionRow({
           placeholder="type or pick…"
         />
       </div>
-      <div className="col-span-2">
+      <div className="col-span-3">
         <label className="label">Base rate</label>
         <BaseRateControl
           baseRateFieldName={`baseRate${index}`}
@@ -94,11 +94,7 @@ function PositionRow({
           defaultAmount=""
         />
       </div>
-      <div className="col-span-2">
-        <label className="label">Travel</label>
-        <MoneyInput name={`travelRate${index}`} />
-      </div>
-      <div className="col-span-3">
+      <div className="col-span-4">
         <label className="label">Van driver</label>
         <div className="flex items-center gap-2 h-[38px]">
           <input

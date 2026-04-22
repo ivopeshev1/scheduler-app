@@ -30,6 +30,15 @@ async function saveInvitations(formData: FormData) {
   const positionId = String(formData.get("positionId"));
   const eventId = String(formData.get("eventId"));
   const selections = JSON.parse(String(formData.get("selections") ?? "{}")) as Record<string, number | null>;
+  const rawTravelRates = JSON.parse(String(formData.get("travelRates") ?? "{}")) as Record<string, string>;
+  // Parse each travel-rate string to a number (or null if blank/invalid)
+  const travelRates: Record<string, number | null> = {};
+  for (const [uid, raw] of Object.entries(rawTravelRates)) {
+    const s = (raw ?? "").toString().trim();
+    if (!s) { travelRates[uid] = null; continue; }
+    const n = Number(s);
+    travelRates[uid] = Number.isFinite(n) ? n : null;
+  }
 
   const [position] = await db.select().from(schema.positions).where(eq(schema.positions.id, positionId));
   if (!position) throw new Error("Position not found");
@@ -121,9 +130,20 @@ async function saveInvitations(formData: FormData) {
     }
 
     if (current) {
+      // Travel rate can be updated at any time (it's not something the staff sees
+      // until the invite email fires, and even sent-priority invites can have their
+      // travel comp adjusted up/down by the manager).
+      const newTravel = userId in travelRates ? travelRates[userId] : current.travelRate ?? null;
       if (current.status === "pending" && !current.sentAt) {
         // Can still change tier on unsent drafts
-        await db.update(schema.invitations).set({ tier }).where(eq(schema.invitations.id, current.id));
+        await db.update(schema.invitations)
+          .set({ tier, travelRate: newTravel })
+          .where(eq(schema.invitations.id, current.id));
+      } else if (newTravel !== (current.travelRate ?? null)) {
+        // Tier is locked (email sent) but travel can still be tweaked
+        await db.update(schema.invitations)
+          .set({ travelRate: newTravel })
+          .where(eq(schema.invitations.id, current.id));
       }
     } else {
       // Guard: skip inserting if the same staff is already active on a different position on this date
@@ -136,6 +156,7 @@ async function saveInvitations(formData: FormData) {
         status: "pending",
         sentAt: null,
         token: nanoid(32),
+        travelRate: travelRates[userId] ?? null,
       });
     }
   }
@@ -240,7 +261,8 @@ async function sendPendingInvitations(formData: FormData) {
         return `$${position.baseRate ?? 0}`;
       })();
       const vanAmount = position.requiresVanDriving ? (position.vanDrivingRate ?? 0) : 0;
-      const travel = position.travelRate ?? 0;
+      // Travel comp is per-invitee now (each person's travel varies by origin)
+      const travel = inv.travelRate ?? 0;
 
       // Plain-text version (fallback for clients that strip HTML).
       const compLinesText: string[] = [`Base rate:      ${baseRateDisplay}`];
@@ -400,6 +422,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
         defaultRateType: r.profile.defaultRateType,
         currentTier: inv ? inv.tier : null,
         currentStatus: inv ? inv.status : null,
+        currentTravelRate: inv ? inv.travelRate ?? null : null,
         busyWith,
       };
     });
@@ -489,7 +512,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
                     <td className="py-3 text-sm">
                       <div>{baseLabel}</div>
                       {p.requiresVanDriving && (<div className="text-xs text-gray-500">+ van ${p.vanDrivingRate}</div>)}
-                      {(p.travelRate ?? 0) > 0 && (<div className="text-xs text-gray-500">+ travel ${p.travelRate}</div>)}
+                      <div className="text-xs text-gray-400">+ travel (per invitee)</div>
                     </td>
                     <td className="py-3">
                       <StaffPicker positionId={p.id} eventId={event.id} role={p.role} needed={p.needed} mode={p.mode} staff={staffOptions} onSave={saveInvitations} />

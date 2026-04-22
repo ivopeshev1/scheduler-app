@@ -76,7 +76,6 @@ async function saveEventEditAction(formData: FormData) {
     // In standard mode, baseRate is ignored (each invitee gets their onboarded rate).
     const baseRate = baseRateMode === "standard" ? null : num(formData.get(`baseRate[${key}]`));
     const vanRate = num(formData.get(`vanRate[${key}]`)) ?? 0;
-    const travelRate = num(formData.get(`travelRate[${key}]`)) ?? 0;
     const requiresVan = formData.get(`vanReq[${key}]`) === "on";
 
     if (key.startsWith("new-")) {
@@ -84,7 +83,7 @@ async function saveEventEditAction(formData: FormData) {
       await db.insert(schema.positions).values({
         id: pid, eventId, role: role as any, mode: "pool", needed,
         sortOrder: existingPositions.length + 1,
-        baseRate, baseRateMode, vanDrivingRate: vanRate, travelRate,
+        baseRate, baseRateMode, vanDrivingRate: vanRate, travelRate: 0,
         requiresVanDriving: requiresVan, rateType: "flat",
       });
       for (let s = 0; s < needed; s++) {
@@ -165,10 +164,6 @@ async function saveEventEditAction(formData: FormData) {
         if (oldVan !== vanRate) {
           positionChangeLines.push(`Van driving rate: $${oldVan} → $${vanRate}`);
         }
-        const oldTravel = existing.travelRate ?? 0;
-        if (oldTravel !== travelRate) {
-          positionChangeLines.push(`Travel comp: $${oldTravel} → $${travelRate}`);
-        }
         if (existing.requiresVanDriving !== requiresVan) {
           positionChangeLines.push(
             requiresVan
@@ -181,7 +176,7 @@ async function saveEventEditAction(formData: FormData) {
 
       await db.update(schema.positions).set({
         role: role as any, needed, baseRate, baseRateMode,
-        vanDrivingRate: vanRate, travelRate, requiresVanDriving: requiresVan,
+        vanDrivingRate: vanRate, requiresVanDriving: requiresVan,
       }).where(eq(schema.positions.id, key));
     }
   }

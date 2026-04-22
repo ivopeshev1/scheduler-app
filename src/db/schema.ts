@@ -111,6 +111,10 @@ export const invitations = pgTable(
     sentAt: timestamp("sent_at", { withTimezone: true }),
     respondedAt: timestamp("responded_at", { withTimezone: true }),
     token: text("token").notNull().unique(),
+    // Per-invitee travel comp. Manager sets it in the StaffPicker when drafting
+    // the invite, because travel cost depends on where the individual is coming
+    // from — it's not a property of the position.
+    travelRate: real("travel_rate"),
   },
   (t) => ({
     positionTierIdx: index("invitations_position_tier_idx").on(t.positionId, t.tier),
