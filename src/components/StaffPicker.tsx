@@ -39,13 +39,16 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
     for (const s of staff) init[s.userId] = s.currentTier;
     return init;
   });
-  // Re-sync selections when the server sends fresh staff props (e.g. after a
-  // save). Without this, the modal can keep stale tiers from prior renders.
+  // Re-sync selections when the server sends fresh staff props, BUT only when
+  // the modal is closed — otherwise we'd clobber the user's in-progress edits
+  // every time React re-renders during a session (e.g. after another picker
+  // on the same page saves and triggers router.refresh).
   useEffect(() => {
+    if (open) return;
     const next: Record<string, number | null> = {};
     for (const s of staff) next[s.userId] = s.currentTier;
     setSelections(next);
-  }, [staff]);
+  }, [staff, open]);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
