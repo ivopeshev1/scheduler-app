@@ -136,6 +136,84 @@ export async function notifyEventDetailsChanged(event: EventRow, companyId: stri
 }
 
 /**
+ * Notify invited/accepted staff on a specific position that THEIR SHIFT changed —
+ * pay rate, van driver designation, or (for the current van driver) van driving
+ * instructions. Kept separate from notifyEventDetailsChanged because these
+ * changes only affect the invitees on one position, not everyone on the event.
+ */
+export async function notifyPositionChanged(
+  event: EventRow,
+  position: typeof schema.positions.$inferSelect,
+  changes: string[],
+  newVanInstructions: string | null,
+  companyId: string,
+) {
+  if (changes.length === 0 && !newVanInstructions) return;
+  const companyName = await getCompanyName(companyId);
+  const prettyDate = formatDate(event.date);
+  const timeRange = `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`;
+  const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
+
+  const invites = await db.select().from(schema.invitations).where(eq(schema.invitations.positionId, position.id));
+  for (const inv of invites) {
+    if (inv.status !== "pending" && inv.status !== "accepted") continue;
+    if (!inv.sentAt) continue;
+    const [u] = await db.select().from(schema.users).where(eq(schema.users.id, inv.userId));
+    const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, inv.userId));
+    if (!u) continue;
+
+    const textBody = [
+      `Hi ${profile?.firstName ?? ""},`, ``,
+      `The shift you were invited to has been updated:`, ``,
+      ...changes.map((c) => `• ${c}`), ``,
+      newVanInstructions ? `Van driving instructions:\n${newVanInstructions}\n` : "",
+      `Current details:`,
+      `Role:        ${position.role}`,
+      `Date:        ${prettyDate}`,
+      `Approx time: ${timeRange}`,
+      venue ? `Venue:       ${venue}` : "",
+      `Client:      ${event.clientName}`, ``,
+      `– ${companyName}`,
+    ].filter(Boolean).join("\n");
+
+    const changesHtml = `<ul style="margin:0 0 20px;padding-left:20px;color:#111;">${changes
+      .map((c) => `<li style="margin:0 0 6px;">${escapeChangeSummary(c)}</li>`)
+      .join("")}</ul>`;
+
+    const vanInstructionsHtml = newVanInstructions
+      ? `<p style="margin:0 0 6px;font-weight:600;">Van driving instructions</p>
+         <pre style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px 14px;margin:0 0 20px;font-family:inherit;font-size:14px;line-height:1.5;white-space:pre-wrap;color:#111;">${escapeChangeSummary(newVanInstructions)}</pre>`
+      : "";
+
+    const htmlBody = shellWrap([
+      greeting(profile?.firstName, "Your shift details have been updated."),
+      `<p style="margin:0 0 8px;font-weight:600;">What changed</p>`,
+      changesHtml,
+      vanInstructionsHtml,
+      `<p style="margin:0 0 8px;font-weight:600;">Current details</p>`,
+      kvTable([
+        kvRow("Role", position.role),
+        kvRow("Date", prettyDate),
+        kvRow("Approx time", timeRange),
+        venue ? kvRow("Venue", venue) : "",
+        kvRow("Client", event.clientName),
+      ]),
+      signoff(companyName),
+    ].join("\n"));
+
+    await sendEmail({
+      to: u.email,
+      subject: `Shift updated: ${event.clientName} on ${prettyDate}`,
+      body: textBody,
+      html: htmlBody,
+      companyId,
+      userId: inv.userId,
+      relatedInvitationId: inv.id,
+    });
+  }
+}
+
+/**
  * Notify staff invited/accepted on a specific position that the position was removed from the event.
  */
 export async function notifyPositionRemoved(

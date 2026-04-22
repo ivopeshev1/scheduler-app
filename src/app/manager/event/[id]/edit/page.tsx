@@ -8,6 +8,7 @@ import { PositionsEditor, type PositionData, type InvitedStaff } from "@/compone
 import { nanoid } from "nanoid";
 import {
   notifyEventDetailsChanged,
+  notifyPositionChanged,
   notifyPositionRemoved,
 } from "@/lib/event-notifications";
 import { sendEmail } from "@/lib/notifications";
@@ -53,6 +54,8 @@ async function saveEventEditAction(formData: FormData) {
   // ----- Positions -----
   const existingPositions = await db.select().from(schema.positions).where(eq(schema.positions.eventId, eventId));
   const keptPositionIds = new Set<string>();
+  // Collect per-position changes to notify invited staff AFTER all DB updates settle
+  const pendingPositionNotifications: Array<{ positionId: string; changes: string[] }> = [];
 
   // Collect all unique row keys by looking at role[<key>] entries
   const rowKeys = new Set<string>();
@@ -148,6 +151,34 @@ async function saveEventEditAction(formData: FormData) {
         }
       }
 
+      // Detect changes that matter to invited staff on THIS position
+      const existing = existingPositions.find((p) => p.id === key);
+      const positionChangeLines: string[] = [];
+      if (existing) {
+        // Base rate: treat mode + amount as a combined concept so "Standard → $500" reads naturally
+        const oldRateLabel = describeBaseRate(existing.baseRateMode, existing.baseRate);
+        const newRateLabel = describeBaseRate(baseRateMode, baseRate);
+        if (oldRateLabel !== newRateLabel) {
+          positionChangeLines.push(`Base rate: ${oldRateLabel} → ${newRateLabel}`);
+        }
+        const oldVan = existing.vanDrivingRate ?? 0;
+        if (oldVan !== vanRate) {
+          positionChangeLines.push(`Van driving rate: $${oldVan} → $${vanRate}`);
+        }
+        const oldTravel = existing.travelRate ?? 0;
+        if (oldTravel !== travelRate) {
+          positionChangeLines.push(`Travel comp: $${oldTravel} → $${travelRate}`);
+        }
+        if (existing.requiresVanDriving !== requiresVan) {
+          positionChangeLines.push(
+            requiresVan
+              ? "This shift now requires driving the van."
+              : "This shift no longer requires driving the van."
+          );
+        }
+      }
+      pendingPositionNotifications.push({ positionId: key, changes: positionChangeLines });
+
       await db.update(schema.positions).set({
         role: role as any, needed, baseRate, baseRateMode,
         vanDrivingRate: vanRate, travelRate, requiresVanDriving: requiresVan,
@@ -170,12 +201,54 @@ async function saveEventEditAction(formData: FormData) {
     }
   }
 
+  // ---- Per-position change notifications (rate, van designation, van instructions) ----
+  // Van driving instructions are event-level but only matter to the van driver's invitees,
+  // so we fold that into the van driver position's change list.
+  const vanInstructionsChanged = (newValues.vanDrivingInstructions ?? "") !== (event.vanDrivingInstructions ?? "");
+
+  // Re-fetch the final event + position state so the email reflects reality post-save
+  const [updatedEvent] = await db.select().from(schema.events).where(eq(schema.events.id, eventId));
+  const finalPositions = await db.select().from(schema.positions).where(eq(schema.positions.eventId, eventId));
+
+  // If van instructions changed, make sure the current van driver position gets a notification
+  // even if nothing else about that position changed
+  if (vanInstructionsChanged) {
+    const vanDriver = finalPositions.find((p) => p.requiresVanDriving);
+    if (vanDriver && !pendingPositionNotifications.some((n) => n.positionId === vanDriver.id)) {
+      pendingPositionNotifications.push({ positionId: vanDriver.id, changes: [] });
+    }
+  }
+
+  for (const notif of pendingPositionNotifications) {
+    const pos = finalPositions.find((p) => p.id === notif.positionId);
+    if (!pos) continue;
+    const changes = [...notif.changes];
+    // For the van driver position, append the van-instructions change if applicable
+    const newVanInstr = pos.requiresVanDriving && vanInstructionsChanged
+      ? (updatedEvent?.vanDrivingInstructions ?? "")
+      : null;
+    if (pos.requiresVanDriving && vanInstructionsChanged && newVanInstr) {
+      changes.push("Van driving instructions updated.");
+    }
+    if (changes.length === 0) continue;
+    if (updatedEvent) {
+      await notifyPositionChanged(updatedEvent, pos, changes, newVanInstr, session.companyId);
+    }
+  }
+
   revalidatePath(`/manager/event/${eventId}`);
   redirect(`/manager/event/${eventId}`);
 }
 
 function str(v: FormDataEntryValue | null): string | null { const s = (v?.toString() ?? "").trim(); return s || null; }
 function num(v: FormDataEntryValue | null): number | null { const s = v?.toString().trim(); if (!s) return null; const n = Number(s); return Number.isFinite(n) ? n : null; }
+
+/** Render a position's base-rate choice as a human-readable phrase for change summaries. */
+function describeBaseRate(mode: string | null, amount: number | null): string {
+  if (mode === "standard") return "Standard (onboarded rate)";
+  if (mode === "hourly") return `$${amount ?? 0}/hr`;
+  return `$${amount ?? 0} flat`;
+}
 
 export default async function EditEventPage({ params }: { params: { id: string } }) {
   const session = await getSession();
