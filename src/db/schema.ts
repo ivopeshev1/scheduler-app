@@ -20,6 +20,11 @@ export const users = pgTable(
     email: text("email").notNull(),
     passwordHash: text("password_hash"),
     role: text("role", { enum: ["manager", "staff"] }).notNull(),
+    // Company owner (the account that signed up). There's at most one per company.
+    // Owners have unconditional access to everything, including Team + Settings.
+    // Other managers can only access Settings/branding when canEditSettings=true.
+    isOwner: boolean("is_owner").notNull().default(false),
+    canEditSettings: boolean("can_edit_settings").notNull().default(false),
     inviteToken: text("invite_token"),
     inviteAcceptedAt: timestamp("invite_accepted_at", { withTimezone: true }),
     // Soft-delete: when archived, filtered out of staff list and all pickers.

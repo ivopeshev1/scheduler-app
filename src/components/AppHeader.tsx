@@ -5,9 +5,17 @@ type Props = {
   userEmail: string;
   role: "manager" | "staff";
   logoUrl?: string | null;
+  // Owner + settings-access flags control which nav links appear. Non-owner
+  // managers without canEditSettings don't see Team / Settings links; they'd
+  // get an access-denied redirect if they navigated there directly anyway.
+  isOwner?: boolean;
+  canEditSettings?: boolean;
 };
 
-export function AppHeader({ companyName, userEmail, role, logoUrl }: Props) {
+export function AppHeader({ companyName, userEmail, role, logoUrl, isOwner, canEditSettings }: Props) {
+  const showSettings = role === "manager" && (isOwner || canEditSettings);
+  const showTeam = role === "manager" && isOwner;
+
   return (
     <header className="border-b bg-white sticky top-0 z-10">
       <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
@@ -45,7 +53,12 @@ export function AppHeader({ companyName, userEmail, role, logoUrl }: Props) {
               <Link href="/manager" className="text-gray-700 hover:text-black">Calendar</Link>
               <Link href="/manager/staff" className="text-gray-700 hover:text-black">Staff</Link>
               <Link href="/manager/notifications" className="text-gray-700 hover:text-black">Notifications</Link>
-              <Link href="/manager/settings" className="text-gray-700 hover:text-black">Settings</Link>
+              {showTeam && (
+                <Link href="/manager/team" className="text-gray-700 hover:text-black">Team</Link>
+              )}
+              {showSettings && (
+                <Link href="/manager/settings" className="text-gray-700 hover:text-black">Settings</Link>
+              )}
             </>
           )}
           {role === "staff" && (

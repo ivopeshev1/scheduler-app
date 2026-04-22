@@ -51,7 +51,7 @@ export default async function MonthView({ params }: { params: { month: string } 
 
   return (
     <div>
-      <AppHeader companyName={company.name} userEmail={user.email} role="manager" logoUrl={company.logoUrl} />
+      <AppHeader companyName={company.name} userEmail={user.email} role="manager" logoUrl={company.logoUrl} isOwner={!!user.isOwner} canEditSettings={!!user.canEditSettings} />
       <main className="max-w-7xl mx-auto px-6 py-8">
         <div className="flex items-center gap-4 mb-8">
           <Link href={`/manager/month/${fmt(prevMonth)}`} className="btn btn-secondary">← Prev</Link>

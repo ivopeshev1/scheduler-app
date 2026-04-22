@@ -91,6 +91,13 @@ export async function GET(req: Request) {
   await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS priority_expire_days INTEGER`;
   // Soft-delete for staff members who quit / are no longer active
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`;
+  // Multi-manager support: owner flag + per-manager permission to edit Settings
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_owner BOOLEAN NOT NULL DEFAULT false`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS can_edit_settings BOOLEAN NOT NULL DEFAULT false`;
+  // Backfill: any pre-existing manager is also the company owner (there was only
+  // one per company before this feature existed). Idempotent — re-running sets
+  // is_owner=true again for managers already flagged.
+  await sql`UPDATE users SET is_owner = true, can_edit_settings = true WHERE role = 'manager' AND is_owner = false`;
   await sql`CREATE TABLE IF NOT EXISTS slots (
     id TEXT PRIMARY KEY,
     position_id TEXT NOT NULL REFERENCES positions(id) ON DELETE CASCADE,

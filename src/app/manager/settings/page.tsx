@@ -27,6 +27,9 @@ async function saveCompanyAction(formData: FormData) {
   "use server";
   const session = await getSession();
   if (!session || session.role !== "manager") throw new Error("Unauthorized");
+  // Double-check server-side: only owner + permitted managers can mutate settings
+  const [me] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
+  if (!me?.isOwner && !me?.canEditSettings) throw new Error("Forbidden: you don't have permission to edit settings");
   const name = String(formData.get("name") ?? "").trim();
   const logoUrlRaw = String(formData.get("logoUrl") ?? "").trim();
   if (!name) throw new Error("Company name is required");
@@ -60,10 +63,15 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
 
   const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
   const [user] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
+  // Only the owner — or managers explicitly granted permission — can view
+  // company-level settings (name, logo, notifications, etc).
+  if (!user?.isOwner && !user?.canEditSettings) {
+    redirect("/manager?denied=settings");
+  }
 
   return (
     <div>
-      <AppHeader companyName={company.name} userEmail={user.email} role="manager" logoUrl={company.logoUrl} />
+      <AppHeader companyName={company.name} userEmail={user.email} role="manager" logoUrl={company.logoUrl} isOwner={!!user.isOwner} canEditSettings={!!user.canEditSettings} />
       <main className="max-w-2xl mx-auto px-6 py-8">
         <Link href="/manager" className="text-sm text-gray-500 hover:underline">← Back to calendar</Link>
         <h1 className="text-2xl font-semibold mt-2 mb-2">Company settings</h1>
