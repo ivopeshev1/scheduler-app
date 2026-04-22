@@ -30,7 +30,10 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
   const draftInvites = invites.filter((i) => i.status === "pending" && !i.sentAt);
   const invited = sentPendingInvites.length;
   const drafted = draftInvites.length;
-  const open = total - filled;
+  // "Open" = slots with no active priority invite out. Sent invites consume slots;
+  // backups are waiting for cascade and don't reduce the open count. Clamp to 0 so
+  // a position with more invites than slots doesn't go negative.
+  const open = Math.max(0, total - filled - invited);
 
   async function firstNameOf(userId: string): Promise<string> {
     const [p] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, userId));
