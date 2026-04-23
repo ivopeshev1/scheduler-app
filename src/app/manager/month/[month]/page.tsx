@@ -53,10 +53,14 @@ export default async function MonthView({ params }: { params: { month: string } 
     <div>
       <AppHeader companyName={company.name} userEmail={user.email} role="manager" logoUrl={company.logoUrl} isOwner={!!user.isOwner} canEditSettings={!!user.canEditSettings} />
       <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="flex items-center gap-4 mb-8">
+        <div className="flex flex-wrap items-center gap-3 mb-8">
           <Link href={`/manager/month/${fmt(prevMonth)}`} className="btn btn-secondary">← Prev</Link>
           <h1 className="text-2xl font-semibold">{monthLabel}</h1>
           <Link href={`/manager/month/${fmt(nextMonth)}`} className="btn btn-secondary">Next →</Link>
+          <div className="ml-auto inline-flex rounded border text-sm overflow-hidden">
+            <Link href={`/manager/calendar/${params.month}`} className="px-3 py-1 hover:bg-gray-100 text-gray-700">Grid</Link>
+            <span className="px-3 py-1 bg-gray-900 text-white">List</span>
+          </div>
         </div>
 
         <div className="space-y-6">
@@ -78,7 +82,7 @@ async function DayRow({ day, weekday, dateStr, events }: {
   events: Array<typeof schema.events.$inferSelect>;
 }) {
   return (
-    <div className="flex gap-4 border-t pt-4">
+    <div id={`day-${dateStr}`} className="flex gap-4 border-t pt-4 scroll-mt-24">
       <div className="w-32 flex-shrink-0">
         <div className="text-2xl font-semibold">{day}</div>
         <div className="text-sm text-gray-500 uppercase tracking-wide">{weekday}</div>
