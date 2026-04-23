@@ -72,13 +72,19 @@ async function addRoleAction(formData: FormData) {
   "use server";
   const { session } = await requireSettingsAccess();
   const name = String(formData.get("name") ?? "").trim();
-  if (!name) throw new Error("Role name is required");
-  if (name.length > 60) throw new Error("Role name must be 60 characters or fewer");
+  if (!name) {
+    redirect("/manager/settings?error=role-name-required");
+  }
+  if (name.length > 60) {
+    redirect("/manager/settings?error=role-name-too-long");
+  }
 
-  // Reject duplicates (case-insensitive) within the same company.
+  // Reject duplicates (case-insensitive) within the same company. Redirect
+  // with an error banner instead of throwing — throwing surfaces a generic
+  // "Application error" page, which reads as a bug rather than validation.
   const existing = await db.select().from(schema.roles).where(eq(schema.roles.companyId, session.companyId));
   if (existing.some((r) => r.name.toLowerCase() === name.toLowerCase())) {
-    throw new Error(`"${name}" is already in your list of roles`);
+    redirect(`/manager/settings?error=role-duplicate&name=${encodeURIComponent(name)}`);
   }
 
   // Append at the end — grab the current max sortOrder by ordering desc.
@@ -112,7 +118,7 @@ async function removeRoleAction(formData: FormData) {
   redirect("/manager/settings?saved=role-removed");
 }
 
-export default async function SettingsPage({ searchParams }: { searchParams: { saved?: string } }) {
+export default async function SettingsPage({ searchParams }: { searchParams: { saved?: string; error?: string; name?: string } }) {
   const session = await getSession();
   if (!session) redirect("/login");
   if (session.role !== "manager") redirect("/staff");
@@ -139,6 +145,16 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
     }
   })();
 
+  const errorBanner = (() => {
+    const name = searchParams.name ?? "";
+    switch (searchParams.error) {
+      case "role-duplicate":     return `"${name}" is already in your list of roles.`;
+      case "role-name-required": return "Role name is required.";
+      case "role-name-too-long": return "Role name must be 60 characters or fewer.";
+      default:                   return null;
+    }
+  })();
+
   return (
     <div>
       <AppHeader companyName={company.name} userEmail={user.email} role="manager" logoUrl={company.logoUrl} isOwner={!!user.isOwner} canAccessCalendar={!!user.canAccessCalendar} canAccessStaff={!!user.canAccessStaff} canAccessLog={!!user.canAccessLog} canAccessTeam={!!user.canAccessTeam} canEditSettings={!!user.canEditSettings} />
@@ -152,6 +168,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
         {savedBanner && (
           <div className="p-3 border border-green-300 bg-green-50 text-green-800 text-sm rounded">
             {savedBanner}
+          </div>
+        )}
+        {errorBanner && (
+          <div className="p-3 border border-red-300 bg-red-50 text-red-800 text-sm rounded">
+            {errorBanner}
           </div>
         )}
 
