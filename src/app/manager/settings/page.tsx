@@ -135,25 +135,24 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
     .where(eq(schema.roles.companyId, session.companyId))
     .orderBy(asc(schema.roles.sortOrder));
 
-  const savedBanner = (() => {
-    switch (searchParams.saved) {
-      case "company":       return "Company setup saved.";
-      case "notifications": return "Notification settings saved.";
-      case "role-added":    return "Role added.";
-      case "role-removed":  return "Role removed.";
-      default:              return null;
-    }
-  })();
+  // Banners are scoped per section — a company-setup save doesn't flash a
+  // message up under the Roles header and vice versa. Keeps feedback next to
+  // the form that caused it.
+  const saved = searchParams.saved;
+  const err = searchParams.error;
+  const errName = searchParams.name ?? "";
 
-  const errorBanner = (() => {
-    const name = searchParams.name ?? "";
-    switch (searchParams.error) {
-      case "role-duplicate":     return `"${name}" is already in your list of roles.`;
-      case "role-name-required": return "Role name is required.";
-      case "role-name-too-long": return "Role name must be 60 characters or fewer.";
-      default:                   return null;
-    }
-  })();
+  const companySavedMsg = saved === "company" ? "Company setup saved." : null;
+  const notificationsSavedMsg = saved === "notifications" ? "Notification settings saved." : null;
+  const rolesSavedMsg =
+    saved === "role-added" ? "Role added." :
+    saved === "role-removed" ? "Role removed." :
+    null;
+  const rolesErrorMsg =
+    err === "role-duplicate" ? `"${errName}" is already in your list of roles.` :
+    err === "role-name-required" ? "Role name is required." :
+    err === "role-name-too-long" ? "Role name must be 60 characters or fewer." :
+    null;
 
   return (
     <div>
@@ -164,17 +163,6 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
           <h1 className="text-2xl font-semibold mt-2">Settings</h1>
           <p className="text-sm text-gray-600">Configure {company.name} — company info, notification rules, roles, and more.</p>
         </div>
-
-        {savedBanner && (
-          <div className="p-3 border border-green-300 bg-green-50 text-green-800 text-sm rounded">
-            {savedBanner}
-          </div>
-        )}
-        {errorBanner && (
-          <div className="p-3 border border-red-300 bg-red-50 text-red-800 text-sm rounded">
-            {errorBanner}
-          </div>
-        )}
 
         {/* -------------------- Company setup -------------------- */}
         <section className="border rounded-lg bg-white p-6">
@@ -217,6 +205,12 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
 
             <button type="submit" className="btn btn-primary">Save company setup</button>
           </form>
+
+          {companySavedMsg && (
+            <div className="mt-4 p-3 border border-green-300 bg-green-50 text-green-800 text-sm rounded">
+              {companySavedMsg}
+            </div>
+          )}
         </section>
 
         {/* -------------------- Notifications -------------------- */}
@@ -251,6 +245,12 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
 
             <button type="submit" className="btn btn-primary">Save notification rules</button>
           </form>
+
+          {notificationsSavedMsg && (
+            <div className="mt-4 p-3 border border-green-300 bg-green-50 text-green-800 text-sm rounded">
+              {notificationsSavedMsg}
+            </div>
+          )}
         </section>
 
         {/* -------------------- Roles -------------------- */}
@@ -294,6 +294,17 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
             </div>
             <button type="submit" className="btn btn-secondary whitespace-nowrap">Add role</button>
           </form>
+
+          {rolesSavedMsg && (
+            <div className="mt-4 p-3 border border-green-300 bg-green-50 text-green-800 text-sm rounded">
+              {rolesSavedMsg}
+            </div>
+          )}
+          {rolesErrorMsg && (
+            <div className="mt-4 p-3 border border-red-300 bg-red-50 text-red-800 text-sm rounded">
+              {rolesErrorMsg}
+            </div>
+          )}
         </section>
 
         {/* -------------------- Add-ons (placeholder) -------------------- */}
