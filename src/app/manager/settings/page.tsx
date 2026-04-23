@@ -118,6 +118,43 @@ async function removeRoleAction(formData: FormData) {
   redirect("/manager/settings?saved=role-removed");
 }
 
+/**
+ * Swap a role's sortOrder with its neighbor in the given direction. The order
+ * the company sets here is exactly what the event role dropdown renders, so
+ * reordering is a real product setting, not just cosmetic.
+ */
+async function moveRoleAction(formData: FormData) {
+  "use server";
+  const { session } = await requireSettingsAccess();
+  const roleId = String(formData.get("roleId"));
+  const direction = String(formData.get("direction")) as "up" | "down";
+
+  const all = await db
+    .select()
+    .from(schema.roles)
+    .where(eq(schema.roles.companyId, session.companyId))
+    .orderBy(asc(schema.roles.sortOrder));
+
+  const idx = all.findIndex((r) => r.id === roleId);
+  if (idx < 0) throw new Error("Not found");
+  const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+  if (swapIdx < 0 || swapIdx >= all.length) {
+    // Already at the edge — no-op
+    redirect("/manager/settings");
+  }
+
+  const a = all[idx];
+  const b = all[swapIdx];
+  // Swap via a temporary value so the unique-ordering invariant is never
+  // violated mid-transaction (in case we ever add a uniqueness constraint).
+  await db.update(schema.roles).set({ sortOrder: -1 }).where(eq(schema.roles.id, a.id));
+  await db.update(schema.roles).set({ sortOrder: a.sortOrder }).where(eq(schema.roles.id, b.id));
+  await db.update(schema.roles).set({ sortOrder: b.sortOrder }).where(eq(schema.roles.id, a.id));
+
+  revalidatePath("/manager/settings");
+  redirect("/manager/settings");
+}
+
 export default async function SettingsPage({ searchParams }: { searchParams: { saved?: string; error?: string; name?: string } }) {
   const session = await getSession();
   if (!session) redirect("/login");
@@ -161,7 +198,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
         <div>
           <Link href="/manager" className="text-sm text-gray-500 hover:underline">← Back to calendar</Link>
           <h1 className="text-2xl font-semibold mt-2">Settings</h1>
-          <p className="text-sm text-gray-600">Configure {company.name} — company info, notification rules, roles, and more.</p>
+          <p className="text-sm text-gray-600">Company info, notification rules, roles, and more.</p>
         </div>
 
         {/* -------------------- Company setup -------------------- */}
@@ -267,9 +304,37 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
             </div>
           ) : (
             <ul className="border rounded divide-y mb-4">
-              {roles.map((r) => (
-                <li key={r.id} className="flex items-center justify-between px-3 py-2">
-                  <span className="text-sm">{r.name}</span>
+              {roles.map((r, idx) => (
+                <li key={r.id} className="flex items-center gap-3 px-3 py-2">
+                  <span className="text-sm flex-1">{r.name}</span>
+                  <div className="flex items-center gap-1">
+                    <form action={moveRoleAction}>
+                      <input type="hidden" name="roleId" value={r.id} />
+                      <input type="hidden" name="direction" value="up" />
+                      <button
+                        type="submit"
+                        disabled={idx === 0}
+                        className="text-gray-500 hover:text-black disabled:text-gray-200 disabled:cursor-not-allowed px-1 text-lg leading-none"
+                        aria-label={`Move ${r.name} up`}
+                        title="Move up"
+                      >
+                        ↑
+                      </button>
+                    </form>
+                    <form action={moveRoleAction}>
+                      <input type="hidden" name="roleId" value={r.id} />
+                      <input type="hidden" name="direction" value="down" />
+                      <button
+                        type="submit"
+                        disabled={idx === roles.length - 1}
+                        className="text-gray-500 hover:text-black disabled:text-gray-200 disabled:cursor-not-allowed px-1 text-lg leading-none"
+                        aria-label={`Move ${r.name} down`}
+                        title="Move down"
+                      >
+                        ↓
+                      </button>
+                    </form>
+                  </div>
                   <form action={removeRoleAction}>
                     <input type="hidden" name="roleId" value={r.id} />
                     <button type="submit" className="text-sm text-red-600 hover:underline">Remove</button>
@@ -278,6 +343,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
               ))}
             </ul>
           )}
+          <p className="text-xs text-gray-500 mb-4">
+            The order shown here is the order roles appear in event dropdowns — use ↑ / ↓ to rearrange.
+          </p>
 
           <form action={addRoleAction} className="flex items-end gap-2">
             <div className="flex-1">
