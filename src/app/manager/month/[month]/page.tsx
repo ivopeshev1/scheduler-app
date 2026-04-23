@@ -28,6 +28,7 @@ export default async function MonthView({ params }: { params: { month: string } 
   const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
   const [user] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
   if (!company || !user) redirect("/login");
+  if (!user.isOwner && !user.canAccessCalendar) redirect("/manager?denied=calendar");
 
   const startDate = `${parsed.year}-${String(parsed.month).padStart(2, "0")}-01`;
   const endDate = `${parsed.year}-${String(parsed.month).padStart(2, "0")}-${daysInMonth(parsed.year, parsed.month)}`;
@@ -51,7 +52,7 @@ export default async function MonthView({ params }: { params: { month: string } 
 
   return (
     <div>
-      <AppHeader companyName={company.name} userEmail={user.email} role="manager" logoUrl={company.logoUrl} isOwner={!!user.isOwner} canEditSettings={!!user.canEditSettings} />
+      <AppHeader companyName={company.name} userEmail={user.email} role="manager" logoUrl={company.logoUrl} isOwner={!!user.isOwner} canAccessCalendar={!!user.canAccessCalendar} canAccessStaff={!!user.canAccessStaff} canAccessLog={!!user.canAccessLog} canAccessTeam={!!user.canAccessTeam} canEditSettings={!!user.canEditSettings} />
       <main className="max-w-7xl mx-auto px-6 py-8">
         <div className="flex flex-wrap items-center gap-3 mb-8">
           <Link href={`/manager/month/${fmt(prevMonth)}`} className="btn btn-secondary">← Prev</Link>

@@ -83,10 +83,12 @@ export default async function EditStaffPage({ params }: { params: { userId: stri
 
   const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
   const [me] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
+  if (!me) redirect("/login");
+  if (!me.isOwner && !me.canAccessStaff) redirect("/manager?denied=staff");
 
   return (
     <div>
-      <AppHeader companyName={company.name} userEmail={me.email} role="manager" logoUrl={company.logoUrl} isOwner={!!me.isOwner} canEditSettings={!!me.canEditSettings} />
+      <AppHeader companyName={company.name} userEmail={me.email} role="manager" logoUrl={company.logoUrl} isOwner={!!me.isOwner} canAccessCalendar={!!me.canAccessCalendar} canAccessStaff={!!me.canAccessStaff} canAccessLog={!!me.canAccessLog} canAccessTeam={!!me.canAccessTeam} canEditSettings={!!me.canEditSettings} />
       <main className="max-w-3xl mx-auto px-6 py-8">
         <Link href="/manager/staff" className="text-sm text-gray-500 hover:underline">← Back to staff</Link>
         <h1 className="text-2xl font-semibold mt-2 mb-2">Modify {profile.firstName} {profile.lastName}</h1>

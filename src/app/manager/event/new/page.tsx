@@ -96,6 +96,8 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
 
   const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
   const [user] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
+  if (!user) redirect("/login");
+  if (!user.isOwner && !user.canAccessCalendar) redirect("/manager?denied=calendar");
   const defaultDate = searchParams.date ?? new Date().toISOString().slice(0, 10);
 
   const autocomplete = await db
@@ -112,7 +114,7 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
 
   return (
     <div>
-      <AppHeader companyName={company.name} userEmail={user.email} role="manager" logoUrl={company.logoUrl} isOwner={!!user.isOwner} canEditSettings={!!user.canEditSettings} />
+      <AppHeader companyName={company.name} userEmail={user.email} role="manager" logoUrl={company.logoUrl} isOwner={!!user.isOwner} canAccessCalendar={!!user.canAccessCalendar} canAccessStaff={!!user.canAccessStaff} canAccessLog={!!user.canAccessLog} canAccessTeam={!!user.canAccessTeam} canEditSettings={!!user.canEditSettings} />
       <main className="max-w-5xl mx-auto px-6 py-8">
         <Link href="/manager" className="text-sm text-gray-500 hover:underline">← Back to calendar</Link>
         <h1 className="text-2xl font-semibold mt-2 mb-6">New event</h1>

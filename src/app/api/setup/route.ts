@@ -98,6 +98,13 @@ export async function GET(req: Request) {
   // one per company before this feature existed). Idempotent — re-running sets
   // is_owner=true again for managers already flagged.
   await sql`UPDATE users SET is_owner = true, can_edit_settings = true WHERE role = 'manager' AND is_owner = false`;
+  // Per-area permission flags (Calendar, Staff, Log, Team). Owners ignore these
+  // — their nav is always fully unlocked — but non-owner managers are gated by
+  // these columns on both the header links and the page guards.
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS can_access_calendar BOOLEAN NOT NULL DEFAULT true`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS can_access_staff BOOLEAN NOT NULL DEFAULT true`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS can_access_log BOOLEAN NOT NULL DEFAULT true`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS can_access_team BOOLEAN NOT NULL DEFAULT false`;
   await sql`CREATE TABLE IF NOT EXISTS slots (
     id TEXT PRIMARY KEY,
     position_id TEXT NOT NULL REFERENCES positions(id) ON DELETE CASCADE,

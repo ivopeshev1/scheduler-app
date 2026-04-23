@@ -61,6 +61,8 @@ export default async function ManagerStaffPage() {
 
   const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
   const [user] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
+  if (!user) redirect("/login");
+  if (!user.isOwner && !user.canAccessStaff) redirect("/manager?denied=staff");
 
   const rows = await db.select({ user: schema.users, profile: schema.staffProfiles })
     .from(schema.users)
@@ -81,7 +83,7 @@ export default async function ManagerStaffPage() {
 
   return (
     <div>
-      <AppHeader companyName={company.name} userEmail={user.email} role="manager" logoUrl={company.logoUrl} isOwner={!!user.isOwner} canEditSettings={!!user.canEditSettings} />
+      <AppHeader companyName={company.name} userEmail={user.email} role="manager" logoUrl={company.logoUrl} isOwner={!!user.isOwner} canAccessCalendar={!!user.canAccessCalendar} canAccessStaff={!!user.canAccessStaff} canAccessLog={!!user.canAccessLog} canAccessTeam={!!user.canAccessTeam} canEditSettings={!!user.canEditSettings} />
       <main className="max-w-6xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-semibold">Staff ({staffRows.length})</h1>

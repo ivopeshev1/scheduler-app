@@ -13,6 +13,8 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
 
   const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
   const [user] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
+  if (!user) redirect("/login");
+  if (!user.isOwner && !user.canAccessCalendar) redirect("/manager?denied=calendar");
   const q = (searchParams.q ?? "").trim();
 
   let results: Array<typeof schema.events.$inferSelect> = [];
@@ -43,7 +45,7 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
 
   return (
     <div>
-      <AppHeader companyName={company.name} userEmail={user.email} role="manager" logoUrl={company.logoUrl} isOwner={!!user.isOwner} canEditSettings={!!user.canEditSettings} />
+      <AppHeader companyName={company.name} userEmail={user.email} role="manager" logoUrl={company.logoUrl} isOwner={!!user.isOwner} canAccessCalendar={!!user.canAccessCalendar} canAccessStaff={!!user.canAccessStaff} canAccessLog={!!user.canAccessLog} canAccessTeam={!!user.canAccessTeam} canEditSettings={!!user.canEditSettings} />
       <main className="max-w-5xl mx-auto px-6 py-8">
         <h1 className="text-2xl font-semibold mb-6">
           {q ? `Search: "${q}"` : "Search events"}

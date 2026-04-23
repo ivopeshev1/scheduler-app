@@ -21,9 +21,19 @@ export const users = pgTable(
     passwordHash: text("password_hash"),
     role: text("role", { enum: ["manager", "staff"] }).notNull(),
     // Company owner (the account that signed up). There's at most one per company.
-    // Owners have unconditional access to everything, including Team + Settings.
-    // Other managers can only access Settings/branding when canEditSettings=true.
+    // Owners have unconditional access to every nav area, regardless of the
+    // per-area flags below.
     isOwner: boolean("is_owner").notNull().default(false),
+    // Per-area access flags for non-owner managers. Each corresponds to a top
+    // nav item; the owner toggles these when adding a manager (or later on
+    // the Team page). Calendar/Staff/Log default to granted — those are the
+    // usual day-to-day tabs — Team + Settings default denied.
+    // canEditSettings covers both /manager/settings and /manager/notifications
+    // (the notification rules live inside Settings now).
+    canAccessCalendar: boolean("can_access_calendar").notNull().default(true),
+    canAccessStaff: boolean("can_access_staff").notNull().default(true),
+    canAccessLog: boolean("can_access_log").notNull().default(true),
+    canAccessTeam: boolean("can_access_team").notNull().default(false),
     canEditSettings: boolean("can_edit_settings").notNull().default(false),
     inviteToken: text("invite_token"),
     inviteAcceptedAt: timestamp("invite_accepted_at", { withTimezone: true }),

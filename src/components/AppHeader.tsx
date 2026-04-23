@@ -5,22 +5,41 @@ type Props = {
   userEmail: string;
   role: "manager" | "staff";
   logoUrl?: string | null;
-  // Owner + settings-access flags control which nav links appear. Non-owner
-  // managers without canEditSettings don't see Team / Settings links; they'd
-  // get an access-denied redirect if they navigated there directly anyway.
+  // Owners ignore the per-area flags — they always see every nav item. For
+  // non-owner managers, each link is gated on the matching flag, which the
+  // owner sets when adding a manager (and can edit later on the Team page).
   isOwner?: boolean;
+  canAccessCalendar?: boolean;
+  canAccessStaff?: boolean;
+  canAccessLog?: boolean;
+  canAccessTeam?: boolean;
   canEditSettings?: boolean;
 };
 
-export function AppHeader({ companyName, userEmail, role, logoUrl, isOwner, canEditSettings }: Props) {
-  const showSettings = role === "manager" && (isOwner || canEditSettings);
-  const showTeam = role === "manager" && isOwner;
+export function AppHeader({
+  companyName,
+  userEmail,
+  role,
+  logoUrl,
+  isOwner,
+  canAccessCalendar,
+  canAccessStaff,
+  canAccessLog,
+  canAccessTeam,
+  canEditSettings,
+}: Props) {
+  const isManager = role === "manager";
+  const showCalendar = isManager && (isOwner || canAccessCalendar);
+  const showStaff = isManager && (isOwner || canAccessStaff);
+  const showLog = isManager && (isOwner || canAccessLog);
+  const showTeam = isManager && (isOwner || canAccessTeam);
+  const showSettings = isManager && (isOwner || canEditSettings);
 
   return (
     <header className="border-b bg-white sticky top-0 z-10">
       <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
         <Link
-          href={role === "manager" ? "/manager" : "/staff"}
+          href={isManager ? "/manager" : "/staff"}
           className="font-semibold flex items-center gap-2 shrink-0"
         >
           {logoUrl && (
@@ -36,7 +55,7 @@ export function AppHeader({ companyName, userEmail, role, logoUrl, isOwner, canE
           <span>{companyName}</span>
         </Link>
 
-        {role === "manager" && (
+        {showCalendar && (
           <form action="/manager/search" method="get" className="flex-1 max-w-sm">
             <input
               type="search"
@@ -48,11 +67,17 @@ export function AppHeader({ companyName, userEmail, role, logoUrl, isOwner, canE
         )}
 
         <nav className="flex items-center gap-5 text-sm shrink-0">
-          {role === "manager" && (
+          {isManager && (
             <>
-              <Link href="/manager" className="text-gray-700 hover:text-black">Calendar</Link>
-              <Link href="/manager/staff" className="text-gray-700 hover:text-black">Staff</Link>
-              <Link href="/manager/log" className="text-gray-700 hover:text-black">Log</Link>
+              {showCalendar && (
+                <Link href="/manager" className="text-gray-700 hover:text-black">Calendar</Link>
+              )}
+              {showStaff && (
+                <Link href="/manager/staff" className="text-gray-700 hover:text-black">Staff</Link>
+              )}
+              {showLog && (
+                <Link href="/manager/log" className="text-gray-700 hover:text-black">Log</Link>
+              )}
               {showTeam && (
                 <Link href="/manager/team" className="text-gray-700 hover:text-black">Team</Link>
               )}
