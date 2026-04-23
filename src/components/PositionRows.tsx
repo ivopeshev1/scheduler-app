@@ -3,9 +3,7 @@
 import { useState } from "react";
 import { BaseRateControl } from "@/components/BaseRateControl";
 
-const POSITION_ROLES = ["Bar Lead", "Bar Back", "Bartender", "Server", "Cashier"] as const;
-
-export function PositionRows() {
+export function PositionRows({ roles }: { roles: string[] }) {
   const [rowIds, setRowIds] = useState<number[]>([0]);
   const [nextId, setNextId] = useState(1);
   const [vanDriverRow, setVanDriverRow] = useState<number | null>(null);
@@ -16,6 +14,7 @@ export function PositionRows() {
         <PositionRow
           key={id}
           index={id}
+          roles={roles}
           isVanDriver={vanDriverRow === id}
           onToggleVan={(checked) => setVanDriverRow(checked ? id : null)}
           onRemove={() => setRowIds((rows) => rows.filter((r) => r !== id))}
@@ -31,7 +30,10 @@ export function PositionRows() {
       >
         + Add another position
       </button>
-      <p className="text-xs text-gray-500">Only one position can be designated the van driver per event.</p>
+      <p className="text-xs text-gray-500">
+        Only one position can be designated the van driver per event. Manage the role list under{" "}
+        <a href="/manager/settings" className="underline">Settings → Roles</a>.
+      </p>
     </div>
   );
 }
@@ -54,11 +56,13 @@ function MoneyInput({ name, defaultValue }: { name: string; defaultValue?: numbe
 
 function PositionRow({
   index,
+  roles,
   isVanDriver,
   onToggleVan,
   onRemove,
 }: {
   index: number;
+  roles: string[];
   isVanDriver: boolean;
   onToggleVan: (checked: boolean) => void;
   onRemove: () => void;
@@ -73,13 +77,9 @@ function PositionRow({
       </div>
       <div className="col-span-3">
         <label className="label">Role</label>
-        {/* Proper <select> (not an input+datalist) so re-opening always shows the
-            full list of roles, even after one is already picked. The positions
-            table has an enum constraint on this field anyway — custom values
-            wouldn't save. */}
-        <select name={`role${index}`} className="input" defaultValue="">
+        <select name={`role${index}`} className="input" defaultValue="" required>
           <option value="" disabled>—</option>
-          {POSITION_ROLES.map((r) => (<option key={r} value={r}>{r}</option>))}
+          {roles.map((r) => (<option key={r} value={r}>{r}</option>))}
         </select>
       </div>
       <div className="col-span-3">

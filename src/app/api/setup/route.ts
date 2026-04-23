@@ -105,6 +105,35 @@ export async function GET(req: Request) {
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS can_access_staff BOOLEAN NOT NULL DEFAULT true`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS can_access_log BOOLEAN NOT NULL DEFAULT true`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS can_access_team BOOLEAN NOT NULL DEFAULT false`;
+
+  // Per-company role catalog, surfaced on Settings → Roles. positions.role is
+  // now open text (not an enum) because managers can add custom roles here,
+  // so drop the old CHECK constraint if it still exists.
+  await sql`CREATE TABLE IF NOT EXISTS roles (
+    id TEXT PRIMARY KEY,
+    company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS roles_company_idx ON roles(company_id, sort_order)`;
+  await sql`ALTER TABLE positions DROP CONSTRAINT IF EXISTS positions_role_check`;
+
+  // Seed defaults for any company that has no roles yet — matches the enum we
+  // used to ship so existing events keep the same role names.
+  const companiesNeedingRoles = (await sql`
+    SELECT c.id FROM companies c
+    LEFT JOIN roles r ON r.company_id = c.id
+    WHERE r.id IS NULL
+    GROUP BY c.id
+  `) as Array<{ id: string }>;
+  const DEFAULT_ROLES = ["Bar Lead", "Bar Back", "Bartender", "Server", "Cashier"];
+  for (const { id: companyId } of companiesNeedingRoles) {
+    for (let i = 0; i < DEFAULT_ROLES.length; i++) {
+      await sql`INSERT INTO roles (id, company_id, name, sort_order)
+                VALUES (${nanoid()}, ${companyId}, ${DEFAULT_ROLES[i]}, ${i})`;
+    }
+  }
   await sql`CREATE TABLE IF NOT EXISTS slots (
     id TEXT PRIMARY KEY,
     position_id TEXT NOT NULL REFERENCES positions(id) ON DELETE CASCADE,

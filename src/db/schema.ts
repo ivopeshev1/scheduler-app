@@ -65,6 +65,24 @@ export const staffProfiles = pgTable("staff_profiles", {
   uniformSize: text("uniform_size"),
 });
 
+// Per-company catalog of event roles (Bar Lead, Bartender, etc). Managers
+// maintain this from Settings → Roles. The positions table stores the role as
+// a plain string (not an FK), so removing a role from this catalog doesn't
+// break historical events — it just hides the role from future dropdowns.
+export const roles = pgTable(
+  "roles",
+  {
+    id: text("id").primaryKey(),
+    companyId: text("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    companyIdx: index("roles_company_idx").on(t.companyId, t.sortOrder),
+  })
+);
+
 export const events = pgTable(
   "events",
   {
@@ -95,7 +113,10 @@ export const events = pgTable(
 export const positions = pgTable("positions", {
   id: text("id").primaryKey(),
   eventId: text("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
-  role: text("role", { enum: ["Bar Lead", "Bar Back", "Bartender", "Server", "Cashier"] }).notNull(),
+  // Role is open text now — the per-company `roles` table is the canonical
+  // picklist, but we store the string directly on positions so deleting a role
+  // from Settings doesn't invalidate historical events.
+  role: text("role").notNull(),
   mode: text("mode", { enum: ["pool", "individual"] }).notNull(),
   needed: integer("needed").notNull(),
   sortOrder: integer("sort_order").notNull().default(0),

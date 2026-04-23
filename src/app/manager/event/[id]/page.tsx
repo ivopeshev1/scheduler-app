@@ -14,11 +14,6 @@ import { DeleteEventForm } from "@/components/DeleteEventForm";
 import { nanoid } from "nanoid";
 import { revalidatePath } from "next/cache";
 
-const ELIGIBILITY: Record<string, string[]> = {
-  "Bar Lead":  ["Lead"], "Bar Back":  ["Bar Back"], "Bartender": ["Bartender"],
-  "Server":    ["Server"], "Cashier":   ["Cashier"],
-};
-
 /**
  * Draft-save invitations for one position.
  * No emails go out here — manager hits the master "Send invitations" button to fire them.

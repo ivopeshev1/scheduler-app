@@ -100,6 +100,15 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
   if (!user.isOwner && !user.canAccessCalendar) redirect("/manager?denied=calendar");
   const defaultDate = searchParams.date ?? new Date().toISOString().slice(0, 10);
 
+  // Pull the role picklist from Settings → Roles so the dropdowns stay in sync
+  // with whatever the owner currently has configured.
+  const roleRows = await db
+    .select()
+    .from(schema.roles)
+    .where(eq(schema.roles.companyId, session.companyId));
+  roleRows.sort((a, b) => a.sortOrder - b.sortOrder);
+  const roles = roleRows.map((r) => r.name);
+
   const autocomplete = await db
     .select()
     .from(schema.autocompleteValues)
@@ -137,7 +146,7 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
             <p className="text-sm text-gray-500 mb-4">
               Add as many positions as you need. <strong>Pool</strong> = multiple staff compete, first-accept-wins. <strong>Individual</strong> = specific person per slot.
             </p>
-            <PositionRows />
+            <PositionRows roles={roles} />
           </section>
 
           <section className="grid md:grid-cols-2 gap-4">

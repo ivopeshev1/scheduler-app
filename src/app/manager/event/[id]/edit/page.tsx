@@ -257,6 +257,15 @@ export default async function EditEventPage({ params }: { params: { id: string }
   const [user] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
   if (!user) redirect("/login");
   if (!user.isOwner && !user.canAccessCalendar) redirect("/manager?denied=calendar");
+
+  // Role picklist for the position dropdown — managed under Settings → Roles.
+  const roleRows = await db
+    .select()
+    .from(schema.roles)
+    .where(eq(schema.roles.companyId, session.companyId));
+  roleRows.sort((a, b) => a.sortOrder - b.sortOrder);
+  const roles = roleRows.map((r) => r.name);
+
   const positions = await db.select().from(schema.positions).where(eq(schema.positions.eventId, event.id));
   positions.sort((a, b) => a.sortOrder - b.sortOrder);
 
@@ -325,7 +334,7 @@ export default async function EditEventPage({ params }: { params: { id: string }
 
           <section>
             <h2 className="font-semibold mb-2">Positions</h2>
-            <PositionsEditor positions={positionsWithStaff} />
+            <PositionsEditor positions={positionsWithStaff} roles={roles} />
           </section>
 
           <section className="grid md:grid-cols-2 gap-4">

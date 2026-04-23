@@ -3,8 +3,6 @@
 import { useState } from "react";
 import { BaseRateControl, type BaseRateMode } from "@/components/BaseRateControl";
 
-const POSITION_ROLES = ["Bar Lead", "Bar Back", "Bartender", "Server", "Cashier"] as const;
-
 export type InvitedStaff = {
   userId: string;
   firstName: string;
@@ -14,7 +12,9 @@ export type InvitedStaff = {
 
 export type PositionData = {
   id: string;
-  role: "Bar Lead" | "Bar Back" | "Bartender" | "Server" | "Cashier";
+  // Role is now free text driven by Settings → Roles; the old hardcoded enum
+  // no longer fits now that managers can add custom roles.
+  role: string;
   needed: number;
   baseRate: number | null;
   baseRateMode: BaseRateMode;
@@ -29,7 +29,7 @@ type Removal = {
   unInviteUserIds: string[];
 };
 
-export function PositionsEditor({ positions }: { positions: PositionData[] }) {
+export function PositionsEditor({ positions, roles }: { positions: PositionData[]; roles: string[] }) {
   const [newRows, setNewRows] = useState<number[]>([]);
   const [nextNewId, setNextNewId] = useState(0);
 
@@ -56,9 +56,6 @@ export function PositionsEditor({ positions }: { positions: PositionData[] }) {
 
   return (
     <div className="space-y-3">
-      <datalist id="role-suggestions">
-        {POSITION_ROLES.map((r) => (<option key={r} value={r} />))}
-      </datalist>
       {positions.map((p) => {
         const r = removals[p.id];
         const isVan = vanKey === p.id;
@@ -66,6 +63,7 @@ export function PositionsEditor({ positions }: { positions: PositionData[] }) {
           <ExistingRow
             key={p.id}
             p={p}
+            roles={roles}
             removal={r}
             onOpenRemoveModal={() => openModal(p.id)}
             onUndoRemoval={() => undoRemoval(p.id)}
@@ -82,6 +80,7 @@ export function PositionsEditor({ positions }: { positions: PositionData[] }) {
           <NewRow
             key={k}
             newKey={k}
+            roles={roles}
             isVan={isVan}
             onToggleVan={(on) => setVanKey(on ? k : null)}
             onRemove={() => setNewRows((rows) => rows.filter((r) => r !== id))}
@@ -136,6 +135,7 @@ function MoneyInput({ name, defaultValue }: { name: string; defaultValue?: numbe
 
 function ExistingRow({
   p,
+  roles,
   removal,
   onOpenRemoveModal,
   onUndoRemoval,
@@ -143,6 +143,7 @@ function ExistingRow({
   onToggleVan,
 }: {
   p: PositionData;
+  roles: string[];
   removal: Removal | undefined;
   onOpenRemoveModal: () => void;
   onUndoRemoval: () => void;
@@ -180,14 +181,20 @@ function ExistingRow({
         </div>
         <div className="col-span-3">
           <label className="label">Role</label>
-          <input
+          <select
             name={`role[${key}]`}
-            list="role-suggestions"
-            autoComplete="off"
             defaultValue={p.role}
             className="input"
-            placeholder="type or pick…"
-          />
+            required
+          >
+            {roles.map((r) => (<option key={r} value={r}>{r}</option>))}
+            {/* If this position's role was deleted from the Settings catalog
+                after the fact, keep it selectable here so the edit form still
+                works — otherwise the <select> would silently clear. */}
+            {p.role && !roles.includes(p.role) && (
+              <option value={p.role}>{p.role}</option>
+            )}
+          </select>
         </div>
         <div className="col-span-3">
           <label className="label">Base rate</label>
@@ -256,11 +263,13 @@ function ExistingRow({
 
 function NewRow({
   newKey,
+  roles,
   isVan,
   onToggleVan,
   onRemove,
 }: {
   newKey: string;
+  roles: string[];
   isVan: boolean;
   onToggleVan: (on: boolean) => void;
   onRemove: () => void;
@@ -273,13 +282,10 @@ function NewRow({
       </div>
       <div className="col-span-3">
         <label className="label">Role</label>
-        <input
-          name={`role[${newKey}]`}
-          list="role-suggestions"
-          autoComplete="off"
-          className="input"
-          placeholder="type or pick…"
-        />
+        <select name={`role[${newKey}]`} className="input" defaultValue="" required>
+          <option value="" disabled>—</option>
+          {roles.map((r) => (<option key={r} value={r}>{r}</option>))}
+        </select>
       </div>
       <div className="col-span-3">
         <label className="label">Base rate</label>
