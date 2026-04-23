@@ -2,10 +2,10 @@ import { escapeHtml } from "@/lib/notifications";
 
 /**
  * Shared helpers so every outbound email (invite, cancel, update, position-removed)
- * renders with the same look — same font stack, spacing, label styling, etc.
+ * renders with the same look - same font stack, spacing, label styling, etc.
  *
  * Kept deliberately tiny: inline styles, no <style> blocks (Gmail strips those),
- * no external CSS, no React — just string concatenation. Plain-text fallbacks
+ * no external CSS, no React - just string concatenation. Plain-text fallbacks
  * are still built separately at each callsite.
  */
 

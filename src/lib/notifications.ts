@@ -5,7 +5,7 @@ type SendEmailInput = {
   to: string;
   subject: string;
   body: string;       // plain-text fallback (always provided)
-  html?: string;      // optional HTML body — rendered by most clients
+  html?: string;      // optional HTML body - rendered by most clients
   companyId: string;
   userId?: string;
   relatedInvitationId?: string;
@@ -89,7 +89,7 @@ export function composeRateLines(args: {
   const total = base + van + travel;
   // Compact one-line headline for the manager-side table (still useful there).
   const headline = `Rate for this event is $${total}.`;
-  // Emails list each component separately — no total, staff can add it up themselves.
+  // Emails list each component separately - no total, staff can add it up themselves.
   const lines: string[] = [`Base rate:      $${base}`];
   if (args.requiresVanDriving) lines.push(`Van driving:    $${van}`);
   if (travel > 0) lines.push(`Travel comp:    $${travel}`);

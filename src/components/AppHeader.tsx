@@ -5,7 +5,7 @@ type Props = {
   userEmail: string;
   role: "manager" | "staff";
   logoUrl?: string | null;
-  // Owners ignore the per-area flags — they always see every nav item. For
+  // Owners ignore the per-area flags - they always see every nav item. For
   // non-owner managers, each link is gated on the matching flag, which the
   // owner sets when adding a manager (and can edit later on the Team page).
   isOwner?: boolean;

@@ -44,7 +44,7 @@ async function signupAction(formData: FormData) {
     email,
     passwordHash: hashPassword(password),
     role: "manager",
-    // Signup user is the company owner — unconditional access to everything
+    // Signup user is the company owner - unconditional access to everything
     isOwner: true,
     canEditSettings: true,
     inviteAcceptedAt: new Date(),

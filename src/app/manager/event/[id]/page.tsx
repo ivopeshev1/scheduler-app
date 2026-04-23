@@ -16,7 +16,7 @@ import { revalidatePath } from "next/cache";
 
 /**
  * Draft-save invitations for one position.
- * No emails go out here — manager hits the master "Send invitations" button to fire them.
+ * No emails go out here - manager hits the master "Send invitations" button to fire them.
  */
 async function saveInvitations(formData: FormData) {
   "use server";
@@ -58,7 +58,7 @@ async function saveInvitations(formData: FormData) {
       r.inv.userId === userId &&
       r.ev.date === event.date &&
       r.pos.id !== positionId &&
-      // Cancelled events don't consume availability — staff becomes free again.
+      // Cancelled events don't consume availability - staff becomes free again.
       !r.ev.cancelledAt &&
       (r.inv.status === "pending" || r.inv.status === "accepted")
     );
@@ -103,7 +103,7 @@ async function saveInvitations(formData: FormData) {
             ].join("\n");
             const htmlBody = shellWrap([
               greeting(profile?.firstName, `Your ${position.role} slot for this shift has been removed.`),
-              banner("⚠  Shift removed — you no longer need to attend.", "warning"),
+              banner("⚠  Shift removed - you no longer need to attend.", "warning"),
               kvTable([
                 kvRow("Role", position.role),
                 kvRow("Date", prettyDate),
@@ -276,9 +276,9 @@ async function sendPendingInvitations(formData: FormData) {
       const timeRange = `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`;
 
       // Base-rate display depends on the position's rate mode:
-      //   "standard" — show the staff's onboarded rate (varies per invitee)
-      //   "flat"     — fixed $ for the whole shift
-      //   "hourly"   — $ per hour, overriding the staff's onboarded rate
+      //   "standard" - show the staff's onboarded rate (varies per invitee)
+      //   "flat"     - fixed $ for the whole shift
+      //   "hourly"   - $ per hour, overriding the staff's onboarded rate
       const baseRateDisplay = (() => {
         if (position.baseRateMode === "standard") {
           const rate = profile?.defaultRate;
@@ -286,7 +286,7 @@ async function sendPendingInvitations(formData: FormData) {
           if (rate == null) return "Your standard rate (to be confirmed with manager)";
           if (type === "hourly") return `Your standard rate ($${rate}/hr, as on file)`;
           if (type === "flat") return `Your standard rate ($${rate} flat, as on file)`;
-          if (type === "both") return `Your standard rate ($${rate} — hourly or flat, per event, as on file)`;
+          if (type === "both") return `Your standard rate ($${rate} - hourly or flat, per event, as on file)`;
           return `Your standard rate ($${rate}, as on file)`;
         }
         if (position.baseRateMode === "hourly") {
@@ -323,7 +323,7 @@ async function sendPendingInvitations(formData: FormData) {
         `– ${companyName}`,
       ].filter(Boolean).join("\n");
 
-      // HTML version — rendered by most clients. Uses inline styles (Gmail strips <style>).
+      // HTML version - rendered by most clients. Uses inline styles (Gmail strips <style>).
       const row = (label: string, value: string, bold = false) =>
         `<tr>` +
         `<td style="padding:4px 16px 4px 0;color:#555;white-space:nowrap;${bold ? "font-weight:600;color:#111;" : ""}">${label}</td>` +
@@ -361,7 +361,7 @@ async function sendPendingInvitations(formData: FormData) {
 
       await sendEmail({
         to: u.email,
-        subject: `${companyName} invite to a shift — ${prettyDate}`,
+        subject: `${companyName} invite to a shift - ${prettyDate}`,
         body: textBody,
         html: htmlBody,
         companyId: session.companyId,
@@ -428,7 +428,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
     const inv = row.invitation;
     if (inv.status !== "pending" && inv.status !== "accepted") continue;
     if (row.event.date !== event.date) continue; // Only same-date conflicts matter
-    // Cancelled events shouldn't block a staff member's availability — their
+    // Cancelled events shouldn't block a staff member's availability - their
     // invite record is kept around for audit, but they're free to be booked
     // elsewhere on that day.
     if (row.event.cancelledAt) continue;
@@ -513,14 +513,14 @@ export default async function EventDetailPage({ params }: { params: { id: string
                 </form>
               </>
             )}
-            {/* Hard delete — silent, irreversible. Separate from Cancel so
+            {/* Hard delete - silent, irreversible. Separate from Cancel so
                 a stray click doesn't nuke a live event. */}
             <DeleteEventForm eventId={event.id} action={deleteEventAction} />
           </div>
         </div>
         <div className="mt-2">
           <div className="text-gray-600 mt-1">
-            {event.eventType ?? "—"}
+            {event.eventType ?? "-"}
             {event.venue ? ` · ${event.venue}` : ""}
             {event.city ? `, ${event.city}` : ""}
           </div>

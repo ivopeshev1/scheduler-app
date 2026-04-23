@@ -15,7 +15,7 @@ export type StaffOption = {
   currentStatus: "pending" | "accepted" | "rejected" | "expired" | "filled" | null;
   // Travel comp already stored on THIS invitation, if any
   currentTravelRate: number | null;
-  // If set, this staff member is already invited/accepted elsewhere — show but make un-selectable
+  // If set, this staff member is already invited/accepted elsewhere - show but make un-selectable
   busyWith: { eventDate: string; clientName: string; role: string } | null;
 };
 
@@ -50,7 +50,7 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
     return init;
   });
   // Re-sync selections and travel rates when the server sends fresh staff props,
-  // BUT only when the modal is closed — otherwise we'd clobber the user's
+  // BUT only when the modal is closed - otherwise we'd clobber the user's
   // in-progress edits every time React re-renders during a session.
   useEffect(() => {
     if (open) return;
@@ -174,7 +174,7 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                         </span>
                       </div>
                       <div className="text-xs text-gray-500">
-                        {s.city ?? "—"}
+                        {s.city ?? "-"}
                         {s.defaultRate ? ` · $${s.defaultRate}${s.defaultRateType === "hourly" ? "/hr" : ""}` : ""}
                         {/* Status label priority: current-position status wins over busy-elsewhere,
                             because if they're already on this position the busy-elsewhere message
@@ -184,17 +184,17 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                         {s.currentStatus === "pending" && <span className="ml-2 status-pending">Pending</span>}
                         {!alreadyOnThisPosition && s.busyWith && (
                           <span className="ml-2 text-amber-700 font-medium">
-                            Busy — {s.busyWith.clientName} ({s.busyWith.eventDate}) as {s.busyWith.role}
+                            Busy - {s.busyWith.clientName} ({s.busyWith.eventDate}) as {s.busyWith.role}
                           </span>
                         )}
                         {alreadyOnThisPosition && s.busyWith && (
                           <span className="ml-2 text-red-600 font-medium">
-                            ⚠ Also invited as {s.busyWith.role} — remove one
+                            ⚠ Also invited as {s.busyWith.role} - remove one
                           </span>
                         )}
                       </div>
                     </div>
-                    {/* Travel comp for this specific invitee — only shown when
+                    {/* Travel comp for this specific invitee - only shown when
                         they're checked, since travel only makes sense for
                         people you're actually inviting. Blank = no travel. */}
                     {checked && (

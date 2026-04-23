@@ -4,7 +4,7 @@
  * These settings are authored by the company owner/permitted manager and
  * stored as JSON on companies.notification_settings. The send-email code
  * (src/lib/notifications.ts, src/lib/event-notifications.ts) will read from
- * here in a follow-up pass — for now this module just persists the prefs.
+ * here in a follow-up pass - for now this module just persists the prefs.
  */
 
 export type Channels = { email: boolean; text: boolean };

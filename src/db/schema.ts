@@ -31,8 +31,8 @@ export const users = pgTable(
     isOwner: boolean("is_owner").notNull().default(false),
     // Per-area access flags for non-owner managers. Each corresponds to a top
     // nav item; the owner toggles these when adding a manager (or later on
-    // the Team page). Calendar/Staff/Log default to granted — those are the
-    // usual day-to-day tabs — Team + Settings default denied.
+    // the Team page). Calendar/Staff/Log default to granted - those are the
+    // usual day-to-day tabs - Team + Settings default denied.
     // canEditSettings covers both /manager/settings and /manager/notifications
     // (the notification rules live inside Settings now).
     canAccessCalendar: boolean("can_access_calendar").notNull().default(true),
@@ -73,7 +73,7 @@ export const staffProfiles = pgTable("staff_profiles", {
 // Per-company catalog of event roles (Bar Lead, Bartender, etc). Managers
 // maintain this from Settings → Roles. The positions table stores the role as
 // a plain string (not an FK), so removing a role from this catalog doesn't
-// break historical events — it just hides the role from future dropdowns.
+// break historical events - it just hides the role from future dropdowns.
 export const roles = pgTable(
   "roles",
   {
@@ -118,7 +118,7 @@ export const events = pgTable(
 export const positions = pgTable("positions", {
   id: text("id").primaryKey(),
   eventId: text("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
-  // Role is open text now — the per-company `roles` table is the canonical
+  // Role is open text now - the per-company `roles` table is the canonical
   // picklist, but we store the string directly on positions so deleting a role
   // from Settings doesn't invalidate historical events.
   role: text("role").notNull(),
@@ -161,7 +161,7 @@ export const invitations = pgTable(
     token: text("token").notNull().unique(),
     // Per-invitee travel comp. Manager sets it in the StaffPicker when drafting
     // the invite, because travel cost depends on where the individual is coming
-    // from — it's not a property of the position.
+    // from - it's not a property of the position.
     travelRate: real("travel_rate"),
   },
   (t) => ({

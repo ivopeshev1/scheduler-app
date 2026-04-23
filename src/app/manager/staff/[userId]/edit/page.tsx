@@ -47,7 +47,7 @@ async function saveStaffAction(formData: FormData) {
 
   await db.update(schema.users).set({ email }).where(eq(schema.users.id, userId));
 
-  // Manager can edit every profile field — staff is still free to update their
+  // Manager can edit every profile field - staff is still free to update their
   // own personal details via the invite / profile flow.
   await db.update(schema.staffProfiles).set({
     firstName,
@@ -143,7 +143,7 @@ export default async function EditStaffPage({ params }: { params: { userId: stri
               <div>
                 <label className="label" htmlFor="uniformSize">Uniform size</label>
                 <select id="uniformSize" name="uniformSize" className="input" defaultValue={profile.uniformSize ?? ""}>
-                  <option value="">—</option>
+                  <option value="">-</option>
                   {UNIFORM_SIZES.map((s) => (<option key={s} value={s}>{s}</option>))}
                   {/* If staff entered a non-standard size in the past, preserve it as an option */}
                   {profile.uniformSize && !UNIFORM_SIZES.includes(profile.uniformSize as typeof UNIFORM_SIZES[number]) && (

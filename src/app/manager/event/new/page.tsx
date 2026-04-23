@@ -28,7 +28,7 @@ async function createEventAction(formData: FormData) {
     createdBy: session.userId,
   });
 
-  // Scan form data for position rows — there's no fixed count now
+  // Scan form data for position rows - there's no fixed count now
   const positionIndexes = new Set<number>();
   for (const [key] of formData.entries()) {
     const m = /^role(\d+)$/.exec(key);
@@ -45,7 +45,7 @@ async function createEventAction(formData: FormData) {
       rawBaseRateMode === "hourly" ? "hourly"
       : rawBaseRateMode === "flat" ? "flat"
       : "standard";
-    // Standard mode ignores the typed $ amount — each invitee gets their onboarded rate.
+    // Standard mode ignores the typed $ amount - each invitee gets their onboarded rate.
     const baseRate = baseRateMode === "standard" ? null : num(formData.get(`baseRate${i}`));
     const vanDrivingRate = num(formData.get(`vanRate${i}`)) ?? 0;
     const requiresVanDriving = formData.get(`vanReq${i}`) === "on";
@@ -53,7 +53,7 @@ async function createEventAction(formData: FormData) {
     const pid = nanoid();
     await db.insert(schema.positions).values({
       id: pid, eventId, role: role as any,
-      mode: "pool", // legacy column; always the same now — Priority/Backup tiers cover it
+      mode: "pool", // legacy column; always the same now - Priority/Backup tiers cover it
       needed, sortOrder,
       baseRate, baseRateMode, vanDrivingRate, travelRate: 0, requiresVanDriving,
       rateType: "flat",

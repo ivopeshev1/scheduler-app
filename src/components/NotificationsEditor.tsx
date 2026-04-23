@@ -30,7 +30,7 @@ export function NotificationsEditor({
 
   // Generic updater that replaces the channels part of any key under
   // settings.staff or settings.manager. Respects the "at least one" rule
-  // if requireOne is true — toggling off the last checked channel flips the
+  // if requireOne is true - toggling off the last checked channel flips the
   // other one back on.
   function updateChannels(
     scope: "staff" | "manager",
@@ -42,7 +42,7 @@ export function NotificationsEditor({
       const current = (prev[scope] as Record<string, any>)[key];
       let next = { ...current, ...patch };
       if (requireOne && !next.email && !next.text) {
-        // Flipping off the just-unchecked one — flip the other back on so the
+        // Flipping off the just-unchecked one - flip the other back on so the
         // invariant holds without blocking the user.
         if ("email" in patch) next.text = true;
         else if ("text" in patch) next.email = true;
@@ -84,7 +84,7 @@ export function NotificationsEditor({
   return (
     <div className="space-y-8">
       <p className="text-xs text-gray-500">
-        Text-message delivery isn&apos;t hooked up yet — text preferences save but won&apos;t send until an SMS
+        Text-message delivery isn&apos;t hooked up yet - text preferences save but won&apos;t send until an SMS
         provider is wired in. Email works today.
       </p>
 
@@ -102,7 +102,7 @@ export function NotificationsEditor({
 
           <Row
             title="Reminders that onboarding isn't finished"
-            description="Follow-ups sent to staff who accepted the invite but haven't completed their profile."
+            description="Follow-ups sent to staff who haven't completed onboarding, whether or not they've accepted the invite."
             channels={settings.staff.onboardReminder}
             requireOne
             onChange={(p) => updateChannels("staff", "onboardReminder", p, true)}
@@ -123,7 +123,7 @@ export function NotificationsEditor({
           </Row>
 
           <Row
-            title="Max onboarding reminders before giving up"
+            title="Max onboarding reminders"
             description="After this many reminders go unanswered, we stop pinging. The invitation stays open so they can still accept."
             channels={settings.staff.onboardMaxReminders}
             requireOne
@@ -132,12 +132,17 @@ export function NotificationsEditor({
             <LabeledControl label="Max reminders">
               <input
                 type="number"
-                min={1}
+                min={0}
                 max={50}
-                value={settings.staff.onboardMaxReminders.count}
-                onChange={(e) => updateExtra("staff", "onboardMaxReminders", {
-                  count: Math.max(1, Math.min(50, Math.floor(Number(e.target.value) || 1))),
-                })}
+                value={settings.staff.onboardMaxReminders.count === 0 ? "" : settings.staff.onboardMaxReminders.count}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  const n = raw === "" ? 0 : Math.floor(Number(raw));
+                  updateExtra("staff", "onboardMaxReminders", {
+                    count: Number.isFinite(n) && n >= 0 ? Math.min(50, n) : 0,
+                  });
+                }}
                 className="input text-sm py-1 w-20"
               />
             </LabeledControl>
@@ -161,7 +166,7 @@ export function NotificationsEditor({
 
           <Row
             title="Event modified"
-            description="Sent when details the staff depends on change — time, venue, rate, etc."
+            description="Sent when a shift the staff has been invited to (or accepted) has been modified and details have been changed (time, venue, rate, etc.)."
             channels={settings.staff.eventModified}
             requireOne
             onChange={(p) => updateChannels("staff", "eventModified", p, true)}
@@ -181,8 +186,8 @@ export function NotificationsEditor({
           </Row>
 
           <Row
-            title="Open-shift reminder (no response yet)"
-            description="Notifies the invitee their shift is about to open up to others because they haven't responded. No notifications between 10 PM and 8 AM."
+            title="Awaiting response reminder"
+            description="Nudges the invitee that their shift is about to be offered to other staff because they haven't responded yet. No notifications between 10pm and 8am."
             channels={settings.staff.openShiftReminder}
             requireOne
             onChange={(p) => updateChannels("staff", "openShiftReminder", p, true)}
@@ -203,7 +208,7 @@ export function NotificationsEditor({
 
           <Row
             title="Auto-expire notice"
-            description="When a priority invite is auto-expired by the system, notify the affected staff they're no longer on the priority list. Their backup slot may still stand."
+            description="When a priority invite auto-expires because the staff hasn't responded in time, let them know. Others won't receive a new invite in their place, but the staff can still pick up the shift themselves if it's still open."
             channels={settings.staff.autoExpire}
             requireOne
             onChange={(p) => updateChannels("staff", "autoExpire", p, true)}
@@ -215,8 +220,9 @@ export function NotificationsEditor({
                   min={1}
                   max={60}
                   value={autoExpireDays}
+                  onFocus={(e) => e.target.select()}
                   onChange={(e) => { setAutoExpireDays(e.target.value); setSaved(false); }}
-                  placeholder="—"
+                  placeholder="-"
                   className="input text-sm py-1 w-20"
                 />
                 <span className="text-xs text-gray-600">days with no response (blank = disabled)</span>
@@ -260,7 +266,7 @@ export function NotificationsEditor({
 
           <Row
             title="Staff declined (or cancelled) a shift"
-            description="Fires on reject AND on accept-then-cancel. High-signal — text recommended."
+            description="Fires on reject AND on accept-then-cancel. High-signal - text recommended."
             channels={settings.manager.staffDeclinedShift}
             requireOne
             onChange={(p) => updateChannels("manager", "staffDeclinedShift", p, true)}
@@ -281,16 +287,7 @@ export function NotificationsEditor({
 
           <Row
             title="Auto-expire summary"
-            description={
-              <>
-                Fires when a priority invite expires automatically. The message picks itself based on
-                backups:
-                <ul className="list-disc pl-5 mt-1 space-y-0.5">
-                  <li>With backups — &quot;{'{role}'} shift for {'{client name}'} on {'{event date}'} has expired. Notifications sent to all backups.&quot;</li>
-                  <li>No backups — &quot;{'{role}'} shift for {'{client name}'} on {'{event date}'} has expired. The slot(s) are now open and need attention.&quot;</li>
-                </ul>
-              </>
-            }
+            description="Fires when a priority invite expires automatically. The shift needs immediate attention."
             channels={settings.manager.autoExpire}
             onChange={(p) => updateChannels("manager", "autoExpire", p, false)}
           />
@@ -373,7 +370,7 @@ function LabeledControl({ label, children }: { label: string; children: React.Re
   );
 }
 
-/** Dynamic list of lead times — { value, unit } pairs with add/remove. */
+/** Dynamic list of lead times - { value, unit } pairs with add/remove. */
 function LeadTimeList({
   leadTimes,
   onChange,
@@ -401,9 +398,17 @@ function LeadTimeList({
         <div key={idx} className="flex items-center gap-2">
           <input
             type="number"
-            min={1}
-            value={lt.value}
-            onChange={(e) => setAt(idx, { value: Math.max(1, Math.floor(Number(e.target.value) || 1)) })}
+            min={0}
+            // value=0 renders as empty so the user can clear the field and
+            // retype a multi-digit number. The send-time code will ignore any
+            // entries that end up at 0.
+            value={lt.value === 0 ? "" : lt.value}
+            onFocus={(e) => e.target.select()}
+            onChange={(e) => {
+              const raw = e.target.value;
+              const n = raw === "" ? 0 : Math.floor(Number(raw));
+              setAt(idx, { value: Number.isFinite(n) && n >= 0 ? n : 0 });
+            }}
             className="input text-sm py-1 w-20"
           />
           <select

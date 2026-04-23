@@ -6,7 +6,7 @@ export type BaseRateMode = "standard" | "flat" | "hourly";
 
 /**
  * Single-cell base rate selector. Shows a dropdown with three mutually-exclusive
- * options — Standard (uses the invitee's onboarded rate), Flat, or Hourly. The
+ * options - Standard (uses the invitee's onboarded rate), Flat, or Hourly. The
  * Flat and Hourly options contain an inline $ input. Selecting an option (or
  * typing into its input) closes the dropdown and the trigger collapses back to
  * a one-line summary so the row height doesn't change.
@@ -50,7 +50,7 @@ export function BaseRateControl({
       ? amount ? `Flat: $${amount}` : "Flat: $…"
       : amount ? `Hourly: $${amount}/hr` : "Hourly: $…/hr";
 
-  // In Standard mode the amount is intentionally blank — the backend will
+  // In Standard mode the amount is intentionally blank - the backend will
   // derive each invitee's rate from their profile.
   const submittedAmount = mode === "standard" ? "" : amount;
 
@@ -70,7 +70,7 @@ export function BaseRateControl({
 
       {open && (
         <div className="absolute z-20 mt-1 min-w-[220px] bg-white border border-gray-300 rounded-md shadow-lg p-1">
-          {/* Standard — just a clickable row */}
+          {/* Standard - just a clickable row */}
           <button
             type="button"
             onClick={() => {
@@ -85,7 +85,7 @@ export function BaseRateControl({
             Standard <span className="text-xs text-gray-500">(onboarded rate)</span>
           </button>
 
-          {/* Flat — click focuses the $ input and selects the mode */}
+          {/* Flat - click focuses the $ input and selects the mode */}
           <div
             className={`flex items-center gap-2 px-3 py-2 text-sm rounded hover:bg-gray-100 cursor-pointer ${
               mode === "flat" ? "bg-gray-50 font-medium" : ""
@@ -113,7 +113,7 @@ export function BaseRateControl({
             />
           </div>
 
-          {/* Hourly — same pattern */}
+          {/* Hourly - same pattern */}
           <div
             className={`flex items-center gap-2 px-3 py-2 text-sm rounded hover:bg-gray-100 cursor-pointer ${
               mode === "hourly" ? "bg-gray-50 font-medium" : ""

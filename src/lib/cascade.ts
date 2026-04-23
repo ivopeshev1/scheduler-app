@@ -32,7 +32,7 @@ export async function sendInvitationEmail(inv: InvitationRow, position: Position
       if (rate == null) return "Your standard rate (to be confirmed with manager)";
       if (type === "hourly") return `Your standard rate ($${rate}/hr, as on file)`;
       if (type === "flat") return `Your standard rate ($${rate} flat, as on file)`;
-      if (type === "both") return `Your standard rate ($${rate} — hourly or flat, per event, as on file)`;
+      if (type === "both") return `Your standard rate ($${rate} - hourly or flat, per event, as on file)`;
       return `Your standard rate ($${rate}, as on file)`;
     }
     if (position.baseRateMode === "hourly") return `$${position.baseRate ?? 0}/hr (for this shift)`;
@@ -96,7 +96,7 @@ export async function sendInvitationEmail(inv: InvitationRow, position: Position
 
   await sendEmail({
     to: u.email,
-    subject: `${companyName} invite to a shift — ${prettyDate}`,
+    subject: `${companyName} invite to a shift - ${prettyDate}`,
     body: textBody,
     html: htmlBody,
     companyId,
@@ -144,7 +144,7 @@ async function notifyManagerNoBackup(event: EventRow, position: PositionRow, exp
     ].join("\n"));
     await sendEmail({
       to: m.email,
-      subject: `Action needed: ${event.clientName} on ${prettyDate} — no backup`,
+      subject: `Action needed: ${event.clientName} on ${prettyDate} - no backup`,
       body: textBody,
       html: htmlBody,
       companyId,
@@ -157,14 +157,14 @@ async function notifyManagerNoBackup(event: EventRow, position: PositionRow, exp
  * The main auto-expiry + cascade pass. For each pending+sent priority invite
  * older than its company's priorityExpireDays threshold:
  *   1. Mark it expired
- *   2. If there's ANOTHER pending priority on the same position, stop — let it ride.
+ *   2. If there's ANOTHER pending priority on the same position, stop - let it ride.
  *      (Manager invited multiple priorities on purpose; no need to cascade yet.)
  *   3. Otherwise look for the lowest-tier unsent backup draft on that position
  *      and promote it: set tier=0, sendAt = now, email it.
  *   4. If no backup exists, email the manager "action needed."
  *
  * Designed to be called from a daily cron (/api/cron/expire-invites). Idempotent
- * — re-running doesn't double-expire or double-notify.
+ * - re-running doesn't double-expire or double-notify.
  */
 export async function runExpiryAndCascade() {
   const now = new Date();
@@ -188,7 +188,7 @@ export async function runExpiryAndCascade() {
       const { inv, pos, ev } = row;
       if (inv.status !== "pending") continue;
       if (inv.tier !== 0) continue;       // only priority invites auto-expire
-      if (!inv.sentAt) continue;           // drafts don't expire — they weren't emailed
+      if (!inv.sentAt) continue;           // drafts don't expire - they weren't emailed
       if (ev.cancelledAt) continue;        // skip cancelled events
       const age = now.getTime() - new Date(inv.sentAt).getTime();
       if (age < thresholdMs) continue;
@@ -200,7 +200,7 @@ export async function runExpiryAndCascade() {
       results.push({ action: "expired", invId: inv.id });
 
       // Are there other priority pending invites still on this position? If so,
-      // don't cascade — wait on them.
+      // don't cascade - wait on them.
       const siblings = rows.filter((r) =>
         r.inv.positionId === pos.id &&
         r.inv.id !== inv.id &&
@@ -235,7 +235,7 @@ export async function runExpiryAndCascade() {
         }
         results.push({ action: "promoted-backup", invId: promote.id });
       } else {
-        // No backup — ping the manager
+        // No backup - ping the manager
         await notifyManagerNoBackup(ev, pos, inv.userId, company.id);
         results.push({ action: "notified-manager-no-backup", positionId: pos.id });
       }

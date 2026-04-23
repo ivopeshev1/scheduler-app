@@ -22,7 +22,7 @@ async function addStaffAction(formData: FormData) {
   const rateType = (str(formData.get("defaultRateType")) ?? "hourly") as "hourly" | "flat" | "both";
   const canDriveVan = formData.get("canDriveVan") === "on";
 
-  // Optional profile fields — manager can prefill if they already know them,
+  // Optional profile fields - manager can prefill if they already know them,
   // otherwise staff fills via the invite link.
   const phone = str(formData.get("phone"));
   const city = str(formData.get("city"));
@@ -91,7 +91,7 @@ export default async function AddStaffPage() {
         <Link href="/manager/staff" className="text-sm text-gray-500 hover:underline">← Back to staff</Link>
         <h1 className="text-2xl font-semibold mt-2 mb-2">Add staff member</h1>
         <p className="text-sm text-gray-600 mb-6">
-          Fields below the divider are optional — fill in what you already know; anything left blank
+          Fields below the divider are optional - fill in what you already know; anything left blank
           the staff member can complete themselves via the invite link.
         </p>
 
@@ -105,7 +105,7 @@ export default async function AddStaffPage() {
               <div>
                 <label className="label" htmlFor="position">Position</label>
                 <select id="position" name="position" className="input" required defaultValue="">
-                  <option value="" disabled>—</option>
+                  <option value="" disabled>-</option>
                   {POSITION_ROLES.map((r) => (<option key={r} value={r}>{r}</option>))}
                 </select>
               </div>
@@ -141,7 +141,7 @@ export default async function AddStaffPage() {
               <div>
                 <label className="label" htmlFor="uniformSize">Uniform size</label>
                 <select id="uniformSize" name="uniformSize" className="input" defaultValue="">
-                  <option value="">—</option>
+                  <option value="">-</option>
                   {UNIFORM_SIZES.map((s) => (<option key={s} value={s}>{s}</option>))}
                 </select>
               </div>

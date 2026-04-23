@@ -11,11 +11,11 @@ export type PositionStatus = {
  * month calendar and the event detail table. Invitation lifecycle stages we
  * report on, in priority order (left-to-right in multi-slot labels):
  *
- *   Confirmed  — slot has an accepted staff member. Locked in.
- *   Invited    — a priority invite email has been sent, awaiting response.
- *   Drafted    — manager has staged an invitation but hasn't sent the email yet.
+ *   Confirmed  - slot has an accepted staff member. Locked in.
+ *   Invited    - a priority invite email has been sent, awaiting response.
+ *   Drafted    - manager has staged an invitation but hasn't sent the email yet.
  *                Still reserves the staff from being double-booked elsewhere.
- *   Open       — no activity on this slot.
+ *   Open       - no activity on this slot.
  *
  * Single-slot positions show the person's first name when there's exactly one
  * name to show, so the manager sees at a glance who's on the shift.

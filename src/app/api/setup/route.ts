@@ -6,7 +6,7 @@ import { runMigrations } from "@/lib/migrations";
 
 /**
  * One-click bootstrap endpoint. The DDL migrations also auto-run on every cold
- * start via the root layout, so hitting this URL is optional going forward —
+ * start via the root layout, so hitting this URL is optional going forward -
  * it's mainly here to also seed the Flair Projects SB demo data on a fresh DB.
  * Idempotent: safe to call multiple times.
  */
@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const key = url.searchParams.get("key");
   if (!key || key !== process.env.AUTH_SECRET) {
-    return NextResponse.json({ error: "Unauthorized — append ?key=AUTH_SECRET" }, { status: 401 });
+    return NextResponse.json({ error: "Unauthorized - append ?key=AUTH_SECRET" }, { status: 401 });
   }
 
   const dbUrl = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
@@ -25,7 +25,7 @@ export async function GET(req: Request) {
   await runMigrations();
   const sql = neon(dbUrl);
 
-  // Seed the demo company only once — if it already exists, we're done.
+  // Seed the demo company only once - if it already exists, we're done.
   const [existing] = await sql`SELECT id FROM companies WHERE slug = 'flair-projects-sb' LIMIT 1` as any[];
   if (!existing) {
     const companyId = nanoid();
@@ -75,6 +75,6 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     ok: true,
-    message: "Database ready. Migrations auto-run on every cold start — you don't need to call this endpoint again.",
+    message: "Database ready. Migrations auto-run on every cold start - you don't need to call this endpoint again.",
   });
 }

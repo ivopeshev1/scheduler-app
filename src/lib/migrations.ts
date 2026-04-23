@@ -10,7 +10,7 @@ import { nanoid } from "nanoid";
  *     constraint so re-running is a no-op
  *   - Seeding statements are guarded on "target is empty" so they only run once
  *
- * Callers pass no args — runMigrations makes its own neon client from
+ * Callers pass no args - runMigrations makes its own neon client from
  * DATABASE_URL / POSTGRES_URL. That avoids the variance headaches of passing
  * a strongly-typed neon client across a module boundary.
  */
@@ -159,7 +159,7 @@ export async function runMigrations(): Promise<void> {
   // notification type ships.
   await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS notification_settings JSONB`;
 
-  // Seed defaults for any company with no roles yet — matches the enum we used
+  // Seed defaults for any company with no roles yet - matches the enum we used
   // to ship so existing events keep the same role names.
   const companiesNeedingRoles = (await sql`
     SELECT c.id FROM companies c
@@ -177,7 +177,7 @@ export async function runMigrations(): Promise<void> {
 }
 
 /**
- * Module-level memoized promise — runs the migrations exactly once per
+ * Module-level memoized promise - runs the migrations exactly once per
  * serverless instance (cold start). Subsequent calls no-op. If the run
  * fails (e.g. transient Neon hiccup), the promise is cleared so the next
  * request retries instead of being permanently broken.

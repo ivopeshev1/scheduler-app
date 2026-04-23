@@ -13,7 +13,7 @@ async function getCompanyName(companyId: string): Promise<string> {
 
 /**
  * Notify every staff member who has an invited or accepted invitation for this event
- * that the event was cancelled. Idempotent — won't re-notify once an invitation
+ * that the event was cancelled. Idempotent - won't re-notify once an invitation
  * is in 'expired' or 'rejected' status.
  */
 export async function notifyCancellation(event: EventRow, companyId: string) {
@@ -27,7 +27,7 @@ export async function notifyCancellation(event: EventRow, companyId: string) {
     const invites = await db.select().from(schema.invitations).where(eq(schema.invitations.positionId, p.id));
     for (const inv of invites) {
       if (inv.status !== "pending" && inv.status !== "accepted") continue;
-      if (!inv.sentAt) continue; // never actually notified in the first place — skip
+      if (!inv.sentAt) continue; // never actually notified in the first place - skip
       const [u] = await db.select().from(schema.users).where(eq(schema.users.id, inv.userId));
       const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, inv.userId));
       if (!u) continue;
@@ -46,7 +46,7 @@ export async function notifyCancellation(event: EventRow, companyId: string) {
 
       const htmlBody = shellWrap([
         greeting(profile?.firstName, "The shift you were confirmed for has been cancelled."),
-        banner("⚠  Shift cancelled — you no longer need to attend.", "warning"),
+        banner("⚠  Shift cancelled - you no longer need to attend.", "warning"),
         kvTable([
           kvRow("Role", p.role),
           kvRow("Date", prettyDate),
@@ -136,7 +136,7 @@ export async function notifyEventDetailsChanged(event: EventRow, companyId: stri
 }
 
 /**
- * Notify invited/accepted staff on a specific position that THEIR SHIFT changed —
+ * Notify invited/accepted staff on a specific position that THEIR SHIFT changed -
  * pay rate, van driver designation, or (for the current van driver) van driving
  * instructions. Kept separate from notifyEventDetailsChanged because these
  * changes only affect the invitees on one position, not everyone on the event.
@@ -243,7 +243,7 @@ export async function notifyPositionRemoved(
 
     const htmlBody = shellWrap([
       greeting(profile?.firstName, `The ${removedRole} position you were invited to has been removed.`),
-      banner("⚠  Position removed — you no longer need to attend.", "warning"),
+      banner("⚠  Position removed - you no longer need to attend.", "warning"),
       kvTable([
         kvRow("Role", removedRole),
         kvRow("Date", prettyDate),

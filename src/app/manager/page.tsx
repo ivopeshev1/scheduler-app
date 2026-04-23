@@ -4,7 +4,7 @@ import { db, schema } from "@/db/client";
 import { eq } from "drizzle-orm";
 
 /**
- * Manager landing router. Owners always go to the list calendar — grid is a
+ * Manager landing router. Owners always go to the list calendar - grid is a
  * click away via the toggle. Non-owner managers are routed to the first
  * section they have access to, so a manager restricted to Staff only doesn't
  * hit a calendar redirect loop.
@@ -27,6 +27,6 @@ export default async function ManagerIndex() {
   if (me.canAccessTeam) redirect("/manager/team");
   if (me.canEditSettings) redirect("/manager/settings");
 
-  // No sections granted — send them to a no-access placeholder.
+  // No sections granted - send them to a no-access placeholder.
   redirect("/login?error=no-access");
 }

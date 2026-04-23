@@ -2,7 +2,7 @@ import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
 import * as schema from "./schema";
 
-// Lazy connection — avoids crashing the Next build when DATABASE_URL
+// Lazy connection - avoids crashing the Next build when DATABASE_URL
 // is missing (e.g. initial Vercel deploy before the Postgres add-on is attached).
 let _db: ReturnType<typeof drizzle> | null = null;
 

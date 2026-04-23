@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // Runs idempotent DDL (CREATE TABLE IF NOT EXISTS / ALTER TABLE IF NOT
   // EXISTS / etc) once per serverless cold start, so the database stays in
-  // sync with the code automatically on every deploy — no manual /api/setup
+  // sync with the code automatically on every deploy - no manual /api/setup
   // step needed.
   await ensureMigrations();
   return (

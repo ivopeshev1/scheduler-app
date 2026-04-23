@@ -67,7 +67,7 @@ function PositionRow({
   onToggleVan: (checked: boolean) => void;
   onRemove: () => void;
 }) {
-  // Default to Standard — managers already put each staff member's rate on file
+  // Default to Standard - managers already put each staff member's rate on file
   // at onboarding, so the common case is "use their onboarded rate".
   return (
     <div className="grid grid-cols-12 gap-3 items-end border rounded-lg p-3">
@@ -78,7 +78,7 @@ function PositionRow({
       <div className="col-span-3">
         <label className="label">Role</label>
         <select name={`role${index}`} className="input" defaultValue="" required>
-          <option value="" disabled>—</option>
+          <option value="" disabled>-</option>
           {roles.map((r) => (<option key={r} value={r}>{r}</option>))}
         </select>
       </div>

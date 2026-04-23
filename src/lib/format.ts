@@ -1,11 +1,11 @@
 /**
  * Convert "17:00" (24h) → "5:00 PM".
- * Handles null/undefined and "—" passthroughs.
+ * Handles null/undefined and "-" passthroughs.
  */
 export function formatTime(hhmm: string | null | undefined): string {
-  if (!hhmm) return "—";
+  if (!hhmm) return "-";
   const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
-  if (!m) return hhmm; // fallback — show as-is if not HH:MM
+  if (!m) return hhmm; // fallback - show as-is if not HH:MM
   let h = Number(m[1]);
   const min = m[2];
   const ampm = h >= 12 ? "PM" : "AM";
@@ -19,7 +19,7 @@ export function formatTime(hhmm: string | null | undefined): string {
  * We parse as local time (not UTC) so the weekday matches how the manager entered it.
  */
 export function formatDate(ymd: string | null | undefined): string {
-  if (!ymd) return "—";
+  if (!ymd) return "-";
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
   if (!m) return ymd;
   const year = Number(m[1]);

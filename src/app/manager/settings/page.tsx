@@ -63,7 +63,7 @@ async function saveNotificationSettingsAction(payload: {
   "use server";
   const { session } = await requireSettingsAccess();
 
-  // Basic shape check — if the client somehow sends something broken, fall
+  // Basic shape check - if the client somehow sends something broken, fall
   // back to defaults rather than writing garbage.
   const safeSettings = mergeNotificationSettings(payload.settings);
 
@@ -92,14 +92,14 @@ async function addRoleAction(formData: FormData) {
   }
 
   // Reject duplicates (case-insensitive) within the same company. Redirect
-  // with an error banner instead of throwing — throwing surfaces a generic
+  // with an error banner instead of throwing - throwing surfaces a generic
   // "Application error" page, which reads as a bug rather than validation.
   const existing = await db.select().from(schema.roles).where(eq(schema.roles.companyId, session.companyId));
   if (existing.some((r) => r.name.toLowerCase() === name.toLowerCase())) {
     redirect(`/manager/settings?error=role-duplicate&name=${encodeURIComponent(name)}`);
   }
 
-  // Append at the end — grab the current max sortOrder by ordering desc.
+  // Append at the end - grab the current max sortOrder by ordering desc.
   const [last] = await db
     .select()
     .from(schema.roles)
@@ -151,7 +151,7 @@ async function moveRoleAction(formData: FormData) {
   if (idx < 0) throw new Error("Not found");
   const swapIdx = direction === "up" ? idx - 1 : idx + 1;
   if (swapIdx < 0 || swapIdx >= all.length) {
-    // Already at the edge — no-op
+    // Already at the edge - no-op
     redirect("/manager/settings");
   }
 
@@ -184,7 +184,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
     .where(eq(schema.roles.companyId, session.companyId))
     .orderBy(asc(schema.roles.sortOrder));
 
-  // Banners are scoped per section — a company-setup save doesn't flash a
+  // Banners are scoped per section - a company-setup save doesn't flash a
   // message up under the Roles header and vice versa. Keeps feedback next to
   // the form that caused it.
   const saved = searchParams.saved;
@@ -241,7 +241,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
                 className="input"
               />
               <p className="text-xs text-gray-500 mt-1">
-                Paste a direct image URL — appears as a small icon next to your company name. Google Drive share links
+                Paste a direct image URL - appears as a small icon next to your company name. Google Drive share links
                 get auto-rewritten to the thumbnail endpoint.
               </p>
               {company.logoUrl && (
@@ -333,7 +333,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
             </ul>
           )}
           <p className="text-xs text-gray-500 mb-4">
-            The order shown here is the order roles appear in event dropdowns — use ↑ / ↓ to rearrange.
+            The order shown here is the order roles appear in event dropdowns - use ↑ / ↓ to rearrange.
           </p>
 
           <form action={addRoleAction} className="flex items-end gap-2">
@@ -368,7 +368,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
         <section className="border rounded-lg bg-white p-6 border-dashed">
           <h2 className="text-lg font-semibold mb-1 text-gray-600">Add-ons</h2>
           <p className="text-sm text-gray-500">
-            Coming soon — extra per-shift charges you can toggle on an event (travel, van driver, etc.) will
+            Coming soon - extra per-shift charges you can toggle on an event (travel, van driver, etc.) will
             live here so they&apos;re managed in one place instead of entered per-event.
           </p>
         </section>

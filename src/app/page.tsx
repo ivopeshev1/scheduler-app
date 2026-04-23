@@ -20,7 +20,7 @@ export default async function HomePage() {
         <div>
           <h2 className="text-xl font-semibold mb-3">For event staffing companies</h2>
           <p className="text-gray-700 leading-relaxed">
-            Create events, invite staff, and track confirmations — all in one place.
+            Create events, invite staff, and track confirmations - all in one place.
             Replaces messy spreadsheets and endless group texts.
           </p>
           <div className="mt-6 flex gap-3">

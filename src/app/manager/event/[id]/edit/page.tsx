@@ -127,7 +127,7 @@ async function saveEventEditAction(formData: FormData) {
                 ].join("\n");
                 const htmlBody = shellWrap([
                   greeting(profile?.firstName, `Your ${pos.role} slot for this shift has been removed.`),
-                  banner("⚠  Shift removed — you no longer need to attend.", "warning"),
+                  banner("⚠  Shift removed - you no longer need to attend.", "warning"),
                   kvTable([
                     kvRow("Role", pos.role),
                     kvRow("Date", prettyDate),
@@ -258,7 +258,7 @@ export default async function EditEventPage({ params }: { params: { id: string }
   if (!user) redirect("/login");
   if (!user.isOwner && !user.canAccessCalendar) redirect("/manager?denied=calendar");
 
-  // Role picklist for the position dropdown — managed under Settings → Roles.
+  // Role picklist for the position dropdown - managed under Settings → Roles.
   const roleRows = await db
     .select()
     .from(schema.roles)

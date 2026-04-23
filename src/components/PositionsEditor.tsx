@@ -190,7 +190,7 @@ function ExistingRow({
             {roles.map((r) => (<option key={r} value={r}>{r}</option>))}
             {/* If this position's role was deleted from the Settings catalog
                 after the fact, keep it selectable here so the edit form still
-                works — otherwise the <select> would silently clear. */}
+                works - otherwise the <select> would silently clear. */}
             {p.role && !roles.includes(p.role) && (
               <option value={p.role}>{p.role}</option>
             )}
@@ -283,7 +283,7 @@ function NewRow({
       <div className="col-span-3">
         <label className="label">Role</label>
         <select name={`role[${newKey}]`} className="input" defaultValue="" required>
-          <option value="" disabled>—</option>
+          <option value="" disabled>-</option>
           {roles.map((r) => (<option key={r} value={r}>{r}</option>))}
         </select>
       </div>

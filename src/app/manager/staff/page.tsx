@@ -16,7 +16,7 @@ async function archiveStaffAction(formData: FormData) {
   const [target] = await db.select().from(schema.users).where(eq(schema.users.id, userId));
   if (!target || target.companyId !== session.companyId || target.role !== "staff") throw new Error("Not found");
 
-  // Refuse if they have any accepted shifts — manager must unwind those first via Edit Event
+  // Refuse if they have any accepted shifts - manager must unwind those first via Edit Event
   const invites = await db.select().from(schema.invitations).where(eq(schema.invitations.userId, userId));
   const hasAccepted = invites.some((i) => i.status === "accepted");
   if (hasAccepted) {
@@ -25,7 +25,7 @@ async function archiveStaffAction(formData: FormData) {
     );
   }
 
-  // Silently cancel any pending invitations (no emails — same-day they might have gotten an
+  // Silently cancel any pending invitations (no emails - same-day they might have gotten an
   // invite but if we're archiving them, they're no longer part of the roster).
   for (const inv of invites) {
     if (inv.status === "pending") {
@@ -45,7 +45,7 @@ async function resendInviteAction(formData: FormData) {
 
   const [target] = await db.select().from(schema.users).where(eq(schema.users.id, userId));
   if (!target || target.companyId !== session.companyId) throw new Error("Not found");
-  if (target.inviteAcceptedAt) throw new Error("Staff already onboarded — nothing to resend");
+  if (target.inviteAcceptedAt) throw new Error("Staff already onboarded - nothing to resend");
 
   // Generate a new token, invalidating any prior link. Manager copies the new
   // URL from the staff page and shares it however they want (email, text, etc).
@@ -120,16 +120,16 @@ export default async function ManagerStaffPage() {
                       <em className="text-gray-400">{user.email}</em>
                     )}
                   </td>
-                  <td className="py-3">{profile?.position ?? "—"}</td>
+                  <td className="py-3">{profile?.position ?? "-"}</td>
                   <td className="py-3">
                     {profile?.defaultRate
                       ? `$${profile.defaultRate}${profile.defaultRateType === "hourly" ? "/hr" : profile.defaultRateType === "flat" ? " flat" : ""}`
-                      : "—"}
+                      : "-"}
                   </td>
-                  <td className="py-3">{profile?.city ?? <span className="text-gray-300">—</span>}</td>
-                  <td className="py-3 text-sm text-gray-600">{profile?.phone ?? <span className="text-gray-300">—</span>}</td>
+                  <td className="py-3">{profile?.city ?? <span className="text-gray-300">-</span>}</td>
+                  <td className="py-3 text-sm text-gray-600">{profile?.phone ?? <span className="text-gray-300">-</span>}</td>
                   <td className="py-3 text-sm">
-                    {profile?.canDriveVan ? "✓" : <span className="text-gray-300">—</span>}
+                    {profile?.canDriveVan ? "✓" : <span className="text-gray-300">-</span>}
                   </td>
                   <td className="py-3 text-sm">
                     {user.inviteAcceptedAt ? (
@@ -137,7 +137,7 @@ export default async function ManagerStaffPage() {
                     ) : inviteUrl ? (
                       <InviteLinkCell url={inviteUrl} userId={user.id} />
                     ) : (
-                      <span className="text-gray-400">—</span>
+                      <span className="text-gray-400">-</span>
                     )}
                   </td>
                   <td className="py-3 text-right">

@@ -3,7 +3,7 @@ import { runExpiryAndCascade } from "@/lib/cascade";
 
 /**
  * Daily cron entrypoint. Vercel Cron hits this once a day (see vercel.json).
- * Also protected by a secret — we accept either:
+ * Also protected by a secret - we accept either:
  *   1. Vercel's automatic `Authorization: Bearer $CRON_SECRET` header (preferred)
  *   2. A manual `?key=AUTH_SECRET` query string, so the manager can trigger
  *      a dry-run from the browser when debugging.

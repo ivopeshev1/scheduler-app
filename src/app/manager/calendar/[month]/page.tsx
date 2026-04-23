@@ -7,7 +7,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { formatTime } from "@/lib/format";
 
 /**
- * Month-grid ("overlook") view of the calendar — seven columns Sun→Sat, six
+ * Month-grid ("overlook") view of the calendar - seven columns Sun→Sat, six
  * rows to cover every layout. Complement to the list view at /manager/month,
  * which stays around for drilling into a single day. Each cell shows the day
  * number plus compact event chips; click a chip to open that event, click the

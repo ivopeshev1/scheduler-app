@@ -86,7 +86,7 @@ async function sendWelcomeManagerEmail({
     `Email:      ${toEmail}`,
     `Password:   ${password}`, ``,
     scopeNote, ``,
-    `Keep this email — password changes from inside the app aren't available yet,`,
+    `Keep this email - password changes from inside the app aren't available yet,`,
     `so you'll continue using this password for now.`, ``,
     `– ${companyName}`,
   ].join("\n");
@@ -101,7 +101,7 @@ async function sendWelcomeManagerEmail({
     ]),
     paragraph(scopeNote),
     paragraph(
-      "Keep this email — password changes from inside the app aren't available yet, so you'll continue using this password for now.",
+      "Keep this email - password changes from inside the app aren't available yet, so you'll continue using this password for now.",
       { muted: true },
     ),
     signoff(companyName),
@@ -109,7 +109,7 @@ async function sendWelcomeManagerEmail({
 
   await sendEmail({
     to: toEmail,
-    subject: `${companyName} — your manager login`,
+    subject: `${companyName} - your manager login`,
     body: textBody,
     html: htmlBody,
     companyId,
@@ -139,7 +139,7 @@ async function addManagerAction(formData: FormData) {
     role: "manager",
     isOwner: false,
     ...flags,
-    // Intentionally null — inviteAcceptedAt gets set on their first successful
+    // Intentionally null - inviteAcceptedAt gets set on their first successful
     // login. Until then the Team page shows "Pending first login."
     inviteAcceptedAt: null,
   });
@@ -162,7 +162,7 @@ async function addManagerAction(formData: FormData) {
 }
 
 /**
- * Re-send the welcome email — but with a NEW password the owner types here.
+ * Re-send the welcome email - but with a NEW password the owner types here.
  * (We can't re-send the original because passwords are stored hashed.)
  */
 async function resendWelcomeAction(formData: FormData) {
@@ -357,7 +357,7 @@ export default async function TeamPage() {
           <h2 className="font-semibold mb-1">Add a manager</h2>
           <p className="text-sm text-gray-600 mb-4">
             Creates a login for one of your employees and <strong>emails them</strong> their login URL + credentials.
-            Tick the sections they&apos;re allowed to access — Calendar, Staff, and Log are checked by default.
+            Tick the sections they&apos;re allowed to access - Calendar, Staff, and Log are checked by default.
           </p>
           <form action={addManagerAction} className="space-y-4">
             <div>

@@ -7,7 +7,7 @@ import { AppHeader } from "@/components/AppHeader";
 
 /**
  * Manager-facing audit log of every email the app has dispatched (or tried to).
- * Useful when staff say "I never got your email" — check here for delivery
+ * Useful when staff say "I never got your email" - check here for delivery
  * status before re-sending. Shows newest first, capped at 200 to keep the
  * query bounded; proper pagination can come later if needed.
  */
@@ -76,7 +76,7 @@ export default async function LogPage() {
                         {fullName ? (
                           <div>
                             <div>{fullName}</div>
-                            <div className="text-xs text-gray-500">{recipient?.email ?? "—"}</div>
+                            <div className="text-xs text-gray-500">{recipient?.email ?? "-"}</div>
                           </div>
                         ) : (
                           <span className="text-gray-500">{recipient?.email ?? "system"}</span>

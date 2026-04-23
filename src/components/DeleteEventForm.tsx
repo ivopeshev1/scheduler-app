@@ -8,7 +8,7 @@ type Props = {
 /**
  * Separated into a client component so we can attach an onSubmit confirm()
  * that's strict enough to prevent accidental deletes. The inner form hits a
- * server action that hard-deletes the event — no emails go out, no staff
+ * server action that hard-deletes the event - no emails go out, no staff
  * gets notified even if invitations were already sent.
  */
 export function DeleteEventForm({ eventId, action }: Props) {
@@ -19,7 +19,7 @@ export function DeleteEventForm({ eventId, action }: Props) {
         const ok = window.confirm(
           "Permanently delete this event?\n\n" +
           "• All positions, invitations, and staff data for this event will be removed.\n" +
-          "• Nobody will be notified — even if invitations were already sent.\n" +
+          "• Nobody will be notified - even if invitations were already sent.\n" +
           "• This cannot be undone.\n\n" +
           "Click OK to delete."
         );
