@@ -7,6 +7,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { revalidatePath } from "next/cache";
 
 const POSITION_ROLES = ["Lead", "Bartender", "Bar Back", "Server", "Cashier"] as const;
+const UNIFORM_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"] as const;
 
 async function saveStaffAction(formData: FormData) {
   "use server";
@@ -25,6 +26,13 @@ async function saveStaffAction(formData: FormData) {
   const rateType = (str(formData.get("defaultRateType")) ?? "hourly") as "hourly" | "flat" | "both";
   const canDriveVan = formData.get("canDriveVan") === "on";
 
+  const phone = str(formData.get("phone"));
+  const city = str(formData.get("city"));
+  const dateOfBirth = str(formData.get("dateOfBirth"));
+  const uniformSize = str(formData.get("uniformSize"));
+  const emergencyContactName = str(formData.get("emergencyContactName"));
+  const emergencyContactPhone = str(formData.get("emergencyContactPhone"));
+
   if (!firstName || !lastName || !email || !position || rate === null) {
     throw new Error("First name, last name, email, position, and rate are required");
   }
@@ -39,7 +47,8 @@ async function saveStaffAction(formData: FormData) {
 
   await db.update(schema.users).set({ email }).where(eq(schema.users.id, userId));
 
-  // Update required profile fields only — optional fields remain the staff's to edit
+  // Manager can edit every profile field — staff is still free to update their
+  // own personal details via the invite / profile flow.
   await db.update(schema.staffProfiles).set({
     firstName,
     lastName,
@@ -47,6 +56,12 @@ async function saveStaffAction(formData: FormData) {
     defaultRate: rate,
     defaultRateType: rateType,
     canDriveVan,
+    phone,
+    city,
+    dateOfBirth,
+    uniformSize,
+    emergencyContactName,
+    emergencyContactPhone,
   }).where(eq(schema.staffProfiles.userId, userId));
 
   revalidatePath("/manager/staff");
@@ -76,52 +91,68 @@ export default async function EditStaffPage({ params }: { params: { userId: stri
         <Link href="/manager/staff" className="text-sm text-gray-500 hover:underline">← Back to staff</Link>
         <h1 className="text-2xl font-semibold mt-2 mb-2">Modify {profile.firstName} {profile.lastName}</h1>
         <p className="text-sm text-gray-600 mb-6">
-          You can update the manager-set fields below. Personal details (city, phone, DOB, emergency contact, uniform)
-          are the staff member's to edit themselves.
+          Update any field. Personal details can also be edited by the staff member themselves
+          from their account.
         </p>
 
         <form action={saveStaffAction} className="space-y-4">
           <input type="hidden" name="userId" value={target.id} />
-          <div className="grid md:grid-cols-2 gap-4">
-            <Field label="First name" name="firstName" defaultValue={profile.firstName} required />
-            <Field label="Last name" name="lastName" defaultValue={profile.lastName} required />
-            <Field label="Email" name="email" type="email" defaultValue={target.email} required />
-            <div>
-              <label className="label" htmlFor="position">Position</label>
-              <select id="position" name="position" className="input" required defaultValue={profile.position}>
-                {POSITION_ROLES.map((r) => (<option key={r} value={r}>{r}</option>))}
-              </select>
-            </div>
-            <div>
-              <label className="label" htmlFor="defaultRate">Default rate ($)</label>
-              <input id="defaultRate" name="defaultRate" type="number" min={0} step="0.01" className="input" defaultValue={profile.defaultRate ?? ""} required />
-            </div>
-            <div>
-              <label className="label" htmlFor="defaultRateType">Rate type</label>
-              <select id="defaultRateType" name="defaultRateType" className="input" defaultValue={profile.defaultRateType ?? "hourly"}>
-                <option value="hourly">Hourly</option>
-                <option value="flat">Flat</option>
-                <option value="both">Both (depends on event)</option>
-              </select>
-            </div>
-            <div className="md:col-span-2 flex items-center gap-2 border-t pt-3">
-              <input id="canDriveVan" name="canDriveVan" type="checkbox" defaultChecked={profile.canDriveVan ?? false} className="w-4 h-4" />
-              <label htmlFor="canDriveVan" className="text-sm">Can drive the van</label>
-            </div>
-          </div>
 
-          {/* Read-only view of staff-managed fields */}
-          <div className="pt-6 border-t">
-            <h3 className="font-semibold text-sm uppercase text-gray-500 mb-3">Staff-managed (read-only)</h3>
-            <div className="grid md:grid-cols-2 gap-3 text-sm">
-              <ReadOnly label="City" value={profile.city} />
-              <ReadOnly label="Cell phone" value={profile.phone} />
-              <ReadOnly label="Date of birth" value={profile.dateOfBirth} />
-              <ReadOnly label="Uniform size" value={profile.uniformSize} />
-              <ReadOnly label="Emergency contact name" value={profile.emergencyContactName} />
-              <ReadOnly label="Emergency contact phone" value={profile.emergencyContactPhone} />
+          <section>
+            <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-3">Required</h2>
+            <div className="grid md:grid-cols-2 gap-4">
+              <Field label="First name" name="firstName" defaultValue={profile.firstName} required />
+              <Field label="Last name" name="lastName" defaultValue={profile.lastName} required />
+              <Field label="Email" name="email" type="email" defaultValue={target.email} required />
+              <div>
+                <label className="label" htmlFor="position">Position</label>
+                <select id="position" name="position" className="input" required defaultValue={profile.position}>
+                  {POSITION_ROLES.map((r) => (<option key={r} value={r}>{r}</option>))}
+                </select>
+              </div>
+              <div>
+                <label className="label" htmlFor="defaultRate">Default rate ($)</label>
+                <input id="defaultRate" name="defaultRate" type="number" min={0} step="0.01" className="input" defaultValue={profile.defaultRate ?? ""} required />
+              </div>
+              <div>
+                <label className="label" htmlFor="defaultRateType">Rate type</label>
+                <select id="defaultRateType" name="defaultRateType" className="input" defaultValue={profile.defaultRateType ?? "hourly"}>
+                  <option value="hourly">Hourly</option>
+                  <option value="flat">Flat</option>
+                  <option value="both">Both (depends on event)</option>
+                </select>
+              </div>
+              <div className="md:col-span-2 flex items-center gap-2">
+                <input id="canDriveVan" name="canDriveVan" type="checkbox" defaultChecked={profile.canDriveVan ?? false} className="w-4 h-4" />
+                <label htmlFor="canDriveVan" className="text-sm">Can drive the van</label>
+              </div>
             </div>
-          </div>
+          </section>
+
+          <section className="pt-6 border-t">
+            <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-3">Personal details</h2>
+            <div className="grid md:grid-cols-2 gap-4">
+              <Field label="Cell phone" name="phone" type="tel" defaultValue={profile.phone ?? ""} />
+              <Field label="City" name="city" defaultValue={profile.city ?? ""} />
+              <div>
+                <label className="label" htmlFor="dateOfBirth">Date of birth</label>
+                <input id="dateOfBirth" name="dateOfBirth" type="date" className="input" defaultValue={profile.dateOfBirth ?? ""} />
+              </div>
+              <div>
+                <label className="label" htmlFor="uniformSize">Uniform size</label>
+                <select id="uniformSize" name="uniformSize" className="input" defaultValue={profile.uniformSize ?? ""}>
+                  <option value="">—</option>
+                  {UNIFORM_SIZES.map((s) => (<option key={s} value={s}>{s}</option>))}
+                  {/* If staff entered a non-standard size in the past, preserve it as an option */}
+                  {profile.uniformSize && !UNIFORM_SIZES.includes(profile.uniformSize as typeof UNIFORM_SIZES[number]) && (
+                    <option value={profile.uniformSize}>{profile.uniformSize}</option>
+                  )}
+                </select>
+              </div>
+              <Field label="Emergency contact name" name="emergencyContactName" defaultValue={profile.emergencyContactName ?? ""} />
+              <Field label="Emergency contact phone" name="emergencyContactPhone" type="tel" defaultValue={profile.emergencyContactPhone ?? ""} />
+            </div>
+          </section>
 
           <div className="flex gap-3 pt-6 border-t">
             <button type="submit" className="btn btn-primary">Save changes</button>
@@ -140,15 +171,6 @@ function Field({ label, name, type = "text", required, defaultValue }: {
     <div>
       <label className="label" htmlFor={name}>{label}</label>
       <input id={name} name={name} type={type} required={required} defaultValue={defaultValue} className="input" />
-    </div>
-  );
-}
-
-function ReadOnly({ label, value }: { label: string; value: string | null }) {
-  return (
-    <div>
-      <div className="text-xs text-gray-500 uppercase tracking-wide">{label}</div>
-      <div className="text-gray-800">{value ?? <span className="text-gray-300">Not filled yet</span>}</div>
     </div>
   );
 }

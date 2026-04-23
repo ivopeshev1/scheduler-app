@@ -7,6 +7,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { nanoid } from "nanoid";
 
 const POSITION_ROLES = ["Lead", "Bartender", "Bar Back", "Server", "Cashier"] as const;
+const UNIFORM_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"] as const;
 
 async function addStaffAction(formData: FormData) {
   "use server";
@@ -20,6 +21,15 @@ async function addStaffAction(formData: FormData) {
   const rate = num(formData.get("defaultRate"));
   const rateType = (str(formData.get("defaultRateType")) ?? "hourly") as "hourly" | "flat" | "both";
   const canDriveVan = formData.get("canDriveVan") === "on";
+
+  // Optional profile fields — manager can prefill if they already know them,
+  // otherwise staff fills via the invite link.
+  const phone = str(formData.get("phone"));
+  const city = str(formData.get("city"));
+  const dateOfBirth = str(formData.get("dateOfBirth"));
+  const uniformSize = str(formData.get("uniformSize"));
+  const emergencyContactName = str(formData.get("emergencyContactName"));
+  const emergencyContactPhone = str(formData.get("emergencyContactPhone"));
 
   if (!firstName || !lastName || !email || !position || rate === null) {
     throw new Error("First name, last name, email, position, and rate are required");
@@ -50,7 +60,12 @@ async function addStaffAction(formData: FormData) {
     defaultRate: rate,
     defaultRateType: rateType,
     canDriveVan,
-    // Everything else stays NULL — staff fills it via the invite link
+    phone,
+    city,
+    dateOfBirth,
+    uniformSize,
+    emergencyContactName,
+    emergencyContactPhone,
   });
 
   redirect("/manager/staff");
@@ -74,40 +89,64 @@ export default async function AddStaffPage() {
         <Link href="/manager/staff" className="text-sm text-gray-500 hover:underline">← Back to staff</Link>
         <h1 className="text-2xl font-semibold mt-2 mb-2">Add staff member</h1>
         <p className="text-sm text-gray-600 mb-6">
-          Fill in the fields below. The staff member will receive an invite link to set their password and complete
-          the rest of their profile (city, phone, date of birth, emergency contact, uniform size).
+          Fields below the divider are optional — fill in what you already know; anything left blank
+          the staff member can complete themselves via the invite link.
         </p>
 
         <form action={addStaffAction} className="space-y-4">
-          <div className="grid md:grid-cols-2 gap-4">
-            <Field label="First name (as on tax docs)" name="firstName" required />
-            <Field label="Last name (as on tax docs)" name="lastName" required />
-            <Field label="Email" name="email" type="email" required />
-            <div>
-              <label className="label" htmlFor="position">Position</label>
-              <select id="position" name="position" className="input" required defaultValue="">
-                <option value="" disabled>—</option>
-                {POSITION_ROLES.map((r) => (<option key={r} value={r}>{r}</option>))}
-              </select>
+          <section>
+            <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-3">Required</h2>
+            <div className="grid md:grid-cols-2 gap-4">
+              <Field label="First name (as on tax docs)" name="firstName" required />
+              <Field label="Last name (as on tax docs)" name="lastName" required />
+              <Field label="Email" name="email" type="email" required />
+              <div>
+                <label className="label" htmlFor="position">Position</label>
+                <select id="position" name="position" className="input" required defaultValue="">
+                  <option value="" disabled>—</option>
+                  {POSITION_ROLES.map((r) => (<option key={r} value={r}>{r}</option>))}
+                </select>
+              </div>
+              <div>
+                <label className="label" htmlFor="defaultRate">Default rate ($)</label>
+                <input id="defaultRate" name="defaultRate" type="number" min={0} step="0.01" className="input" required />
+              </div>
+              <div>
+                <label className="label" htmlFor="defaultRateType">Rate type</label>
+                <select id="defaultRateType" name="defaultRateType" className="input" defaultValue="hourly">
+                  <option value="hourly">Hourly</option>
+                  <option value="flat">Flat</option>
+                  <option value="both">Both (depends on event)</option>
+                </select>
+              </div>
+              <div className="md:col-span-2 flex items-center gap-2">
+                <input id="canDriveVan" name="canDriveVan" type="checkbox" className="w-4 h-4" />
+                <label htmlFor="canDriveVan" className="text-sm">Can drive the van</label>
+                <span className="text-xs text-gray-500 ml-2">(gates them out of van-driver invitations if unchecked)</span>
+              </div>
             </div>
-            <div>
-              <label className="label" htmlFor="defaultRate">Default rate ($)</label>
-              <input id="defaultRate" name="defaultRate" type="number" min={0} step="0.01" className="input" required />
+          </section>
+
+          <section className="pt-6 border-t">
+            <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-3">Personal details (optional)</h2>
+            <div className="grid md:grid-cols-2 gap-4">
+              <Field label="Cell phone" name="phone" type="tel" />
+              <Field label="City" name="city" />
+              <div>
+                <label className="label" htmlFor="dateOfBirth">Date of birth</label>
+                <input id="dateOfBirth" name="dateOfBirth" type="date" className="input" />
+              </div>
+              <div>
+                <label className="label" htmlFor="uniformSize">Uniform size</label>
+                <select id="uniformSize" name="uniformSize" className="input" defaultValue="">
+                  <option value="">—</option>
+                  {UNIFORM_SIZES.map((s) => (<option key={s} value={s}>{s}</option>))}
+                </select>
+              </div>
+              <Field label="Emergency contact name" name="emergencyContactName" />
+              <Field label="Emergency contact phone" name="emergencyContactPhone" type="tel" />
             </div>
-            <div>
-              <label className="label" htmlFor="defaultRateType">Rate type</label>
-              <select id="defaultRateType" name="defaultRateType" className="input" defaultValue="hourly">
-                <option value="hourly">Hourly</option>
-                <option value="flat">Flat</option>
-                <option value="both">Both (depends on event)</option>
-              </select>
-            </div>
-            <div className="md:col-span-2 flex items-center gap-2 border-t pt-3">
-              <input id="canDriveVan" name="canDriveVan" type="checkbox" className="w-4 h-4" />
-              <label htmlFor="canDriveVan" className="text-sm">Can drive the van</label>
-              <span className="text-xs text-gray-500 ml-2">(gates them out of van-driver invitations if unchecked)</span>
-            </div>
-          </div>
+          </section>
 
           <div className="flex gap-3 pt-4 border-t">
             <button type="submit" className="btn btn-primary">Add staff</button>
