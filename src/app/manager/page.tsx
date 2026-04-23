@@ -8,7 +8,7 @@ export default async function ManagerIndex() {
 
   const now = new Date();
   const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  // Grid view is the default landing — list view is still available at
-  // /manager/month/<ym> via the toggle in the header of either view.
-  redirect(`/manager/calendar/${month}`);
+  // List view is the default landing — grid view is still available at
+  // /manager/calendar/<ym> via the toggle in the header of either view.
+  redirect(`/manager/month/${month}`);
 }
