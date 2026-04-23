@@ -154,6 +154,11 @@ export async function runMigrations(): Promise<void> {
   await sql`CREATE INDEX IF NOT EXISTS roles_company_idx ON roles(company_id, sort_order)`;
   await sql`ALTER TABLE positions DROP CONSTRAINT IF EXISTS positions_role_check`;
 
+  // Per-company blob of notification channel/frequency preferences. JSONB so
+  // we can evolve the shape without another migration every time a new
+  // notification type ships.
+  await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS notification_settings JSONB`;
+
   // Seed defaults for any company with no roles yet — matches the enum we used
   // to ship so existing events keep the same role names.
   const companiesNeedingRoles = (await sql`

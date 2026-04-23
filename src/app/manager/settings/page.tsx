@@ -4,6 +4,11 @@ import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
 import { eq, asc, desc } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
+import { NotificationsEditor } from "@/components/NotificationsEditor";
+import {
+  mergeNotificationSettings,
+  type NotificationSettings,
+} from "@/lib/notification-settings";
 import { revalidatePath } from "next/cache";
 import { nanoid } from "nanoid";
 
@@ -47,25 +52,32 @@ async function saveCompanySetupAction(formData: FormData) {
   redirect("/manager/settings?saved=company");
 }
 
-async function saveNotificationSettingsAction(formData: FormData) {
+/**
+ * Server action invoked by NotificationsEditor. Writes the whole settings blob
+ * to the JSON column and the auto-expire days to its dedicated column.
+ */
+async function saveNotificationSettingsAction(payload: {
+  settings: NotificationSettings;
+  autoExpireDays: number | null;
+}) {
   "use server";
   const { session } = await requireSettingsAccess();
-  const expireRaw = String(formData.get("priorityExpireDays") ?? "").trim();
+
+  // Basic shape check — if the client somehow sends something broken, fall
+  // back to defaults rather than writing garbage.
+  const safeSettings = mergeNotificationSettings(payload.settings);
+
   let priorityExpireDays: number | null = null;
-  if (expireRaw) {
-    const n = Number(expireRaw);
-    if (Number.isFinite(n) && n >= 1) {
-      priorityExpireDays = Math.min(60, Math.max(1, Math.floor(n)));
-    }
+  if (payload.autoExpireDays != null && Number.isFinite(payload.autoExpireDays) && payload.autoExpireDays >= 1) {
+    priorityExpireDays = Math.min(60, Math.max(1, Math.floor(payload.autoExpireDays)));
   }
 
   await db
     .update(schema.companies)
-    .set({ priorityExpireDays })
+    .set({ notificationSettings: safeSettings, priorityExpireDays })
     .where(eq(schema.companies.id, session.companyId));
 
   revalidatePath("/manager/settings");
-  redirect("/manager/settings?saved=notifications");
 }
 
 async function addRoleAction(formData: FormData) {
@@ -180,7 +192,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
   const errName = searchParams.name ?? "";
 
   const companySavedMsg = saved === "company" ? "Company setup saved." : null;
-  const notificationsSavedMsg = saved === "notifications" ? "Notification settings saved." : null;
+  // Notifications save its own in-line "Saved." indicator inside the editor
+  // component, so no top-level banner for that section.
   const rolesSavedMsg =
     saved === "role-added" ? "Role added." :
     saved === "role-removed" ? "Role removed." :
@@ -254,40 +267,16 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
         <section className="border rounded-lg bg-white p-6">
           <h2 className="text-lg font-semibold mb-1">Notifications</h2>
           <p className="text-sm text-gray-600 mb-4">
-            When a priority invite sits this long without a response, it auto-expires. The lowest-tier backup
-            is promoted and emailed. If no backup exists, you get a heads-up email instead. Leave blank to
-            disable (you&apos;ll handle re-invites manually).
+            Choose which channels (email / text) each message goes out on and, where applicable,
+            how often. See the <Link href="/manager/log" className="underline">Log</Link> page for
+            delivery history.
           </p>
 
-          <form action={saveNotificationSettingsAction} className="space-y-4">
-            <div>
-              <label htmlFor="priorityExpireDays" className="label">Auto-expire priority invites after</label>
-              <div className="flex items-center gap-2">
-                <input
-                  id="priorityExpireDays"
-                  name="priorityExpireDays"
-                  type="number"
-                  min={1}
-                  max={60}
-                  defaultValue={company.priorityExpireDays ?? ""}
-                  placeholder="—"
-                  className="input w-24"
-                />
-                <span className="text-sm text-gray-700">days with no response</span>
-              </div>
-              <p className="text-xs text-gray-500 mt-2">
-                Email delivery history lives on the <Link href="/manager/log" className="underline">Log</Link> page.
-              </p>
-            </div>
-
-            <button type="submit" className="btn btn-primary">Save notification rules</button>
-          </form>
-
-          {notificationsSavedMsg && (
-            <div className="mt-4 p-3 border border-green-300 bg-green-50 text-green-800 text-sm rounded">
-              {notificationsSavedMsg}
-            </div>
-          )}
+          <NotificationsEditor
+            initialSettings={mergeNotificationSettings(company.notificationSettings)}
+            initialAutoExpireDays={company.priorityExpireDays}
+            onSave={saveNotificationSettingsAction}
+          />
         </section>
 
         {/* -------------------- Roles -------------------- */}

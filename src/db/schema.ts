@@ -1,4 +1,4 @@
-import { pgTable, text, integer, real, boolean, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, real, boolean, timestamp, index, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const companies = pgTable("companies", {
@@ -9,6 +9,11 @@ export const companies = pgTable("companies", {
   // Auto-expire priority invites after this many days if no response. NULL means
   // never auto-expire (manager handles manually). Set per-company via Settings.
   priorityExpireDays: integer("priority_expire_days"),
+  // Blob of opt-in channel + frequency settings for every notification type
+  // that can be sent to staff or to the manager. Shape is defined by
+  // NotificationSettings in src/lib/notification-settings.ts. NULL means
+  // "use all defaults".
+  notificationSettings: jsonb("notification_settings"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
