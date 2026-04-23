@@ -63,6 +63,8 @@ async function saveInvitations(formData: FormData) {
       r.inv.userId === userId &&
       r.ev.date === event.date &&
       r.pos.id !== positionId &&
+      // Cancelled events don't consume availability — staff becomes free again.
+      !r.ev.cancelledAt &&
       (r.inv.status === "pending" || r.inv.status === "accepted")
     );
   }
@@ -431,6 +433,10 @@ export default async function EventDetailPage({ params }: { params: { id: string
     const inv = row.invitation;
     if (inv.status !== "pending" && inv.status !== "accepted") continue;
     if (row.event.date !== event.date) continue; // Only same-date conflicts matter
+    // Cancelled events shouldn't block a staff member's availability — their
+    // invite record is kept around for audit, but they're free to be booked
+    // elsewhere on that day.
+    if (row.event.cancelledAt) continue;
     const existing = busyMap.get(inv.userId);
     if (!existing) {
       busyMap.set(inv.userId, {
