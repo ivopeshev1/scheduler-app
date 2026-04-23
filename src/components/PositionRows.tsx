@@ -12,10 +12,6 @@ export function PositionRows() {
 
   return (
     <div className="space-y-3">
-      {/* Shared datalist for role suggestions — input also accepts custom typed values */}
-      <datalist id="role-suggestions">
-        {POSITION_ROLES.map((r) => (<option key={r} value={r} />))}
-      </datalist>
       {rowIds.map((id) => (
         <PositionRow
           key={id}
@@ -77,13 +73,14 @@ function PositionRow({
       </div>
       <div className="col-span-3">
         <label className="label">Role</label>
-        <input
-          name={`role${index}`}
-          list="role-suggestions"
-          autoComplete="off"
-          className="input"
-          placeholder="type or pick…"
-        />
+        {/* Proper <select> (not an input+datalist) so re-opening always shows the
+            full list of roles, even after one is already picked. The positions
+            table has an enum constraint on this field anyway — custom values
+            wouldn't save. */}
+        <select name={`role${index}`} className="input" defaultValue="">
+          <option value="" disabled>—</option>
+          {POSITION_ROLES.map((r) => (<option key={r} value={r}>{r}</option>))}
+        </select>
       </div>
       <div className="col-span-3">
         <label className="label">Base rate</label>
