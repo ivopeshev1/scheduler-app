@@ -1,10 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { nanoid } from "nanoid";
 
-// Keep the neon() return-type inferred rather than importing a named type
-// that might rename between package versions.
-type Sql = ReturnType<typeof neon>;
-
 /**
  * All idempotent DDL the app needs to run before any page query hits the DB.
  *
@@ -14,10 +10,15 @@ type Sql = ReturnType<typeof neon>;
  *     constraint so re-running is a no-op
  *   - Seeding statements are guarded on "target is empty" so they only run once
  *
- * This function is safe to call on every cold start. The memoized wrapper in
- * db-init.ts makes sure we only actually run it once per serverless instance.
+ * Callers pass no args — runMigrations makes its own neon client from
+ * DATABASE_URL / POSTGRES_URL. That avoids the variance headaches of passing
+ * a strongly-typed neon client across a module boundary.
  */
-export async function runMigrations(sql: Sql) {
+export async function runMigrations(): Promise<void> {
+  const dbUrl = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
+  if (!dbUrl) return;
+  const sql = neon(dbUrl);
+
   // --- Core tables (initial schema) ---
   await sql`CREATE TABLE IF NOT EXISTS companies (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE,
@@ -180,10 +181,7 @@ let migrationPromise: Promise<void> | null = null;
 
 export function ensureMigrations(): Promise<void> {
   if (migrationPromise) return migrationPromise;
-  const dbUrl = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
-  if (!dbUrl) return Promise.resolve();
-  const sql = neon(dbUrl);
-  migrationPromise = runMigrations(sql).catch((err) => {
+  migrationPromise = runMigrations().catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[migrations] failed, will retry on next request:", err);
     migrationPromise = null;

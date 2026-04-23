@@ -22,8 +22,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "No DATABASE_URL. Attach Postgres in Vercel Storage." }, { status: 500 });
   }
 
+  await runMigrations();
   const sql = neon(dbUrl);
-  await runMigrations(sql);
 
   // Seed the demo company only once — if it already exists, we're done.
   const [existing] = await sql`SELECT id FROM companies WHERE slug = 'flair-projects-sb' LIMIT 1` as any[];
