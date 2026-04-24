@@ -214,7 +214,7 @@ export function NotificationsEditor({
           </Row>
 
           <Row
-            title="Auto-expire notice"
+            title="Priority invite auto-expire notice"
             description="When a priority invite auto-expires because the staff hasn't responded in time, let them know the shift is now being offered to other people (backups, if set up, otherwise whoever the manager invites next). They can still pick it up themselves if it hasn't been filled."
             channels={settings.staff.autoExpire}
             requireOne
