@@ -25,9 +25,22 @@ async function signupAction(formData: FormData) {
   const companyId = nanoid();
   await db.insert(schema.companies).values({ id: companyId, name: companyName, slug });
 
-  // Seed the same default role catalog new companies get on /api/setup so
+  // Seed the same default role catalog new companies get from migrations so
   // Settings → Roles and the event role dropdown are populated on day one.
-  const DEFAULT_ROLES = ["Bar Lead", "Bar Back", "Bartender", "Server", "Cashier"];
+  const DEFAULT_ROLES = [
+    "Event Lead",
+    "Bartender",
+    "Bar Back",
+    "Server",
+    "Busser",
+    "Chef",
+    "Sous Chef",
+    "Pastry Chef",
+    "Line Cook",
+    "Prep Cook",
+    "Dishwasher",
+    "Valet",
+  ];
   for (let i = 0; i < DEFAULT_ROLES.length; i++) {
     await db.insert(schema.roles).values({
       id: nanoid(),

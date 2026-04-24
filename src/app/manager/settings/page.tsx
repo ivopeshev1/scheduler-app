@@ -5,6 +5,7 @@ import { db, schema } from "@/db/client";
 import { eq, asc, desc } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { NotificationsEditor } from "@/components/NotificationsEditor";
+import { RolesList } from "@/components/RolesList";
 import {
   mergeNotificationSettings,
   type NotificationSettings,
@@ -119,52 +120,41 @@ async function addRoleAction(formData: FormData) {
   redirect("/manager/settings?saved=role-added");
 }
 
-async function removeRoleAction(formData: FormData) {
+/**
+ * Remove role by id, called from RolesList's client-side "Remove" button
+ * (not a form-submission action, so no redirect — we rely on the client
+ * component's optimistic update + revalidatePath for the persisted refresh).
+ */
+async function removeRoleByIdAction(roleId: string) {
   "use server";
   const { session } = await requireSettingsAccess();
-  const roleId = String(formData.get("roleId"));
   const [target] = await db.select().from(schema.roles).where(eq(schema.roles.id, roleId));
   if (!target || target.companyId !== session.companyId) throw new Error("Not found");
   await db.delete(schema.roles).where(eq(schema.roles.id, roleId));
   revalidatePath("/manager/settings");
-  redirect("/manager/settings?saved=role-removed");
 }
 
 /**
- * Swap a role's sortOrder with its neighbor in the given direction. The order
- * the company sets here is exactly what the event role dropdown renders, so
- * reordering is a real product setting, not just cosmetic.
+ * Persist the new order supplied by the drag-and-drop UI. Every id must
+ * already belong to this company and the list must be complete (no deletes
+ * sneaking in this way). We rewrite sortOrder by index.
  */
-async function moveRoleAction(formData: FormData) {
+async function reorderRolesAction(orderedIds: string[]) {
   "use server";
   const { session } = await requireSettingsAccess();
-  const roleId = String(formData.get("roleId"));
-  const direction = String(formData.get("direction")) as "up" | "down";
-
   const all = await db
     .select()
     .from(schema.roles)
-    .where(eq(schema.roles.companyId, session.companyId))
-    .orderBy(asc(schema.roles.sortOrder));
-
-  const idx = all.findIndex((r) => r.id === roleId);
-  if (idx < 0) throw new Error("Not found");
-  const swapIdx = direction === "up" ? idx - 1 : idx + 1;
-  if (swapIdx < 0 || swapIdx >= all.length) {
-    // Already at the edge - no-op
-    redirect("/manager/settings");
+    .where(eq(schema.roles.companyId, session.companyId));
+  const allIds = new Set(all.map((r) => r.id));
+  if (orderedIds.length !== all.length) throw new Error("Order must include every role");
+  for (const id of orderedIds) {
+    if (!allIds.has(id)) throw new Error("Unknown role id");
   }
-
-  const a = all[idx];
-  const b = all[swapIdx];
-  // Swap via a temporary value so the unique-ordering invariant is never
-  // violated mid-transaction (in case we ever add a uniqueness constraint).
-  await db.update(schema.roles).set({ sortOrder: -1 }).where(eq(schema.roles.id, a.id));
-  await db.update(schema.roles).set({ sortOrder: a.sortOrder }).where(eq(schema.roles.id, b.id));
-  await db.update(schema.roles).set({ sortOrder: b.sortOrder }).where(eq(schema.roles.id, a.id));
-
+  for (let i = 0; i < orderedIds.length; i++) {
+    await db.update(schema.roles).set({ sortOrder: i }).where(eq(schema.roles.id, orderedIds[i]));
+  }
   revalidatePath("/manager/settings");
-  redirect("/manager/settings");
 }
 
 export default async function SettingsPage({ searchParams }: { searchParams: { saved?: string; error?: string; name?: string } }) {
@@ -287,54 +277,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
             future dropdowns, but past events that used it keep their original label.
           </p>
 
-          {roles.length === 0 ? (
-            <div className="border rounded p-4 text-sm text-gray-500 bg-gray-50">
-              No roles yet. Add your first below.
-            </div>
-          ) : (
-            <ul className="border rounded divide-y mb-4">
-              {roles.map((r, idx) => (
-                <li key={r.id} className="flex items-center gap-3 px-3 py-2">
-                  <span className="text-sm flex-1">{r.name}</span>
-                  <div className="flex items-center gap-1">
-                    <form action={moveRoleAction}>
-                      <input type="hidden" name="roleId" value={r.id} />
-                      <input type="hidden" name="direction" value="up" />
-                      <button
-                        type="submit"
-                        disabled={idx === 0}
-                        className="text-gray-500 hover:text-black disabled:text-gray-200 disabled:cursor-not-allowed px-1 text-lg leading-none"
-                        aria-label={`Move ${r.name} up`}
-                        title="Move up"
-                      >
-                        ↑
-                      </button>
-                    </form>
-                    <form action={moveRoleAction}>
-                      <input type="hidden" name="roleId" value={r.id} />
-                      <input type="hidden" name="direction" value="down" />
-                      <button
-                        type="submit"
-                        disabled={idx === roles.length - 1}
-                        className="text-gray-500 hover:text-black disabled:text-gray-200 disabled:cursor-not-allowed px-1 text-lg leading-none"
-                        aria-label={`Move ${r.name} down`}
-                        title="Move down"
-                      >
-                        ↓
-                      </button>
-                    </form>
-                  </div>
-                  <form action={removeRoleAction}>
-                    <input type="hidden" name="roleId" value={r.id} />
-                    <button type="submit" className="text-sm text-red-600 hover:underline">Remove</button>
-                  </form>
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="text-xs text-gray-500 mb-4">
-            The order shown here is the order roles appear in event dropdowns - use ↑ / ↓ to rearrange.
-          </p>
+          <RolesList
+            initialRoles={roles.map((r) => ({ id: r.id, name: r.name }))}
+            onReorder={reorderRolesAction}
+            onRemove={removeRoleByIdAction}
+          />
 
           <form action={addRoleAction} className="flex items-end gap-2">
             <div className="flex-1">

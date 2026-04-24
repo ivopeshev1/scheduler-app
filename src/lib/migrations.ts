@@ -159,19 +159,60 @@ export async function runMigrations(): Promise<void> {
   // notification type ships.
   await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS notification_settings JSONB`;
 
-  // Seed defaults for any company with no roles yet - matches the enum we used
-  // to ship so existing events keep the same role names.
+  // Seed defaults for any company with no roles yet. We maintain a canonical
+  // list of 12 hospitality roles — the ones cocktail-catering / event-staffing
+  // companies typically use.
+  const DEFAULT_ROLES = [
+    "Event Lead",
+    "Bartender",
+    "Bar Back",
+    "Server",
+    "Busser",
+    "Chef",
+    "Sous Chef",
+    "Pastry Chef",
+    "Line Cook",
+    "Prep Cook",
+    "Dishwasher",
+    "Valet",
+  ];
+
   const companiesNeedingRoles = (await sql`
     SELECT c.id FROM companies c
     LEFT JOIN roles r ON r.company_id = c.id
     WHERE r.id IS NULL
     GROUP BY c.id
   `) as Array<{ id: string }>;
-  const DEFAULT_ROLES = ["Bar Lead", "Bar Back", "Bartender", "Server", "Cashier"];
   for (const { id: companyId } of companiesNeedingRoles) {
     for (let i = 0; i < DEFAULT_ROLES.length; i++) {
       await sql`INSERT INTO roles (id, company_id, name, sort_order)
                 VALUES (${nanoid()}, ${companyId}, ${DEFAULT_ROLES[i]}, ${i})`;
+    }
+  }
+
+  // One-shot migration: if a company's role catalog still exactly matches the
+  // original 5-role default list (Bar Lead / Bar Back / Bartender / Server /
+  // Cashier) they got before we expanded it, replace with the new 12. That
+  // auto-upgrades the Flair demo + any other pristine companies without
+  // clobbering anyone who has customized their list. Idempotent because the
+  // `matchesOld` check fails as soon as the catalog is updated.
+  const OLD_DEFAULTS = ["Bar Lead", "Bar Back", "Bartender", "Server", "Cashier"];
+  const allCompanies = (await sql`SELECT id FROM companies`) as Array<{ id: string }>;
+  for (const { id: companyId } of allCompanies) {
+    const currentRoles = (await sql`
+      SELECT name FROM roles WHERE company_id = ${companyId}
+    `) as Array<{ name: string }>;
+    const currentNames = currentRoles.map((r) => r.name);
+    const matchesOld =
+      currentNames.length === OLD_DEFAULTS.length &&
+      currentNames.every((n) => OLD_DEFAULTS.includes(n)) &&
+      OLD_DEFAULTS.every((n) => currentNames.includes(n));
+    if (matchesOld) {
+      await sql`DELETE FROM roles WHERE company_id = ${companyId}`;
+      for (let i = 0; i < DEFAULT_ROLES.length; i++) {
+        await sql`INSERT INTO roles (id, company_id, name, sort_order)
+                  VALUES (${nanoid()}, ${companyId}, ${DEFAULT_ROLES[i]}, ${i})`;
+      }
     }
   }
 }
