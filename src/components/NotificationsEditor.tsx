@@ -22,8 +22,10 @@ export function NotificationsEditor({
   onSave: (payload: { settings: NotificationSettings; autoExpireDays: number | null }) => Promise<void>;
 }) {
   const [settings, setSettings] = useState<NotificationSettings>(initialSettings);
+  // Auto-expire days is required — if the DB value is null (never set), seed
+  // the input with a sensible default of 2 days so the field is never blank.
   const [autoExpireDays, setAutoExpireDays] = useState<string>(
-    initialAutoExpireDays == null ? "" : String(initialAutoExpireDays)
+    initialAutoExpireDays == null ? "2" : String(initialAutoExpireDays)
   );
   const [saved, setSaved] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -71,12 +73,17 @@ export function NotificationsEditor({
   }
 
   function save() {
+    // Auto-expire days is required; default to 2 if the field ended up empty
+    // somehow (shouldn't with the required input, but belt-and-suspenders).
+    const parsed = Math.floor(Number(autoExpireDays));
+    const days = Number.isFinite(parsed) && parsed >= 1
+      ? Math.min(60, parsed)
+      : 2;
+    if (autoExpireDays === "" || String(days) !== autoExpireDays) {
+      setAutoExpireDays(String(days));
+    }
     startTransition(async () => {
-      const days = autoExpireDays.trim() === "" ? null : Math.max(1, Math.min(60, Math.floor(Number(autoExpireDays))));
-      await onSave({
-        settings,
-        autoExpireDays: Number.isFinite(days) ? (days as number | null) : null,
-      });
+      await onSave({ settings, autoExpireDays: days });
       setSaved(true);
     });
   }
@@ -219,13 +226,13 @@ export function NotificationsEditor({
                   type="number"
                   min={1}
                   max={60}
+                  required
                   value={autoExpireDays}
                   onFocus={(e) => e.target.select()}
                   onChange={(e) => { setAutoExpireDays(e.target.value); setSaved(false); }}
-                  placeholder="-"
                   className="input text-sm py-1 w-20"
                 />
-                <span className="text-xs text-gray-600">days with no response (blank = disabled)</span>
+                <span className="text-xs text-gray-600">days with no response</span>
               </div>
             </LabeledControl>
           </Row>

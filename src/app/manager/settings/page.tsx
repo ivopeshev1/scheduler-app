@@ -68,10 +68,12 @@ async function saveNotificationSettingsAction(payload: {
   // back to defaults rather than writing garbage.
   const safeSettings = mergeNotificationSettings(payload.settings);
 
-  let priorityExpireDays: number | null = null;
-  if (payload.autoExpireDays != null && Number.isFinite(payload.autoExpireDays) && payload.autoExpireDays >= 1) {
-    priorityExpireDays = Math.min(60, Math.max(1, Math.floor(payload.autoExpireDays)));
-  }
+  // Auto-expire days is required now — if the client somehow sent something
+  // bad, fall back to the UI default (2) rather than storing null.
+  const raw = payload.autoExpireDays;
+  const priorityExpireDays = raw != null && Number.isFinite(raw) && raw >= 1
+    ? Math.min(60, Math.floor(raw))
+    : 2;
 
   await db
     .update(schema.companies)
