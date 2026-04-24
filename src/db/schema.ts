@@ -120,13 +120,17 @@ export const events = pgTable(
     companyId: text("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
     date: text("date").notNull(),
     clientName: text("client_name").notNull(),
+    clientContactInfo: text("client_contact_info"),
     venue: text("venue"),
     city: text("city"),
     eventType: text("event_type"),
     planner: text("planner"),
+    plannerContactInfo: text("planner_contact_info"),
     guestCount: integer("guest_count"),
     numBars: integer("num_bars"),
+    // Three event times: staff arrival, guest-facing start, end.
     checkInTime: text("check_in_time"),
+    eventStartTime: text("event_start_time"),
     endTime: text("end_time"),
     staffNotes: text("staff_notes"),
     internalNotes: text("internal_notes"),
@@ -137,6 +141,45 @@ export const events = pgTable(
   },
   (t) => ({
     dateIdx: index("events_company_date_idx").on(t.companyId, t.date),
+  })
+);
+
+// Per-company config for which event-setup fields show, whether they're
+// required, whether they're shared with staff, and whether staff get
+// notified when the value changes. Preset fields are seeded per company;
+// owners toggle what their business needs.
+export const eventFieldConfigs = pgTable(
+  "event_field_configs",
+  {
+    companyId: text("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+    fieldKey: text("field_key").notNull(),
+    label: text("label").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    required: boolean("required").notNull().default(false),
+    shareWithStaff: boolean("share_with_staff").notNull().default(false),
+    notifyOnChange: boolean("notify_on_change").notNull().default(false),
+    // Preset fields map to hardcoded events-table columns (date, clientName,
+    // etc). Custom fields have isCustom=true and their values are stored in
+    // event_custom_values.
+    isCustom: boolean("is_custom").notNull().default(false),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => ({
+    pk: uniqueIndex("event_field_configs_pk").on(t.companyId, t.fieldKey),
+  })
+);
+
+// Per-event key/value store for custom (isCustom=true) fields that don't
+// have a hardcoded column on the events table.
+export const eventCustomValues = pgTable(
+  "event_custom_values",
+  {
+    eventId: text("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
+    fieldKey: text("field_key").notNull(),
+    value: text("value"),
+  },
+  (t) => ({
+    pk: uniqueIndex("event_custom_values_pk").on(t.eventId, t.fieldKey),
   })
 );
 

@@ -143,6 +143,67 @@ export async function runMigrations(): Promise<void> {
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS can_access_log BOOLEAN NOT NULL DEFAULT true`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS can_access_team BOOLEAN NOT NULL DEFAULT false`;
 
+  // Event-setup field configurability: new columns on events + per-company
+  // config table + per-event custom values table.
+  await sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS client_contact_info TEXT`;
+  await sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS planner_contact_info TEXT`;
+  await sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS event_start_time TEXT`;
+  await sql`CREATE TABLE IF NOT EXISTS event_field_configs (
+    company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    field_key TEXT NOT NULL,
+    label TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    required BOOLEAN NOT NULL DEFAULT false,
+    share_with_staff BOOLEAN NOT NULL DEFAULT false,
+    notify_on_change BOOLEAN NOT NULL DEFAULT false,
+    is_custom BOOLEAN NOT NULL DEFAULT false,
+    sort_order INTEGER NOT NULL DEFAULT 0
+  )`;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS event_field_configs_pk ON event_field_configs(company_id, field_key)`;
+  await sql`CREATE TABLE IF NOT EXISTS event_custom_values (
+    event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    field_key TEXT NOT NULL,
+    value TEXT
+  )`;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS event_custom_values_pk ON event_custom_values(event_id, field_key)`;
+
+  // Seed default event-field configs for any company that has none yet.
+  const companiesNeedingFieldConfigs = (await sql`
+    SELECT c.id FROM companies c
+    LEFT JOIN event_field_configs f ON f.company_id = c.id
+    WHERE f.field_key IS NULL
+    GROUP BY c.id
+  `) as Array<{ id: string }>;
+  const DEFAULT_FIELD_CONFIGS: Array<{
+    fieldKey: string; label: string; enabled: boolean; required: boolean;
+    shareWithStaff: boolean; notifyOnChange: boolean; sortOrder: number;
+  }> = [
+    { fieldKey: "date",                label: "Date",               enabled: true,  required: true,  shareWithStaff: true,  notifyOnChange: true,  sortOrder: 0 },
+    { fieldKey: "cityAddress",         label: "City / Address",     enabled: true,  required: true,  shareWithStaff: true,  notifyOnChange: true,  sortOrder: 1 },
+    { fieldKey: "checkInTime",         label: "Staff check-in time", enabled: true, required: true,  shareWithStaff: true,  notifyOnChange: true,  sortOrder: 2 },
+    { fieldKey: "eventStartTime",      label: "Event start time",   enabled: true,  required: true,  shareWithStaff: true,  notifyOnChange: true,  sortOrder: 3 },
+    { fieldKey: "endTime",             label: "Event end time",     enabled: true,  required: true,  shareWithStaff: true,  notifyOnChange: true,  sortOrder: 4 },
+    { fieldKey: "eventType",           label: "Event type",         enabled: true,  required: true,  shareWithStaff: true,  notifyOnChange: false, sortOrder: 5 },
+    { fieldKey: "clientName",          label: "Client name",        enabled: true,  required: true,  shareWithStaff: true,  notifyOnChange: false, sortOrder: 6 },
+    { fieldKey: "clientContactInfo",   label: "Client contact info", enabled: true, required: false, shareWithStaff: false, notifyOnChange: false, sortOrder: 7 },
+    { fieldKey: "venue",               label: "Venue",              enabled: true,  required: false, shareWithStaff: true,  notifyOnChange: true,  sortOrder: 8 },
+    { fieldKey: "plannerName",         label: "Planner name",       enabled: false, required: false, shareWithStaff: false, notifyOnChange: false, sortOrder: 9 },
+    { fieldKey: "plannerContactInfo",  label: "Planner contact info", enabled: false, required: false, shareWithStaff: false, notifyOnChange: false, sortOrder: 10 },
+    { fieldKey: "guestCount",          label: "Number of guests",   enabled: false, required: false, shareWithStaff: false, notifyOnChange: false, sortOrder: 11 },
+    { fieldKey: "numBars",             label: "Number of bars",     enabled: false, required: false, shareWithStaff: false, notifyOnChange: false, sortOrder: 12 },
+  ];
+  for (const { id: companyId } of companiesNeedingFieldConfigs) {
+    for (const cfg of DEFAULT_FIELD_CONFIGS) {
+      await sql`INSERT INTO event_field_configs (
+        company_id, field_key, label, enabled, required, share_with_staff, notify_on_change, is_custom, sort_order
+      ) VALUES (
+        ${companyId}, ${cfg.fieldKey}, ${cfg.label},
+        ${cfg.enabled}, ${cfg.required}, ${cfg.shareWithStaff}, ${cfg.notifyOnChange},
+        false, ${cfg.sortOrder}
+      )`;
+    }
+  }
+
   // Per-company role catalog + drop of the legacy positions.role enum check
   await sql`CREATE TABLE IF NOT EXISTS roles (
     id TEXT PRIMARY KEY,

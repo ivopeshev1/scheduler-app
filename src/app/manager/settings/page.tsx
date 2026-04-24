@@ -2,11 +2,13 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
-import { eq, asc, desc } from "drizzle-orm";
+import { eq, and, asc, desc } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { NotificationsEditor } from "@/components/NotificationsEditor";
 import { RolesList } from "@/components/RolesList";
 import { AddOnsList } from "@/components/AddOnsList";
+import { EventFieldsEditor, type FieldRow } from "@/components/EventFieldsEditor";
+import { PRESET_BY_KEY, PRESET_FIELDS, isPresetKey } from "@/lib/event-fields";
 import {
   mergeNotificationSettings,
   type NotificationSettings,
@@ -219,6 +221,109 @@ async function reorderAddOnsAction(orderedIds: string[]) {
   revalidatePath("/manager/settings");
 }
 
+/* -------------------- Event fields server actions -------------------- */
+
+async function addCustomEventFieldAction(label: string) {
+  "use server";
+  const { session } = await requireSettingsAccess();
+  const trimmed = label.trim();
+  if (!trimmed) throw new Error("Field label is required");
+  if (trimmed.length > 60) throw new Error("Field label must be 60 characters or fewer");
+  const fieldKey = `custom_${nanoid(10)}`;
+  const [last] = await db
+    .select()
+    .from(schema.eventFieldConfigs)
+    .where(eq(schema.eventFieldConfigs.companyId, session.companyId))
+    .orderBy(desc(schema.eventFieldConfigs.sortOrder))
+    .limit(1);
+  const nextSort = (last?.sortOrder ?? -1) + 1;
+  await db.insert(schema.eventFieldConfigs).values({
+    companyId: session.companyId,
+    fieldKey,
+    label: trimmed,
+    enabled: true,
+    required: false,
+    shareWithStaff: false,
+    notifyOnChange: false,
+    isCustom: true,
+    sortOrder: nextSort,
+  });
+  revalidatePath("/manager/settings");
+}
+
+async function saveEventFieldsAction(payload: {
+  rows: Array<{
+    fieldKey: string;
+    label: string;
+    enabled: boolean;
+    required: boolean;
+    shareWithStaff: boolean;
+    notifyOnChange: boolean;
+    isCustom: boolean;
+  }>;
+  deletions: string[];
+}) {
+  "use server";
+  const { session } = await requireSettingsAccess();
+
+  // Apply deletions first (custom-only — preset keys can't be deleted).
+  for (const fieldKey of payload.deletions) {
+    if (isPresetKey(fieldKey)) continue;
+    await db
+      .delete(schema.eventFieldConfigs)
+      .where(and(
+        eq(schema.eventFieldConfigs.companyId, session.companyId),
+        eq(schema.eventFieldConfigs.fieldKey, fieldKey),
+      ));
+  }
+
+  for (const row of payload.rows) {
+    // Preset fields that are locked on for enabled/required get those fields
+    // coerced back to true server-side, regardless of what the client sends.
+    const preset = PRESET_BY_KEY[row.fieldKey];
+    const enabled = preset?.lockedEnabled ? true : row.enabled;
+    const required = preset?.lockedRequired ? true : row.required;
+    // Share toggling off forces notify off.
+    const shareWithStaff = row.shareWithStaff;
+    const notifyOnChange = shareWithStaff ? row.notifyOnChange : false;
+
+    const existing = await db
+      .select()
+      .from(schema.eventFieldConfigs)
+      .where(and(
+        eq(schema.eventFieldConfigs.companyId, session.companyId),
+        eq(schema.eventFieldConfigs.fieldKey, row.fieldKey),
+      ));
+    if (existing.length > 0) {
+      await db.update(schema.eventFieldConfigs).set({
+        label: row.label,
+        enabled,
+        required,
+        shareWithStaff,
+        notifyOnChange,
+      }).where(and(
+        eq(schema.eventFieldConfigs.companyId, session.companyId),
+        eq(schema.eventFieldConfigs.fieldKey, row.fieldKey),
+      ));
+    } else {
+      await db.insert(schema.eventFieldConfigs).values({
+        companyId: session.companyId,
+        fieldKey: row.fieldKey,
+        label: row.label,
+        enabled,
+        required,
+        shareWithStaff,
+        notifyOnChange,
+        isCustom: row.isCustom,
+        sortOrder: 99,
+      });
+    }
+  }
+
+  revalidatePath("/manager/settings");
+  revalidatePath("/manager/event/new");
+}
+
 /**
  * Persist the new order supplied by the drag-and-drop UI. Every id must
  * already belong to this company and the list must be complete (no deletes
@@ -264,6 +369,45 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
     .from(schema.addOns)
     .where(eq(schema.addOns.companyId, session.companyId))
     .orderBy(asc(schema.addOns.sortOrder));
+
+  // Event field configs merged with the preset registry so the editor always
+  // sees a full row per preset (even if the DB is missing one for some
+  // reason) plus all custom fields.
+  const savedFieldConfigs = await db
+    .select()
+    .from(schema.eventFieldConfigs)
+    .where(eq(schema.eventFieldConfigs.companyId, session.companyId))
+    .orderBy(asc(schema.eventFieldConfigs.sortOrder));
+  const savedByKey = new Map(savedFieldConfigs.map((c) => [c.fieldKey, c]));
+  const fieldRows: FieldRow[] = [];
+  for (const preset of PRESET_FIELDS) {
+    const cfg = savedByKey.get(preset.key);
+    fieldRows.push({
+      fieldKey: preset.key,
+      label: preset.label,
+      enabled: cfg?.enabled ?? (preset.bucket !== "suggested"),
+      required: cfg?.required ?? (preset.bucket === "required"),
+      shareWithStaff: cfg?.shareWithStaff ?? (preset.bucket === "required"),
+      notifyOnChange: cfg?.notifyOnChange ?? false,
+      isCustom: false,
+      bucket: preset.bucket,
+      lockedEnabled: preset.lockedEnabled,
+      lockedRequired: preset.lockedRequired,
+    });
+  }
+  for (const cfg of savedFieldConfigs) {
+    if (!cfg.isCustom) continue;
+    fieldRows.push({
+      fieldKey: cfg.fieldKey,
+      label: cfg.label,
+      enabled: cfg.enabled,
+      required: cfg.required,
+      shareWithStaff: cfg.shareWithStaff,
+      notifyOnChange: cfg.notifyOnChange,
+      isCustom: true,
+      bucket: "optional",
+    });
+  }
 
   // Banners are scoped per section - a company-setup save doesn't flash a
   // message up under the Roles header and vice versa. Keeps feedback next to
@@ -411,6 +555,21 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
               {rolesErrorMsg}
             </div>
           )}
+        </section>
+
+        {/* -------------------- Event fields -------------------- */}
+        <section className="border rounded-lg bg-white p-6">
+          <h2 className="text-lg font-semibold mb-1">Event fields</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Which fields appear on the event setup page, whether they&apos;re required, which ones go in
+            staff invite emails, and which trigger a change notification when edited.
+          </p>
+
+          <EventFieldsEditor
+            initialRows={fieldRows}
+            onSave={saveEventFieldsAction}
+            onAddCustom={addCustomEventFieldAction}
+          />
         </section>
 
         {/* -------------------- Add-on tasks -------------------- */}
