@@ -42,7 +42,9 @@ export function EventFieldsEditor({
 }: {
   initialRows: FieldRow[];
   onSave: (payload: SavePayload) => Promise<void>;
-  onAddCustom: (label: string) => Promise<void>;
+  // Returns the fieldKey the server assigned so we can replace the
+  // provisional optimistic row's key.
+  onAddCustom: (label: string) => Promise<string | void>;
 }) {
   const [rows, setRows] = useState<FieldRow[]>(initialRows);
   const [deletions, setDeletions] = useState<string[]>([]);
@@ -53,10 +55,10 @@ export function EventFieldsEditor({
   function patch(fieldKey: string, changes: Partial<FieldRow>) {
     setRows((prev) => prev.map((r) => {
       if (r.fieldKey !== fieldKey) return r;
+      // All four checkboxes are independently clickable. The only invariant
+      // is that a disabled field can't be required/shared/notified (no point
+      // if it's not rendered on the event page).
       const next = { ...r, ...changes };
-      // If share_with_staff is turned off, force notify_on_change off too.
-      if (next.shareWithStaff === false) next.notifyOnChange = false;
-      // If the field is disabled, required/share/notify all reset to false.
       if (next.enabled === false && !next.lockedEnabled) {
         next.required = false;
         next.shareWithStaff = false;
@@ -96,42 +98,56 @@ export function EventFieldsEditor({
   async function addCustom() {
     const label = newCustomLabel.trim();
     if (!label) return;
-    await onAddCustom(label);
+    // Optimistic: add a provisional row locally, then persist. Server
+    // returns the real fieldKey and we replace the provisional one.
+    const provisionalKey = `custom_pending_${Date.now()}`;
+    const provisional: FieldRow = {
+      fieldKey: provisionalKey,
+      label,
+      enabled: true,
+      required: false,
+      shareWithStaff: false,
+      notifyOnChange: false,
+      isCustom: true,
+      bucket: "additional",
+    };
+    setRows((prev) => [...prev, provisional]);
     setNewCustomLabel("");
+    try {
+      const realKey = await onAddCustom(label);
+      if (realKey) {
+        setRows((prev) => prev.map((r) => r.fieldKey === provisionalKey ? { ...r, fieldKey: realKey } : r));
+      }
+    } catch (err) {
+      // Rollback on failure
+      setRows((prev) => prev.filter((r) => r.fieldKey !== provisionalKey));
+      setNewCustomLabel(label);
+      throw err;
+    }
   }
 
   const required = rows.filter((r) => r.bucket === "required" && !r.isCustom);
-  const optional = rows.filter((r) => r.bucket === "optional" && !r.isCustom);
-  const suggested = rows.filter((r) => r.bucket === "suggested" && !r.isCustom);
+  const additional = rows.filter((r) => r.bucket === "additional" && !r.isCustom);
   const custom = rows.filter((r) => r.isCustom);
 
   return (
     <div className="space-y-6">
       <p className="text-xs text-gray-500">
         <strong className="text-gray-700">Share with staff</strong> includes the field in invite emails.{" "}
-        <strong className="text-gray-700">Notify on change</strong> triggers an update email if this field is edited after sending;
-        only available when Share is on.
+        <strong className="text-gray-700">Notify on change</strong> sends an update email if this field is edited
+        after invites have gone out.
       </p>
 
-      <Section title="Required" subtitle="Always shown and required on the event setup page.">
+      <Section title="Required" subtitle="Shown on every event setup page.">
         {required.map((r) => <FieldRowView key={r.fieldKey} row={r} onPatch={patch} />)}
       </Section>
 
-      <Section title="Optional presets" subtitle="Shown by default; toggle off to hide.">
-        {optional.map((r) => <FieldRowView key={r.fieldKey} row={r} onPatch={patch} />)}
+      <Section title="Additional" subtitle="Toggle whichever make sense for your business.">
+        {additional.map((r) => <FieldRowView key={r.fieldKey} row={r} onPatch={patch} />)}
+        {custom.map((r) => (
+          <FieldRowView key={r.fieldKey} row={r} onPatch={patch} onDelete={() => deleteCustom(r.fieldKey)} />
+        ))}
       </Section>
-
-      <Section title="Suggested" subtitle="Off by default. Turn on whichever apply to your business.">
-        {suggested.map((r) => <FieldRowView key={r.fieldKey} row={r} onPatch={patch} />)}
-      </Section>
-
-      {custom.length > 0 && (
-        <Section title="Custom fields" subtitle="Free-form fields you added.">
-          {custom.map((r) => (
-            <FieldRowView key={r.fieldKey} row={r} onPatch={patch} onDelete={() => deleteCustom(r.fieldKey)} />
-          ))}
-        </Section>
-      )}
 
       <div className="border-t pt-4 space-y-2">
         <label className="label text-sm">Add a custom field</label>
@@ -187,7 +203,6 @@ function FieldRowView({
   onPatch: (fieldKey: string, changes: Partial<FieldRow>) => void;
   onDelete?: () => void;
 }) {
-  const notifyDisabled = !row.shareWithStaff;
   const togglesDisabled = !row.enabled;
   return (
     <div className="flex items-center gap-4 px-3 py-2.5 flex-wrap">
@@ -216,7 +231,7 @@ function FieldRowView({
         <Toggle
           label="Notify on change"
           checked={row.notifyOnChange}
-          disabled={togglesDisabled || notifyDisabled}
+          disabled={togglesDisabled}
           onChange={(v) => onPatch(row.fieldKey, { notifyOnChange: v })}
         />
         {onDelete && (

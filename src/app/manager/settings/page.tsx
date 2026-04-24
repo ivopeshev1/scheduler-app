@@ -223,7 +223,7 @@ async function reorderAddOnsAction(orderedIds: string[]) {
 
 /* -------------------- Event fields server actions -------------------- */
 
-async function addCustomEventFieldAction(label: string) {
+async function addCustomEventFieldAction(label: string): Promise<string> {
   "use server";
   const { session } = await requireSettingsAccess();
   const trimmed = label.trim();
@@ -249,6 +249,7 @@ async function addCustomEventFieldAction(label: string) {
     sortOrder: nextSort,
   });
   revalidatePath("/manager/settings");
+  return fieldKey;
 }
 
 async function saveEventFieldsAction(payload: {
@@ -283,9 +284,8 @@ async function saveEventFieldsAction(payload: {
     const preset = PRESET_BY_KEY[row.fieldKey];
     const enabled = preset?.lockedEnabled ? true : row.enabled;
     const required = preset?.lockedRequired ? true : row.required;
-    // Share toggling off forces notify off.
     const shareWithStaff = row.shareWithStaff;
-    const notifyOnChange = shareWithStaff ? row.notifyOnChange : false;
+    const notifyOnChange = row.notifyOnChange;
 
     const existing = await db
       .select()
@@ -385,10 +385,10 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
     fieldRows.push({
       fieldKey: preset.key,
       label: preset.label,
-      enabled: cfg?.enabled ?? (preset.bucket !== "suggested"),
+      enabled: cfg?.enabled ?? (preset.bucket === "required"),
       required: cfg?.required ?? (preset.bucket === "required"),
       shareWithStaff: cfg?.shareWithStaff ?? (preset.bucket === "required"),
-      notifyOnChange: cfg?.notifyOnChange ?? false,
+      notifyOnChange: cfg?.notifyOnChange ?? (preset.bucket === "required"),
       isCustom: false,
       bucket: preset.bucket,
       lockedEnabled: preset.lockedEnabled,
@@ -405,7 +405,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
       shareWithStaff: cfg.shareWithStaff,
       notifyOnChange: cfg.notifyOnChange,
       isCustom: true,
-      bucket: "optional",
+      bucket: "additional",
     });
   }
 

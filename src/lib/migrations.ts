@@ -178,22 +178,47 @@ export async function runMigrations(): Promise<void> {
     fieldKey: string; label: string; enabled: boolean; required: boolean;
     shareWithStaff: boolean; notifyOnChange: boolean; sortOrder: number;
   }> = [
+    // Required fields all default to every box checked (enabled, required,
+    // share with staff, notify on change).
     { fieldKey: "date",                label: "Date",               enabled: true,  required: true,  shareWithStaff: true,  notifyOnChange: true,  sortOrder: 0 },
-    { fieldKey: "cityAddress",         label: "City / Address",     enabled: true,  required: true,  shareWithStaff: true,  notifyOnChange: true,  sortOrder: 1 },
+    { fieldKey: "cityAddress",         label: "Address / City",     enabled: true,  required: true,  shareWithStaff: true,  notifyOnChange: true,  sortOrder: 1 },
     { fieldKey: "checkInTime",         label: "Staff check-in time", enabled: true, required: true,  shareWithStaff: true,  notifyOnChange: true,  sortOrder: 2 },
     { fieldKey: "eventStartTime",      label: "Event start time",   enabled: true,  required: true,  shareWithStaff: true,  notifyOnChange: true,  sortOrder: 3 },
     { fieldKey: "endTime",             label: "Event end time",     enabled: true,  required: true,  shareWithStaff: true,  notifyOnChange: true,  sortOrder: 4 },
-    { fieldKey: "eventType",           label: "Event type",         enabled: true,  required: true,  shareWithStaff: true,  notifyOnChange: false, sortOrder: 5 },
-    { fieldKey: "clientName",          label: "Client name",        enabled: true,  required: true,  shareWithStaff: true,  notifyOnChange: false, sortOrder: 6 },
-    { fieldKey: "clientContactInfo",   label: "Client contact info", enabled: true, required: false, shareWithStaff: false, notifyOnChange: false, sortOrder: 7 },
+    { fieldKey: "eventType",           label: "Event type",         enabled: true,  required: true,  shareWithStaff: true,  notifyOnChange: true,  sortOrder: 5 },
+    { fieldKey: "clientName",          label: "Client name",        enabled: true,  required: true,  shareWithStaff: true,  notifyOnChange: true,  sortOrder: 6 },
+    { fieldKey: "attachments",         label: "Attachments (BEO, manuals, etc.)", enabled: true, required: false, shareWithStaff: true, notifyOnChange: true, sortOrder: 7 },
     { fieldKey: "venue",               label: "Venue",              enabled: true,  required: false, shareWithStaff: true,  notifyOnChange: true,  sortOrder: 8 },
-    { fieldKey: "plannerName",         label: "Planner name",       enabled: false, required: false, shareWithStaff: false, notifyOnChange: false, sortOrder: 9 },
-    { fieldKey: "plannerContactInfo",  label: "Planner contact info", enabled: false, required: false, shareWithStaff: false, notifyOnChange: false, sortOrder: 10 },
-    { fieldKey: "guestCount",          label: "Number of guests",   enabled: false, required: false, shareWithStaff: false, notifyOnChange: false, sortOrder: 11 },
-    { fieldKey: "numBars",             label: "Number of bars",     enabled: false, required: false, shareWithStaff: false, notifyOnChange: false, sortOrder: 12 },
+    { fieldKey: "clientContactInfo",   label: "Client contact info", enabled: true, required: false, shareWithStaff: false, notifyOnChange: false, sortOrder: 9 },
+    { fieldKey: "plannerName",         label: "Planner name",       enabled: false, required: false, shareWithStaff: false, notifyOnChange: false, sortOrder: 10 },
+    { fieldKey: "plannerContactInfo",  label: "Planner contact info", enabled: false, required: false, shareWithStaff: false, notifyOnChange: false, sortOrder: 11 },
+    { fieldKey: "guestCount",          label: "Number of guests",   enabled: false, required: false, shareWithStaff: false, notifyOnChange: false, sortOrder: 12 },
+    { fieldKey: "numBars",             label: "Number of bars",     enabled: false, required: false, shareWithStaff: false, notifyOnChange: false, sortOrder: 13 },
   ];
   for (const { id: companyId } of companiesNeedingFieldConfigs) {
     for (const cfg of DEFAULT_FIELD_CONFIGS) {
+      await sql`INSERT INTO event_field_configs (
+        company_id, field_key, label, enabled, required, share_with_staff, notify_on_change, is_custom, sort_order
+      ) VALUES (
+        ${companyId}, ${cfg.fieldKey}, ${cfg.label},
+        ${cfg.enabled}, ${cfg.required}, ${cfg.shareWithStaff}, ${cfg.notifyOnChange},
+        false, ${cfg.sortOrder}
+      )`;
+    }
+  }
+
+  // Backfill: for any company already seeded with the original set, insert
+  // any preset field that's missing from their configs (e.g. new
+  // 'attachments' row added after initial seed). Safe because we only insert
+  // when the key doesn't already exist for that company.
+  const allCompanies = (await sql`SELECT id FROM companies`) as Array<{ id: string }>;
+  for (const { id: companyId } of allCompanies) {
+    const existingKeys = (await sql`
+      SELECT field_key FROM event_field_configs WHERE company_id = ${companyId}
+    `) as Array<{ field_key: string }>;
+    const haveKey = new Set(existingKeys.map((r) => r.field_key));
+    for (const cfg of DEFAULT_FIELD_CONFIGS) {
+      if (haveKey.has(cfg.fieldKey)) continue;
       await sql`INSERT INTO event_field_configs (
         company_id, field_key, label, enabled, required, share_with_staff, notify_on_change, is_custom, sort_order
       ) VALUES (

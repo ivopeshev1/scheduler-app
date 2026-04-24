@@ -13,8 +13,8 @@
  * pages walk the enabled configs and render one input per entry.
  */
 
-export type FieldBucket = "required" | "optional" | "suggested";
-export type FieldInputType = "text" | "textarea" | "date" | "time" | "number" | "tel" | "email";
+export type FieldBucket = "required" | "additional";
+export type FieldInputType = "text" | "textarea" | "date" | "time" | "number" | "tel" | "email" | "attachments";
 
 export type PresetFieldDef = {
   key: string;
@@ -30,18 +30,19 @@ export type PresetFieldDef = {
 
 export const PRESET_FIELDS: PresetFieldDef[] = [
   { key: "date",              label: "Date",                 bucket: "required", inputType: "date", lockedEnabled: true, lockedRequired: true },
-  { key: "cityAddress",       label: "City / Address",       bucket: "required", inputType: "text", lockedEnabled: true, lockedRequired: true },
+  { key: "cityAddress",       label: "Address / City",       bucket: "required", inputType: "text", lockedEnabled: true, lockedRequired: true },
   { key: "checkInTime",       label: "Staff check-in time",  bucket: "required", inputType: "time", lockedEnabled: true, lockedRequired: true, help: "When staff should arrive on site." },
   { key: "eventStartTime",    label: "Event start time",     bucket: "required", inputType: "time", lockedEnabled: true, lockedRequired: true, help: "When guests arrive / service begins." },
   { key: "endTime",           label: "Event end time",       bucket: "required", inputType: "time", lockedEnabled: true, lockedRequired: true },
   { key: "eventType",         label: "Event type",           bucket: "required", inputType: "text", lockedEnabled: true, lockedRequired: true },
   { key: "clientName",        label: "Client name",          bucket: "required", inputType: "text", lockedEnabled: true, lockedRequired: true },
-  { key: "clientContactInfo", label: "Client contact info",  bucket: "optional", inputType: "text" },
-  { key: "venue",             label: "Venue",                bucket: "optional", inputType: "text" },
-  { key: "plannerName",       label: "Planner name",         bucket: "suggested", inputType: "text" },
-  { key: "plannerContactInfo",label: "Planner contact info", bucket: "suggested", inputType: "text" },
-  { key: "guestCount",        label: "Number of guests",     bucket: "suggested", inputType: "number" },
-  { key: "numBars",           label: "Number of bars",       bucket: "suggested", inputType: "number" },
+  { key: "attachments",       label: "Attachments (BEO, manuals, etc.)", bucket: "required", inputType: "attachments", lockedEnabled: true, help: "PDF, images, xlsx, docs. Shared files go in the invite email." },
+  { key: "venue",             label: "Venue",                bucket: "additional", inputType: "text" },
+  { key: "clientContactInfo", label: "Client contact info",  bucket: "additional", inputType: "text" },
+  { key: "plannerName",       label: "Planner name",         bucket: "additional", inputType: "text" },
+  { key: "plannerContactInfo",label: "Planner contact info", bucket: "additional", inputType: "text" },
+  { key: "guestCount",        label: "Number of guests",     bucket: "additional", inputType: "number" },
+  { key: "numBars",           label: "Number of bars",       bucket: "additional", inputType: "number" },
 ];
 
 export const PRESET_BY_KEY: Record<string, PresetFieldDef> = Object.fromEntries(
