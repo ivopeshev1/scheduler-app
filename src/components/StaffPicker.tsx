@@ -239,12 +239,12 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                 const tChecked = travelChecked[s.userId] ?? false;
                 return (
                   <label key={s.userId} className={`block px-3 py-2 border-b last:border-b-0 text-sm ${locked ? "opacity-50 cursor-not-allowed bg-gray-50" : "hover:bg-gray-50 cursor-pointer"}`}>
-                    <div className="flex items-center gap-3 flex-wrap">
+                    <div className="flex items-start gap-3">
                       <input type="checkbox" checked={checked} disabled={locked} onChange={(e) => {
                         if (locked) return;
                         setSelections((prev) => ({ ...prev, [s.userId]: e.target.checked ? (tier ?? 0) : null }));
-                      }} className="w-4 h-4 shrink-0" />
-                      <div className="flex-1 min-w-[180px]">
+                      }} className="w-4 h-4 shrink-0 mt-1" />
+                      <div className="flex-1 min-w-0">
                         <div className="font-medium flex items-center gap-2">
                           {s.firstName} {s.lastName}
                           <span className="text-[10px] uppercase tracking-wide bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
@@ -270,12 +270,11 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                         </div>
                       </div>
 
-                      {/* Extras row: Travel and each company add-on render the
-                          same way — checkbox, then a $ input that only shows
-                          once the checkbox is ticked. Shown only when the
-                          staff is actually invited. */}
+                      {/* Extras column: Travel row first, then one row per
+                          add-on directly underneath. Same visual pattern for
+                          every chip — checkbox + label + conditional $ input. */}
                       {checked && (
-                        <div className="flex items-center gap-3 flex-wrap text-xs">
+                        <div className="flex flex-col items-start gap-1 text-xs shrink-0">
                           <ExtraChip
                             label="Travel"
                             checked={tChecked}
@@ -325,7 +324,7 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                             [s.userId]: v === "" ? null : Number(v),
                           }));
                         }}
-                        className="input !w-auto !py-1 text-xs shrink-0 ml-auto"
+                        className="input !w-auto !py-1 text-xs shrink-0"
                       >
                         <option value="">Not invited</option>
                         {TIER_LABELS.map((label, i) => (
