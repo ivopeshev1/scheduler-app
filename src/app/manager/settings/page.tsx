@@ -417,9 +417,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
         <section className="border rounded-lg bg-white p-6">
           <h2 className="text-lg font-semibold mb-1">Add-on tasks</h2>
           <p className="text-sm text-gray-600 mb-4">
-            Additional tasks you can tack onto a team member per event (van driver, early arrival, pick up,
-            etc.). Anything you add here shows up as a toggle on the staff picker when you invite people, so
-            you can assign the task to a specific person and set their extra pay.
+            Additional tasks you can tack onto a team member per event (driver/van driver, pick up/drop off,
+            video content, etc.). Anything you add here shows up as a toggle on the staff picker when you
+            invite people, so you can assign the task to a specific person and set their extra pay.
           </p>
 
           <AddOnsList
