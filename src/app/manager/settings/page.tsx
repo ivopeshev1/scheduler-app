@@ -413,13 +413,13 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
           )}
         </section>
 
-        {/* -------------------- Add-ons -------------------- */}
+        {/* -------------------- Add-on tasks -------------------- */}
         <section className="border rounded-lg bg-white p-6">
-          <h2 className="text-lg font-semibold mb-1">Add-ons</h2>
+          <h2 className="text-lg font-semibold mb-1">Add-on tasks</h2>
           <p className="text-sm text-gray-600 mb-4">
-            Optional extras you can tack onto an event (van driver, setup crew, early-arrival lead, etc.).
-            Anything you add here shows up as a checkbox on the staff picker when you invite people; the
-            manager types the $ amount per-person at invite time.
+            Additional tasks you can tack onto a team member per event (van driver, early arrival, pick up,
+            etc.). Anything you add here shows up as a toggle on the staff picker when you invite people, so
+            you can assign the task to a specific person and set their extra pay.
           </p>
 
           <AddOnsList
