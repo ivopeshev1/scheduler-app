@@ -164,14 +164,6 @@ async function addAddOnAction(formData: FormData) {
   if (!name) redirect("/manager/settings?error=addon-name-required");
   if (name.length > 60) redirect("/manager/settings?error=addon-name-too-long");
 
-  const rawMode = String(formData.get("compensationMode") ?? "standard");
-  const compensationMode: "standard" | "flat" | "hourly" =
-    rawMode === "flat" ? "flat" : rawMode === "hourly" ? "hourly" : "standard";
-  const rawAmount = String(formData.get("compensationAmount") ?? "").trim();
-  const compensationAmount =
-    compensationMode === "standard" || rawAmount === ""
-      ? null
-      : Number.isFinite(Number(rawAmount)) ? Math.max(0, Number(rawAmount)) : null;
   const includeDescription = formData.get("includeDescription") === "on";
 
   // Reject name duplicates within a company (case-insensitive)
@@ -188,12 +180,13 @@ async function addAddOnAction(formData: FormData) {
     .limit(1);
   const nextSort = (last?.sortOrder ?? -1) + 1;
 
+  // compensationMode + compensationAmount columns still exist on the table
+  // (can't drop without data-loss risk) but we stop reading/writing them.
+  // Default values 'standard' / NULL stay in place.
   await db.insert(schema.addOns).values({
     id: nanoid(),
     companyId: session.companyId,
     name,
-    compensationMode,
-    compensationAmount,
     includeDescription,
     sortOrder: nextSort,
   });
@@ -425,16 +418,14 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
           <h2 className="text-lg font-semibold mb-1">Add-ons</h2>
           <p className="text-sm text-gray-600 mb-4">
             Optional extras you can tack onto an event (van driver, setup crew, early-arrival lead, etc.).
-            Anything you add here shows up as a toggle on the event setup page with the compensation template
-            you configure below.
+            Anything you add here shows up as a checkbox on the staff picker when you invite people; the
+            manager types the $ amount per-person at invite time.
           </p>
 
           <AddOnsList
             initialAddOns={addOns.map((a) => ({
               id: a.id,
               name: a.name,
-              compensationMode: a.compensationMode as "standard" | "flat" | "hourly",
-              compensationAmount: a.compensationAmount,
               includeDescription: a.includeDescription,
             }))}
             onReorder={reorderAddOnsAction}
@@ -443,45 +434,17 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
 
           <form action={addAddOnAction} className="space-y-3 border-t pt-4">
             <div className="text-sm font-medium">Add a new add-on</div>
-            <div className="grid md:grid-cols-2 gap-3">
-              <div>
-                <label htmlFor="new-addon-name" className="label">Name</label>
-                <input
-                  id="new-addon-name"
-                  name="name"
-                  type="text"
-                  required
-                  maxLength={60}
-                  placeholder="e.g. Van driver, Setup crew, Early arrival"
-                  className="input"
-                />
-              </div>
-              <div>
-                <label htmlFor="new-addon-mode" className="label">Default compensation</label>
-                <div className="flex gap-2 items-stretch">
-                  <select
-                    id="new-addon-mode"
-                    name="compensationMode"
-                    defaultValue="standard"
-                    className="input flex-1"
-                  >
-                    <option value="standard">Standard (set per event)</option>
-                    <option value="flat">Flat $</option>
-                    <option value="hourly">Hourly $/hr</option>
-                  </select>
-                  <input
-                    name="compensationAmount"
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    placeholder="Amount"
-                    className="input w-28"
-                  />
-                </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  The amount is ignored when mode is Standard. Manager enters it on the event page.
-                </p>
-              </div>
+            <div>
+              <label htmlFor="new-addon-name" className="label">Name</label>
+              <input
+                id="new-addon-name"
+                name="name"
+                type="text"
+                required
+                maxLength={60}
+                placeholder="e.g. Van driver, Setup crew, Early arrival"
+                className="input"
+              />
             </div>
             <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
               <input type="checkbox" name="includeDescription" className="w-4 h-4" />

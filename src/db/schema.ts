@@ -211,14 +211,16 @@ export const eventAddOns = pgTable(
   })
 );
 
-// Per-invitation add-on assignments. If a row exists here, it means this
-// specific invitee is the one handling that add-on task on that event (gets
-// the extra comp + the shared description in their email).
+// Per-invitation add-on assignments. Row = "this invitee is doing that task
+// on this event." compensationAmount is the $ the manager typed in the staff
+// picker for this specific person + task combo; null means they ticked the
+// box but haven't entered an amount (treated as $0 in emails).
 export const invitationAddOns = pgTable(
   "invitation_add_ons",
   {
     invitationId: text("invitation_id").notNull().references(() => invitations.id, { onDelete: "cascade" }),
     addOnId: text("add_on_id").notNull().references(() => addOns.id, { onDelete: "cascade" }),
+    compensationAmount: real("compensation_amount"),
   },
   (t) => ({
     pk: uniqueIndex("invitation_add_ons_pk").on(t.invitationId, t.addOnId),

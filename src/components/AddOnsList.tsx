@@ -5,18 +5,14 @@ import { useState, useTransition } from "react";
 export type AddOn = {
   id: string;
   name: string;
-  compensationMode: "standard" | "flat" | "hourly";
-  compensationAmount: number | null;
   includeDescription: boolean;
 };
 
 /**
- * Drag-reorderable list of add-on tasks for Settings → Add-ons. Shows each
- * add-on's compensation summary + description flag inline; removal is a direct
- * action, reordering persists via the onReorder server action prop.
- *
- * New add-ons are created from a separate form below the list (lives in the
- * parent server component so the inputs can use a plain form action).
+ * Drag-reorderable list of add-on tasks for Settings → Add-ons. Compensation
+ * was dropped from the add-on template — the manager types the $ amount
+ * per-person at invite time, so the list only surfaces name + whether this
+ * add-on shows a description textarea on the event setup page.
  */
 export function AddOnsList({
   initialAddOns,
@@ -94,10 +90,9 @@ export function AddOnsList({
               <span className="text-gray-400 text-sm leading-none" aria-hidden>⋮⋮</span>
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium">{a.name}</div>
-                <div className="text-xs text-gray-500">
-                  {summarizeCompensation(a)}
-                  {a.includeDescription && <> · includes description box</>}
-                </div>
+                {a.includeDescription && (
+                  <div className="text-xs text-gray-500">Includes description box</div>
+                )}
               </div>
               <button
                 type="button"
@@ -111,14 +106,8 @@ export function AddOnsList({
         })}
       </ul>
       <p className="text-xs text-gray-500 mb-4">
-        Drag rows to reorder. Add-ons appear on the event setup page in this order.
+        Drag rows to reorder. Add-ons appear on the staff picker in this order.
       </p>
     </>
   );
-}
-
-function summarizeCompensation(a: AddOn): string {
-  if (a.compensationMode === "standard") return "Standard rate (set per event)";
-  if (a.compensationMode === "flat") return `Flat: $${a.compensationAmount ?? 0}`;
-  return `Hourly: $${a.compensationAmount ?? 0}/hr`;
 }

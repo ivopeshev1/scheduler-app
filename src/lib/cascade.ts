@@ -25,8 +25,8 @@ export async function sendInvitationEmail(inv: InvitationRow, position: Position
   const timeRange = `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`;
   const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
 
-  // Load any add-on tasks assigned to this specific invitation, plus the
-  // company template + this event's description for each.
+  // Load any add-on tasks assigned to this specific invitation, with the
+  // $ amount the manager typed for this person + this event's description.
   const invAddOnRows = await db
     .select({ row: schema.invitationAddOns, addOn: schema.addOns })
     .from(schema.invitationAddOns)
@@ -36,18 +36,15 @@ export async function sendInvitationEmail(inv: InvitationRow, position: Position
     ? await db.select().from(schema.eventAddOns).where(eq(schema.eventAddOns.eventId, event.id))
     : [];
   const descByAddOnId = new Map(eventDescRows.map((r) => [r.addOnId, r.description]));
-  const assignedAddOns = invAddOnRows.map(({ addOn }) => ({
+  const assignedAddOns = invAddOnRows.map(({ row, addOn }) => ({
     id: addOn.id,
     name: addOn.name,
-    compensationMode: addOn.compensationMode,
-    compensationAmount: addOn.compensationAmount,
+    amount: row.compensationAmount ?? 0,
     description: descByAddOnId.get(addOn.id) ?? null,
   }));
 
   function addOnCompensationLabel(a: typeof assignedAddOns[number]): string {
-    if (a.compensationMode === "standard") return "Standard rate (set per event)";
-    if (a.compensationMode === "flat") return `$${a.compensationAmount ?? 0} flat`;
-    return `$${a.compensationAmount ?? 0}/hr`;
+    return `$${a.amount}`;
   }
 
   const baseRateDisplay = (() => {

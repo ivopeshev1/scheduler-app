@@ -27,10 +27,9 @@ async function saveInvitations(formData: FormData) {
   const eventId = String(formData.get("eventId"));
   const selections = JSON.parse(String(formData.get("selections") ?? "{}")) as Record<string, number | null>;
   const rawTravelRates = JSON.parse(String(formData.get("travelRates") ?? "{}")) as Record<string, string>;
-  // Per-user add-on assignments: { [userId]: addOnId[] }. Users not in the
-  // object are treated as "no add-ons assigned" (the StaffPicker always
-  // sends a full map for checked users).
-  const addOnAssignments = JSON.parse(String(formData.get("addOnAssignments") ?? "{}")) as Record<string, string[]>;
+  // Per-user add-on assignments: { [userId]: Array<{id, amount}> }. amount
+  // is the string from the <input type="number">, blank = $0.
+  const addOnAssignments = JSON.parse(String(formData.get("addOnAssignments") ?? "{}")) as Record<string, Array<{ id: string; amount: string }>>;
   // Parse each travel-rate string to a number (or null if blank/invalid)
   const travelRates: Record<string, number | null> = {};
   for (const [uid, raw] of Object.entries(rawTravelRates)) {
@@ -163,17 +162,21 @@ async function saveInvitations(formData: FormData) {
     }
   }
 
-  // Sync invitation_add_ons for every user the UI sent us. Replace-style sync:
-  // delete all existing rows for the invitation then insert the new set. Safe
-  // because invitation_add_ons is pure join-table metadata.
+  // Sync invitation_add_ons for every user the UI sent us. Replace-style
+  // sync: delete all existing rows for the invitation then insert the new
+  // set, capturing the typed $ amount. Safe because invitation_add_ons is a
+  // pure per-invitation join-table.
   const positionInvites = await db.select().from(schema.invitations).where(eq(schema.invitations.positionId, positionId));
-  for (const [userId, addOnIds] of Object.entries(addOnAssignments)) {
+  for (const [userId, items] of Object.entries(addOnAssignments)) {
     const inv = positionInvites.find((i) => i.userId === userId);
     if (!inv) continue;
     await db.delete(schema.invitationAddOns).where(eq(schema.invitationAddOns.invitationId, inv.id));
-    for (const addOnId of addOnIds) {
+    for (const { id: addOnId, amount: raw } of items) {
+      const trimmed = (raw ?? "").toString().trim();
+      const n = trimmed === "" ? null : Number(trimmed);
+      const compensationAmount = Number.isFinite(n as number) ? Math.max(0, n as number) : null;
       await db.insert(schema.invitationAddOns)
-        .values({ invitationId: inv.id, addOnId })
+        .values({ invitationId: inv.id, addOnId, compensationAmount })
         .onConflictDoNothing();
     }
   }
@@ -435,26 +438,28 @@ export default async function EventDetailPage({ params }: { params: { id: string
   companyAddOnsList.sort((a, b) => a.sortOrder - b.sortOrder);
   const companyAddOnsForPicker = companyAddOnsList.map((a) => ({ id: a.id, name: a.name }));
 
-  // Invitation add-ons for THIS event - grouped by (positionId → userId → list of addOnIds)
+  // Invitation add-ons for THIS event - grouped by invitationId, each row
+  // carrying its own typed compensation_amount.
   const allInvIds = new Set<string>();
   for (const list of Object.values(invitesByPosition)) for (const inv of list) allInvIds.add(inv.id);
   const invAddOnRows = allInvIds.size
     ? await db.select().from(schema.invitationAddOns)
     : [];
-  const addOnsByInvitationId = new Map<string, string[]>();
+  const addOnsByInvitationId = new Map<string, Array<{ id: string; amount: number | null }>>();
   for (const row of invAddOnRows) {
     if (!allInvIds.has(row.invitationId)) continue;
     const arr = addOnsByInvitationId.get(row.invitationId) ?? [];
-    arr.push(row.addOnId);
+    arr.push({ id: row.addOnId, amount: row.compensationAmount });
     addOnsByInvitationId.set(row.invitationId, arr);
   }
-  // For each position, build userId → addOnIds map so StaffPicker can seed state.
-  const addOnsByUserForPosition: Record<string, Record<string, string[]>> = {};
+  // For each position, build userId → list of {id, amount} so the picker can
+  // seed both the checkbox state and the $ input.
+  const addOnsByUserForPosition: Record<string, Record<string, Array<{ id: string; amount: number | null }>>> = {};
   for (const p of positionsList) {
-    const perUser: Record<string, string[]> = {};
+    const perUser: Record<string, Array<{ id: string; amount: number | null }>> = {};
     for (const inv of invitesByPosition[p.id] ?? []) {
-      const ids = addOnsByInvitationId.get(inv.id);
-      if (ids && ids.length > 0) perUser[inv.userId] = ids;
+      const items = addOnsByInvitationId.get(inv.id);
+      if (items && items.length > 0) perUser[inv.userId] = items;
     }
     addOnsByUserForPosition[p.id] = perUser;
   }

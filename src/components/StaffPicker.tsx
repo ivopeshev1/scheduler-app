@@ -24,6 +24,11 @@ export type AddOnOption = {
   name: string;
 };
 
+export type AddOnAssignment = {
+  id: string;
+  amount: number | null;
+};
+
 type Props = {
   positionId: string;
   eventId: string;
@@ -33,12 +38,12 @@ type Props = {
   staff: StaffOption[];
   onSave: (formData: FormData) => void;
   // Company-configured add-on tasks (van driver, setup crew, etc). Rendered
-  // as a compact row of checkboxes per invited staff so the manager can
-  // assign each task to the specific person doing it.
+  // inline next to Travel on each invited staff row.
   companyAddOns: AddOnOption[];
-  // Per-user add-on IDs already persisted to invitation_add_ons on this
-  // position (used as initial state so existing assignments stay checked).
-  currentAddOnsByUserId: Record<string, string[]>;
+  // Per-user list of {addOnId, amount} rows persisted from a previous save;
+  // used to seed the inline checkbox + $ state so existing assignments stay
+  // checked on re-open.
+  currentAddOnsByUserId: Record<string, AddOnAssignment[]>;
 };
 
 const TIER_LABELS = ["Priority", "Backup 1", "Backup 2", "Backup 3"] as const;
@@ -61,10 +66,32 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
     }
     return init;
   });
-  // Per-invitee add-on assignments, keyed by userId → Set of add-on IDs.
-  const [addOnAssignments, setAddOnAssignments] = useState<Record<string, Set<string>>>(() => {
-    const init: Record<string, Set<string>> = {};
-    for (const s of staff) init[s.userId] = new Set(currentAddOnsByUserId[s.userId] ?? []);
+  // Travel is "checked" when there's a non-empty value OR it was previously
+  // set on the invite. We keep this as a separate piece of state so the
+  // checkbox can toggle independently of the $ input (empty string but still
+  // checked = "intentionally 0 for travel").
+  const [travelChecked, setTravelChecked] = useState<Record<string, boolean>>(() => {
+    const init: Record<string, boolean> = {};
+    for (const s of staff) init[s.userId] = s.currentTravelRate != null;
+    return init;
+  });
+  // Per-invitee add-on assignments: userId → Map of addOnId → amount string.
+  // Presence in the map = add-on is checked for this user. Amount can be
+  // blank (treated as $0 on save).
+  const [addOnAssignments, setAddOnAssignments] = useState<Record<string, Map<string, string>>>(() => {
+    const init: Record<string, Map<string, string>> = {};
+    for (const s of staff) {
+      const m = new Map<string, string>();
+      for (const id of currentAddOnsByUserId[s.userId]?.keys ?? []) {
+        m.set(id, "");
+      }
+      // currentAddOnsByUserId shape is Record<string, Array<{id,amount}>>
+      const existing = currentAddOnsByUserId[s.userId] ?? [];
+      for (const a of existing) {
+        m.set(a.id, a.amount != null ? String(a.amount) : "");
+      }
+      init[s.userId] = m;
+    }
     return init;
   });
   // Re-sync selections, travel rates, and add-on assignments when the server
@@ -74,14 +101,22 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
     if (open) return;
     const nextSel: Record<string, number | null> = {};
     const nextTravel: Record<string, string> = {};
-    const nextAddOns: Record<string, Set<string>> = {};
+    const nextTravelChecked: Record<string, boolean> = {};
+    const nextAddOns: Record<string, Map<string, string>> = {};
     for (const s of staff) {
       nextSel[s.userId] = s.currentTier;
       nextTravel[s.userId] = s.currentTravelRate != null ? String(s.currentTravelRate) : "";
-      nextAddOns[s.userId] = new Set(currentAddOnsByUserId[s.userId] ?? []);
+      nextTravelChecked[s.userId] = s.currentTravelRate != null;
+      const m = new Map<string, string>();
+      const existing = currentAddOnsByUserId[s.userId] ?? [];
+      for (const a of existing) {
+        m.set(a.id, a.amount != null ? String(a.amount) : "");
+      }
+      nextAddOns[s.userId] = m;
     }
     setSelections(nextSel);
     setTravelRates(nextTravel);
+    setTravelChecked(nextTravelChecked);
     setAddOnAssignments(nextAddOns);
   }, [staff, open, currentAddOnsByUserId]);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -136,13 +171,26 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
               formData.set("eventId", eventId);
               formData.set("positionId", positionId);
               formData.set("selections", JSON.stringify(selections));
-              // Serialize the per-invitee travel rates alongside selections. Empty
-              // strings get dropped; the server parses each as a number or null.
-              formData.set("travelRates", JSON.stringify(travelRates));
-              // Flatten Sets to arrays for JSON serialization.
-              const assignments: Record<string, string[]> = {};
-              for (const [uid, ids] of Object.entries(addOnAssignments)) {
-                assignments[uid] = Array.from(ids);
+              // Serialize per-invitee travel rates. An unchecked Travel box
+              // means the user explicitly opted out — send null. Checked +
+              // blank means $0 (send "" so server parses as null, treated
+              // as $0). Checked + value means the typed amount.
+              const serializedTravel: Record<string, string> = {};
+              for (const s of staff) {
+                if (travelChecked[s.userId]) {
+                  serializedTravel[s.userId] = travelRates[s.userId] ?? "";
+                }
+                // Unchecked = key omitted entirely; server treats as null.
+              }
+              formData.set("travelRates", JSON.stringify(serializedTravel));
+              // Serialize add-on assignments as { userId: [{id, amount}] }.
+              const assignments: Record<string, Array<{ id: string; amount: string }>> = {};
+              for (const [uid, m] of Object.entries(addOnAssignments)) {
+                const list: Array<{ id: string; amount: string }> = [];
+                for (const [addOnId, amount] of m.entries()) {
+                  list.push({ id: addOnId, amount });
+                }
+                assignments[uid] = list;
               }
               formData.set("addOnAssignments", JSON.stringify(assignments));
               await onSave(formData);
@@ -187,15 +235,16 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                 //  - Otherwise, lock if they're busy elsewhere on this date, or they rejected a prior invite here
                 const locked = !alreadyOnThisPosition && (!!s.busyWith || s.currentStatus === "rejected");
                 const checked = tier !== null && tier !== undefined;
-                const assignedAddOns = addOnAssignments[s.userId] ?? new Set<string>();
+                const assignedAddOns = addOnAssignments[s.userId] ?? new Map<string, string>();
+                const tChecked = travelChecked[s.userId] ?? false;
                 return (
                   <label key={s.userId} className={`block px-3 py-2 border-b last:border-b-0 text-sm ${locked ? "opacity-50 cursor-not-allowed bg-gray-50" : "hover:bg-gray-50 cursor-pointer"}`}>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 flex-wrap">
                       <input type="checkbox" checked={checked} disabled={locked} onChange={(e) => {
                         if (locked) return;
                         setSelections((prev) => ({ ...prev, [s.userId]: e.target.checked ? (tier ?? 0) : null }));
-                      }} className="w-4 h-4" />
-                      <div className="flex-1">
+                      }} className="w-4 h-4 shrink-0" />
+                      <div className="flex-1 min-w-[180px]">
                         <div className="font-medium flex items-center gap-2">
                           {s.firstName} {s.lastName}
                           <span className="text-[10px] uppercase tracking-wide bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
@@ -220,24 +269,53 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                           )}
                         </div>
                       </div>
+
+                      {/* Extras row: Travel and each company add-on render the
+                          same way — checkbox, then a $ input that only shows
+                          once the checkbox is ticked. Shown only when the
+                          staff is actually invited. */}
                       {checked && (
-                        <div className="flex items-center gap-1 text-xs">
-                          <span className="text-gray-500">Travel $</span>
-                          <input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            value={travelRates[s.userId] ?? ""}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              setTravelRates((prev) => ({ ...prev, [s.userId]: v }));
+                        <div className="flex items-center gap-3 flex-wrap text-xs">
+                          <ExtraChip
+                            label="Travel"
+                            checked={tChecked}
+                            amount={travelRates[s.userId] ?? ""}
+                            onToggle={(on) => {
+                              setTravelChecked((prev) => ({ ...prev, [s.userId]: on }));
+                              if (!on) setTravelRates((prev) => ({ ...prev, [s.userId]: "" }));
                             }}
-                            onClick={(e) => e.stopPropagation()}
-                            placeholder="0"
-                            className="w-14 border border-gray-300 rounded px-1.5 py-1 text-xs outline-none focus:border-gray-500"
+                            onAmountChange={(v) => setTravelRates((prev) => ({ ...prev, [s.userId]: v }))}
                           />
+                          {companyAddOns.map((a) => {
+                            const on = assignedAddOns.has(a.id);
+                            const amt = on ? (assignedAddOns.get(a.id) ?? "") : "";
+                            return (
+                              <ExtraChip
+                                key={a.id}
+                                label={a.name}
+                                checked={on}
+                                amount={amt}
+                                onToggle={(next) => {
+                                  setAddOnAssignments((prev) => {
+                                    const m = new Map(prev[s.userId] ?? []);
+                                    if (next) m.set(a.id, m.get(a.id) ?? "");
+                                    else m.delete(a.id);
+                                    return { ...prev, [s.userId]: m };
+                                  });
+                                }}
+                                onAmountChange={(v) => {
+                                  setAddOnAssignments((prev) => {
+                                    const m = new Map(prev[s.userId] ?? []);
+                                    m.set(a.id, v);
+                                    return { ...prev, [s.userId]: m };
+                                  });
+                                }}
+                              />
+                            );
+                          })}
                         </div>
                       )}
+
                       <select
                         value={checked ? String(tier) : ""}
                         onChange={(e) => {
@@ -247,7 +325,7 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                             [s.userId]: v === "" ? null : Number(v),
                           }));
                         }}
-                        className="input !w-auto !py-1 text-xs"
+                        className="input !w-auto !py-1 text-xs shrink-0 ml-auto"
                       >
                         <option value="">Not invited</option>
                         {TIER_LABELS.map((label, i) => (
@@ -255,40 +333,6 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                         ))}
                       </select>
                     </div>
-
-                    {/* Compact add-on checkbox row - only when checked, and only if
-                        the company has defined any add-ons. One line per staff, wraps
-                        if too many. Clicks are stopPropagation'd so the outer row
-                        label doesn't swallow them. */}
-                    {checked && companyAddOns.length > 0 && (
-                      <div className="mt-2 pl-7 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-                        <span className="text-gray-500 uppercase tracking-wide">Add-ons:</span>
-                        {companyAddOns.map((a) => {
-                          const on = assignedAddOns.has(a.id);
-                          return (
-                            <span
-                              key={a.id}
-                              onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-1"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={on}
-                                onChange={(e) => {
-                                  const next = new Set(assignedAddOns);
-                                  if (e.target.checked) next.add(a.id);
-                                  else next.delete(a.id);
-                                  setAddOnAssignments((prev) => ({ ...prev, [s.userId]: next }));
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                                className="w-3.5 h-3.5"
-                              />
-                              <span>{a.name}</span>
-                            </span>
-                          );
-                        })}
-                      </div>
-                    )}
                   </label>
                 );
               })
@@ -307,5 +351,54 @@ function CityPill({ label, active, onClick }: { label: string; active: boolean; 
       className={`px-2 py-1 text-xs rounded-full border ${active ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-700 border-gray-300 hover:border-gray-500"}`}>
       {label}
     </button>
+  );
+}
+
+/**
+ * Uniform checkbox + conditional $ input used for Travel and every company
+ * add-on. Ticking the box reveals a tiny dollar input that the manager types
+ * a per-person amount into. Clicks are stopPropagation'd so ticking here
+ * doesn't toggle the outer staff-row label.
+ */
+function ExtraChip({
+  label,
+  checked,
+  amount,
+  onToggle,
+  onAmountChange,
+}: {
+  label: string;
+  checked: boolean;
+  amount: string;
+  onToggle: (on: boolean) => void;
+  onAmountChange: (v: string) => void;
+}) {
+  return (
+    <span onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onToggle(e.target.checked)}
+        onClick={(e) => e.stopPropagation()}
+        className="w-3.5 h-3.5"
+      />
+      <span className="text-gray-700">{label}</span>
+      {checked && (
+        <>
+          <span className="text-gray-500">$</span>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={amount}
+            onChange={(e) => onAmountChange(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onFocus={(e) => e.target.select()}
+            placeholder="0"
+            className="w-14 border border-gray-300 rounded px-1.5 py-0.5 text-xs outline-none focus:border-gray-500"
+          />
+        </>
+      )}
+    </span>
   );
 }

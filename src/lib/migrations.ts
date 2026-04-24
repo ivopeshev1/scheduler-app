@@ -184,13 +184,17 @@ export async function runMigrations(): Promise<void> {
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS event_add_ons_pk ON event_add_ons(event_id, add_on_id)`;
 
   // Per-invitation add-on assignments. Row present = this invitee is handling
-  // that add-on task on the event and should get the extra comp + description
-  // in their invite email.
+  // that add-on task on the event. compensation_amount is the $ the manager
+  // typed in the picker for this specific person + task.
   await sql`CREATE TABLE IF NOT EXISTS invitation_add_ons (
     invitation_id TEXT NOT NULL REFERENCES invitations(id) ON DELETE CASCADE,
-    add_on_id TEXT NOT NULL REFERENCES add_ons(id) ON DELETE CASCADE
+    add_on_id TEXT NOT NULL REFERENCES add_ons(id) ON DELETE CASCADE,
+    compensation_amount REAL
   )`;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS invitation_add_ons_pk ON invitation_add_ons(invitation_id, add_on_id)`;
+  // Additive migration for DBs that created the join-table before we added
+  // compensation_amount. Idempotent.
+  await sql`ALTER TABLE invitation_add_ons ADD COLUMN IF NOT EXISTS compensation_amount REAL`;
 
   // Seed defaults for any company with no roles yet. We maintain a canonical
   // list of 12 hospitality roles — the ones cocktail-catering / event-staffing
