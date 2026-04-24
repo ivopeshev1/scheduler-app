@@ -13,19 +13,16 @@ import {
 import { revalidatePath } from "next/cache";
 import { nanoid } from "nanoid";
 
-/**
- * Google Drive share URLs point to a viewer page, not the raw image, so browsers
- * can't render them in an <img> tag. Detect the common forms and rewrite them
- * to the thumbnail endpoint (which serves the actual image bytes).
- */
-function normalizeLogoUrl(raw: string): string | null {
-  if (!raw) return null;
-  const m1 = /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/.exec(raw);
-  if (m1) return `https://drive.google.com/thumbnail?id=${m1[1]}&sz=w400`;
-  const m2 = /drive\.google\.com\/open\?.*id=([a-zA-Z0-9_-]+)/.exec(raw);
-  if (m2) return `https://drive.google.com/thumbnail?id=${m2[1]}&sz=w400`;
-  return raw;
-}
+// Max logo file size. 1 MB is plenty for a header icon and keeps the row
+// size reasonable even if we're storing the image inline as a data URL.
+const MAX_LOGO_BYTES = 1_000_000;
+const ALLOWED_LOGO_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/svg+xml",
+]);
 
 async function requireSettingsAccess() {
   const session = await getSession();
@@ -39,13 +36,34 @@ async function saveCompanySetupAction(formData: FormData) {
   "use server";
   const { session } = await requireSettingsAccess();
   const name = String(formData.get("name") ?? "").trim();
-  const logoUrlRaw = String(formData.get("logoUrl") ?? "").trim();
   if (!name) throw new Error("Company name is required");
-  const logoUrl = normalizeLogoUrl(logoUrlRaw);
+
+  // Logo handling: file takes priority (if one was uploaded, replace). If
+  // the "remove" checkbox is ticked and no file was uploaded, null the
+  // column. Otherwise, leave the current value alone.
+  const removeLogo = formData.get("removeLogo") === "on";
+  const logoFile = formData.get("logoFile");
+  let logoPatch: { logoUrl: string | null } | null = null;
+
+  if (logoFile instanceof File && logoFile.size > 0) {
+    if (!ALLOWED_LOGO_TYPES.has(logoFile.type)) {
+      redirect("/manager/settings?error=logo-bad-type");
+    }
+    if (logoFile.size > MAX_LOGO_BYTES) {
+      redirect("/manager/settings?error=logo-too-big");
+    }
+    // Read the raw bytes and encode as a data URL. This keeps us off of
+    // third-party blob storage for now — fine at small scale because logos
+    // are loaded once per page and are well under a MB.
+    const buf = Buffer.from(await logoFile.arrayBuffer());
+    logoPatch = { logoUrl: `data:${logoFile.type};base64,${buf.toString("base64")}` };
+  } else if (removeLogo) {
+    logoPatch = { logoUrl: null };
+  }
 
   await db
     .update(schema.companies)
-    .set({ name, logoUrl })
+    .set({ name, ...(logoPatch ?? {}) })
     .where(eq(schema.companies.id, session.companyId));
 
   revalidatePath("/manager");
@@ -184,6 +202,10 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
   const errName = searchParams.name ?? "";
 
   const companySavedMsg = saved === "company" ? "Company setup saved." : null;
+  const companyErrorMsg =
+    err === "logo-bad-type" ? "Logo must be PNG, JPG, GIF, WebP, or SVG." :
+    err === "logo-too-big"  ? "Logo file is too large. Maximum is 1 MB." :
+    null;
   // Notifications save its own in-line "Saved." indicator inside the editor
   // component, so no top-level banner for that section.
   const rolesSavedMsg =
@@ -209,11 +231,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
         {/* -------------------- Company setup -------------------- */}
         <section className="border rounded-lg bg-white p-6">
           <h2 className="text-lg font-semibold mb-1">Company setup</h2>
-          <p className="text-sm text-gray-600 mb-4">
-            The name that shows up in the header and on outgoing emails, plus an optional logo.
-          </p>
 
-          <form action={saveCompanySetupAction} className="space-y-5">
+          <form action={saveCompanySetupAction} className="space-y-5" encType="multipart/form-data">
             <div>
               <label htmlFor="name" className="label">Company name</label>
               <input id="name" name="name" type="text" defaultValue={company.name} required className="input" />
@@ -223,26 +242,29 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
             </div>
 
             <div>
-              <label htmlFor="logoUrl" className="label">Logo URL (optional)</label>
-              <input
-                id="logoUrl"
-                name="logoUrl"
-                type="url"
-                defaultValue={company.logoUrl ?? ""}
-                placeholder="https://example.com/logo.png"
-                className="input"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Paste a direct image URL - appears as a small icon next to your company name. Google Drive share links
-                get auto-rewritten to the thumbnail endpoint.
-              </p>
+              <label htmlFor="logoFile" className="label">Logo (optional)</label>
               {company.logoUrl && (
-                <div className="mt-3 flex items-center gap-3 p-3 border rounded bg-gray-50">
+                <div className="mb-3 flex items-center gap-3 p-3 border rounded bg-gray-50">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={company.logoUrl} alt="current logo" className="h-10 w-10 object-contain rounded bg-white border" />
-                  <span className="text-xs text-gray-500">Current logo</span>
+                  <span className="text-xs text-gray-500 flex-1">Current logo</span>
+                  <label className="text-xs text-red-600 hover:underline cursor-pointer inline-flex items-center gap-1">
+                    <input type="checkbox" name="removeLogo" className="w-3.5 h-3.5" />
+                    Remove on save
+                  </label>
                 </div>
               )}
+              <input
+                id="logoFile"
+                name="logoFile"
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+                className="block text-sm text-gray-700 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border file:border-gray-300 file:bg-white file:text-sm file:text-gray-700 hover:file:bg-gray-50"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                PNG, JPG, GIF, WebP, or SVG. Max 1 MB. Appears as a small icon next to the company name
+                in the header.
+              </p>
             </div>
 
             <button type="submit" className="btn btn-primary">Save company setup</button>
@@ -253,16 +275,16 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
               {companySavedMsg}
             </div>
           )}
+          {companyErrorMsg && (
+            <div className="mt-4 p-3 border border-red-300 bg-red-50 text-red-800 text-sm rounded">
+              {companyErrorMsg}
+            </div>
+          )}
         </section>
 
         {/* -------------------- Notifications -------------------- */}
         <section className="border rounded-lg bg-white p-6">
-          <h2 className="text-lg font-semibold mb-1">Notifications</h2>
-          <p className="text-sm text-gray-600 mb-4">
-            Choose which channels (email / text) each message goes out on and, where applicable,
-            how often. See the <Link href="/manager/log" className="underline">Log</Link> page for
-            delivery history.
-          </p>
+          <h2 className="text-lg font-semibold mb-3">Notifications</h2>
 
           <NotificationsEditor
             initialSettings={mergeNotificationSettings(company.notificationSettings)}
