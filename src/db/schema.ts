@@ -183,6 +183,21 @@ export const eventCustomValues = pgTable(
   })
 );
 
+// Per-event file attachments (BEOs, manuals, photos, etc). File bytes are
+// stored inline as a data URL so we don't need external blob storage yet.
+// Capped per-file size keeps rows reasonable; the picker enforces it too.
+export const eventAttachments = pgTable("event_attachments", {
+  id: text("id").primaryKey(),
+  eventId: text("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
+  fileName: text("file_name").notNull(),
+  fileType: text("file_type").notNull(),
+  fileSize: integer("file_size").notNull(),
+  // Full data URL: "data:<mime>;base64,<payload>". Makes serving trivial
+  // (redirect to it) and keeps the model tiny for v1.
+  fileData: text("file_data").notNull(),
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const positions = pgTable("positions", {
   id: text("id").primaryKey(),
   eventId: text("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),

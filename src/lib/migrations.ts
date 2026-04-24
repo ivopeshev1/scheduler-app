@@ -167,6 +167,19 @@ export async function runMigrations(): Promise<void> {
   )`;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS event_custom_values_pk ON event_custom_values(event_id, field_key)`;
 
+  // Per-event file attachments. File bytes stored inline as a data URL for
+  // simplicity; max size enforced by the UI.
+  await sql`CREATE TABLE IF NOT EXISTS event_attachments (
+    id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    file_name TEXT NOT NULL,
+    file_type TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    file_data TEXT NOT NULL,
+    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS event_attachments_event_idx ON event_attachments(event_id)`;
+
   // Seed default event-field configs for any company that has none yet.
   const companiesNeedingFieldConfigs = (await sql`
     SELECT c.id FROM companies c

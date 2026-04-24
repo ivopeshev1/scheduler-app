@@ -2,10 +2,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
-import { eq, and } from "drizzle-orm";
+import { eq, and, asc } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { PositionRows } from "@/components/PositionRows";
+import { AttachmentsField } from "@/components/AttachmentsField";
 import { nanoid } from "nanoid";
+import { PRESET_BY_KEY } from "@/lib/event-fields";
 
 async function createEventAction(formData: FormData) {
   "use server";
@@ -19,16 +21,52 @@ async function createEventAction(formData: FormData) {
 
   await db.insert(schema.events).values({
     id: eventId, companyId: session.companyId, date, clientName,
+    clientContactInfo: str(formData.get("clientContactInfo")),
     venue: str(formData.get("venue")), city: str(formData.get("city")),
     eventType: str(formData.get("eventType")), planner: str(formData.get("planner")),
+    plannerContactInfo: str(formData.get("plannerContactInfo")),
     guestCount: num(formData.get("guestCount")), numBars: num(formData.get("numBars")),
-    checkInTime: str(formData.get("checkInTime")), endTime: str(formData.get("endTime")),
+    checkInTime: str(formData.get("checkInTime")),
+    eventStartTime: str(formData.get("eventStartTime")),
+    endTime: str(formData.get("endTime")),
     staffNotes: str(formData.get("staffNotes")), internalNotes: str(formData.get("internalNotes")),
     // Van instructions UI was removed; field kept on the row as null for
     // backwards compat until the generalized Add-ons feature ships.
     vanDrivingInstructions: null,
     createdBy: session.userId,
   });
+
+  // Persist any custom-field values (fieldKey='custom_xxx') the form sent.
+  for (const [k, v] of formData.entries()) {
+    const m = /^custom\[(.+)\]$/.exec(k);
+    if (!m) continue;
+    const value = str(v);
+    if (value) {
+      await db.insert(schema.eventCustomValues).values({
+        eventId,
+        fieldKey: m[1],
+        value,
+      }).onConflictDoNothing();
+    }
+  }
+
+  // Persist newly-uploaded attachments. `newAttachments` is JSON from
+  // AttachmentsField: array of { name, type, size, dataUrl }.
+  const newAttachmentsRaw = String(formData.get("newAttachments") ?? "[]");
+  try {
+    const uploads = JSON.parse(newAttachmentsRaw) as Array<{ name: string; type: string; size: number; dataUrl: string }>;
+    for (const u of uploads) {
+      if (!u.dataUrl) continue;
+      await db.insert(schema.eventAttachments).values({
+        id: nanoid(),
+        eventId,
+        fileName: u.name,
+        fileType: u.type,
+        fileSize: u.size,
+        fileData: u.dataUrl,
+      });
+    }
+  } catch {}
 
   // Scan form data for position rows - there's no fixed count now
   const positionIndexes = new Set<number>();
@@ -138,6 +176,28 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
   allAddOns.sort((a, b) => a.sortOrder - b.sortOrder);
   const addOnsWithDescription = allAddOns.filter((a) => a.includeDescription);
 
+  // Event field configs: which preset fields are enabled, plus any custom
+  // fields the owner has added. Drives what renders on the form below.
+  const fieldConfigs = await db
+    .select()
+    .from(schema.eventFieldConfigs)
+    .where(eq(schema.eventFieldConfigs.companyId, session.companyId))
+    .orderBy(asc(schema.eventFieldConfigs.sortOrder));
+  const cfgByKey = new Map(fieldConfigs.map((c) => [c.fieldKey, c]));
+  const isEnabled = (key: string) => {
+    const cfg = cfgByKey.get(key);
+    if (cfg) return cfg.enabled;
+    // Preset fields that default to required+enabled show even without a
+    // row (should be rare after migrations run, but defensive).
+    return PRESET_BY_KEY[key]?.bucket === "required";
+  };
+  const isRequired = (key: string) => {
+    const cfg = cfgByKey.get(key);
+    return cfg ? cfg.required : PRESET_BY_KEY[key]?.bucket === "required";
+  };
+  const customFields = fieldConfigs.filter((c) => c.isCustom && c.enabled);
+  const attachmentsEnabled = isEnabled("attachments");
+
   const autocomplete = await db
     .select()
     .from(schema.autocompleteValues)
@@ -156,19 +216,66 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
       <main className="max-w-5xl mx-auto px-6 py-8">
         <Link href="/manager" className="text-sm text-gray-500 hover:underline">← Back to calendar</Link>
         <h1 className="text-2xl font-semibold mt-2 mb-6">New event</h1>
-        <form action={createEventAction} className="space-y-6">
+        <form action={createEventAction} className="space-y-6" encType="multipart/form-data">
           <section className="grid md:grid-cols-2 gap-4">
-            <Field label="Date" name="date" type="date" defaultValue={defaultDate} required />
-            <AutocompleteField label="Client name" name="clientName" listId="ac-clientName" options={suggestions.clientName} required />
-            <AutocompleteField label="Venue" name="venue" listId="ac-venue" options={suggestions.venue} />
-            <AutocompleteField label="City" name="city" listId="ac-city" options={suggestions.city} />
-            <AutocompleteField label="Event type" name="eventType" listId="ac-eventType" options={suggestions.eventType} />
-            <AutocompleteField label="Planner" name="planner" listId="ac-planner" options={suggestions.planner} />
-            <Field label="Guest count" name="guestCount" type="number" />
-            <Field label="Number of bars" name="numBars" type="number" />
-            <Field label="Check-in time" name="checkInTime" type="time" />
-            <Field label="End time" name="endTime" type="time" />
+            {isEnabled("date") && (
+              <Field label="Date" name="date" type="date" defaultValue={defaultDate} required={isRequired("date")} />
+            )}
+            {isEnabled("clientName") && (
+              <AutocompleteField label="Client name" name="clientName" listId="ac-clientName" options={suggestions.clientName} required={isRequired("clientName")} />
+            )}
+            {isEnabled("cityAddress") && (
+              <AutocompleteField label="Address / City" name="city" listId="ac-city" options={suggestions.city} required={isRequired("cityAddress")} />
+            )}
+            {isEnabled("eventType") && (
+              <AutocompleteField label="Event type" name="eventType" listId="ac-eventType" options={suggestions.eventType} required={isRequired("eventType")} />
+            )}
+            {isEnabled("checkInTime") && (
+              <Field label="Staff check-in time" name="checkInTime" type="time" required={isRequired("checkInTime")} />
+            )}
+            {isEnabled("eventStartTime") && (
+              <Field label="Event start time" name="eventStartTime" type="time" required={isRequired("eventStartTime")} />
+            )}
+            {isEnabled("endTime") && (
+              <Field label="Event end time" name="endTime" type="time" required={isRequired("endTime")} />
+            )}
+            {isEnabled("venue") && (
+              <AutocompleteField label="Venue" name="venue" listId="ac-venue" options={suggestions.venue} required={isRequired("venue")} />
+            )}
+            {isEnabled("clientContactInfo") && (
+              <Field label="Client contact info" name="clientContactInfo" type="text" required={isRequired("clientContactInfo")} />
+            )}
+            {isEnabled("plannerName") && (
+              <AutocompleteField label="Planner name" name="planner" listId="ac-planner" options={suggestions.planner} required={isRequired("plannerName")} />
+            )}
+            {isEnabled("plannerContactInfo") && (
+              <Field label="Planner contact info" name="plannerContactInfo" type="text" required={isRequired("plannerContactInfo")} />
+            )}
+            {isEnabled("guestCount") && (
+              <Field label="Number of guests" name="guestCount" type="number" required={isRequired("guestCount")} />
+            )}
+            {isEnabled("numBars") && (
+              <Field label="Number of bars" name="numBars" type="number" required={isRequired("numBars")} />
+            )}
+            {customFields.map((c) => (
+              <div key={c.fieldKey}>
+                <label className="label" htmlFor={`custom-${c.fieldKey}`}>{c.label}</label>
+                <input
+                  id={`custom-${c.fieldKey}`}
+                  name={`custom[${c.fieldKey}]`}
+                  type="text"
+                  required={c.required}
+                  className="input"
+                />
+              </div>
+            ))}
           </section>
+
+          {attachmentsEnabled && (
+            <section>
+              <AttachmentsField existing={[]} label="Attachments (BEO, manuals, etc.)" />
+            </section>
+          )}
 
           <section>
             <h2 className="font-semibold mb-2">Positions</h2>

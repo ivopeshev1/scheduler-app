@@ -2,10 +2,12 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
-import { eq, and } from "drizzle-orm";
+import { eq, and, asc } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { PositionsEditor, type PositionData, type InvitedStaff } from "@/components/PositionsEditor";
+import { AttachmentsField } from "@/components/AttachmentsField";
 import { nanoid } from "nanoid";
+import { PRESET_BY_KEY } from "@/lib/event-fields";
 import {
   notifyEventDetailsChanged,
   notifyPositionChanged,
@@ -25,22 +27,28 @@ async function saveEventEditAction(formData: FormData) {
   const [event] = await db.select().from(schema.events).where(eq(schema.events.id, eventId));
   if (!event || event.companyId !== session.companyId) throw new Error("Not found");
 
+  // Only overwrite a column when the form sent that field — otherwise leave
+  // the existing value intact. (Disabled fields in Settings → Event fields
+  // don't render on the edit form, so we don't want to null them out.)
+  const pick = <T,>(key: string, transform: (v: FormDataEntryValue | null) => T, existing: T): T =>
+    formData.has(key) ? transform(formData.get(key)) : existing;
+
   const newValues = {
-    date: String(formData.get("date")),
-    clientName: String(formData.get("clientName") ?? "").trim(),
-    venue: str(formData.get("venue")),
-    city: str(formData.get("city")),
-    eventType: str(formData.get("eventType")),
-    planner: str(formData.get("planner")),
-    guestCount: num(formData.get("guestCount")),
-    numBars: num(formData.get("numBars")),
-    checkInTime: str(formData.get("checkInTime")),
-    endTime: str(formData.get("endTime")),
-    staffNotes: str(formData.get("staffNotes")),
-    internalNotes: str(formData.get("internalNotes")),
-    // Van-driving-instructions UI was removed; keep whatever was previously
-    // stored on the row untouched. The generalized Add-ons feature will own
-    // this kind of per-task detail.
+    date: pick("date", (v) => String(v ?? event.date), event.date),
+    clientName: pick("clientName", (v) => String(v ?? "").trim() || event.clientName, event.clientName),
+    clientContactInfo: pick("clientContactInfo", str, event.clientContactInfo ?? null),
+    venue: pick("venue", str, event.venue ?? null),
+    city: pick("city", str, event.city ?? null),
+    eventType: pick("eventType", str, event.eventType ?? null),
+    planner: pick("planner", str, event.planner ?? null),
+    plannerContactInfo: pick("plannerContactInfo", str, event.plannerContactInfo ?? null),
+    guestCount: pick("guestCount", num, event.guestCount ?? null),
+    numBars: pick("numBars", num, event.numBars ?? null),
+    checkInTime: pick("checkInTime", str, event.checkInTime ?? null),
+    eventStartTime: pick("eventStartTime", str, event.eventStartTime ?? null),
+    endTime: pick("endTime", str, event.endTime ?? null),
+    staffNotes: pick("staffNotes", str, event.staffNotes ?? null),
+    internalNotes: pick("internalNotes", str, event.internalNotes ?? null),
     vanDrivingInstructions: event.vanDrivingInstructions ?? null,
   };
 
@@ -183,6 +191,50 @@ async function saveEventEditAction(formData: FormData) {
     await db.delete(schema.positions).where(eq(schema.positions.id, existing.id));
   }
 
+  // Upsert custom field values (fieldKey='custom[<key>]') from the form.
+  for (const [k, v] of formData.entries()) {
+    const m = /^custom\[(.+)\]$/.exec(k);
+    if (!m) continue;
+    const fieldKey = m[1];
+    const value = str(v);
+    const [existing] = await db
+      .select()
+      .from(schema.eventCustomValues)
+      .where(and(eq(schema.eventCustomValues.eventId, eventId), eq(schema.eventCustomValues.fieldKey, fieldKey)));
+    if (existing) {
+      await db
+        .update(schema.eventCustomValues)
+        .set({ value })
+        .where(and(eq(schema.eventCustomValues.eventId, eventId), eq(schema.eventCustomValues.fieldKey, fieldKey)));
+    } else if (value) {
+      await db.insert(schema.eventCustomValues).values({ eventId, fieldKey, value });
+    }
+  }
+
+  // Attachments: handle removes, then new uploads (JSON from AttachmentsField).
+  const removeRaw = String(formData.get("removeAttachments") ?? "[]");
+  try {
+    const removeIds = JSON.parse(removeRaw) as string[];
+    for (const rid of removeIds) {
+      await db.delete(schema.eventAttachments).where(eq(schema.eventAttachments.id, rid));
+    }
+  } catch {}
+  const newAttachmentsRaw = String(formData.get("newAttachments") ?? "[]");
+  try {
+    const uploads = JSON.parse(newAttachmentsRaw) as Array<{ name: string; type: string; size: number; dataUrl: string }>;
+    for (const u of uploads) {
+      if (!u.dataUrl) continue;
+      await db.insert(schema.eventAttachments).values({
+        id: nanoid(),
+        eventId,
+        fileName: u.name,
+        fileType: u.type,
+        fileSize: u.size,
+        fileData: u.dataUrl,
+      });
+    }
+  } catch {}
+
   // Upsert per-event add-on descriptions. Only add-ons the company has
   // configured with includeDescription=true send this field from the UI.
   const companyAddOnsForEvent = await db.select().from(schema.addOns).where(eq(schema.addOns.companyId, session.companyId));
@@ -306,6 +358,36 @@ export default async function EditEventPage({ params }: { params: { id: string }
     .where(eq(schema.eventAddOns.eventId, event.id));
   const descriptionByAddOnId = new Map(existingEventAddOns.map((e) => [e.addOnId, e.description]));
 
+  // Event field configs drive which inputs render.
+  const fieldConfigs = await db
+    .select()
+    .from(schema.eventFieldConfigs)
+    .where(eq(schema.eventFieldConfigs.companyId, session.companyId))
+    .orderBy(asc(schema.eventFieldConfigs.sortOrder));
+  const cfgByKey = new Map(fieldConfigs.map((c) => [c.fieldKey, c]));
+  const isEnabled = (key: string) => {
+    const cfg = cfgByKey.get(key);
+    if (cfg) return cfg.enabled;
+    return PRESET_BY_KEY[key]?.bucket === "required";
+  };
+  const isRequired = (key: string) => {
+    const cfg = cfgByKey.get(key);
+    return cfg ? cfg.required : PRESET_BY_KEY[key]?.bucket === "required";
+  };
+  const customFields = fieldConfigs.filter((c) => c.isCustom && c.enabled);
+  const customValues = await db
+    .select()
+    .from(schema.eventCustomValues)
+    .where(eq(schema.eventCustomValues.eventId, event.id));
+  const customValueByKey = new Map(customValues.map((v) => [v.fieldKey, v.value ?? ""]));
+  const attachmentsEnabled = isEnabled("attachments");
+  const existingAttachments = attachmentsEnabled
+    ? (await db
+        .select({ id: schema.eventAttachments.id, fileName: schema.eventAttachments.fileName, fileType: schema.eventAttachments.fileType, fileSize: schema.eventAttachments.fileSize })
+        .from(schema.eventAttachments)
+        .where(eq(schema.eventAttachments.eventId, event.id)))
+    : [];
+
   const autocomplete = await db.select().from(schema.autocompleteValues).where(eq(schema.autocompleteValues.companyId, session.companyId));
   const suggestions = {
     venue: autocomplete.filter((a) => a.field === "venue").map((a) => a.value).sort(),
@@ -322,21 +404,69 @@ export default async function EditEventPage({ params }: { params: { id: string }
         <Link href={`/manager/event/${event.id}`} className="text-sm text-gray-500 hover:underline">← Back to event</Link>
         <h1 className="text-2xl font-semibold mt-2 mb-6">Modify event</h1>
 
-        <form action={saveEventEditAction} className="space-y-6">
+        <form action={saveEventEditAction} className="space-y-6" encType="multipart/form-data">
           <input type="hidden" name="eventId" value={event.id} />
 
           <section className="grid md:grid-cols-2 gap-4">
-            <Field label="Date" name="date" type="date" defaultValue={event.date} required />
-            <AutocompleteField label="Client name" name="clientName" listId="ac-clientName" options={suggestions.clientName} defaultValue={event.clientName ?? ""} required />
-            <AutocompleteField label="Venue" name="venue" listId="ac-venue" options={suggestions.venue} defaultValue={event.venue ?? ""} />
-            <AutocompleteField label="City" name="city" listId="ac-city" options={suggestions.city} defaultValue={event.city ?? ""} />
-            <AutocompleteField label="Event type" name="eventType" listId="ac-eventType" options={suggestions.eventType} defaultValue={event.eventType ?? ""} />
-            <AutocompleteField label="Planner" name="planner" listId="ac-planner" options={suggestions.planner} defaultValue={event.planner ?? ""} />
-            <Field label="Guest count" name="guestCount" type="number" defaultValue={event.guestCount ?? ""} />
-            <Field label="Number of bars" name="numBars" type="number" defaultValue={event.numBars ?? ""} />
-            <Field label="Check-in time" name="checkInTime" type="time" defaultValue={event.checkInTime ?? ""} />
-            <Field label="End time" name="endTime" type="time" defaultValue={event.endTime ?? ""} />
+            {isEnabled("date") && (
+              <Field label="Date" name="date" type="date" defaultValue={event.date} required={isRequired("date")} />
+            )}
+            {isEnabled("clientName") && (
+              <AutocompleteField label="Client name" name="clientName" listId="ac-clientName" options={suggestions.clientName} defaultValue={event.clientName ?? ""} required={isRequired("clientName")} />
+            )}
+            {isEnabled("cityAddress") && (
+              <AutocompleteField label="Address / City" name="city" listId="ac-city" options={suggestions.city} defaultValue={event.city ?? ""} required={isRequired("cityAddress")} />
+            )}
+            {isEnabled("eventType") && (
+              <AutocompleteField label="Event type" name="eventType" listId="ac-eventType" options={suggestions.eventType} defaultValue={event.eventType ?? ""} required={isRequired("eventType")} />
+            )}
+            {isEnabled("checkInTime") && (
+              <Field label="Staff check-in time" name="checkInTime" type="time" defaultValue={event.checkInTime ?? ""} required={isRequired("checkInTime")} />
+            )}
+            {isEnabled("eventStartTime") && (
+              <Field label="Event start time" name="eventStartTime" type="time" defaultValue={event.eventStartTime ?? ""} required={isRequired("eventStartTime")} />
+            )}
+            {isEnabled("endTime") && (
+              <Field label="Event end time" name="endTime" type="time" defaultValue={event.endTime ?? ""} required={isRequired("endTime")} />
+            )}
+            {isEnabled("venue") && (
+              <AutocompleteField label="Venue" name="venue" listId="ac-venue" options={suggestions.venue} defaultValue={event.venue ?? ""} required={isRequired("venue")} />
+            )}
+            {isEnabled("clientContactInfo") && (
+              <Field label="Client contact info" name="clientContactInfo" type="text" defaultValue={event.clientContactInfo ?? ""} required={isRequired("clientContactInfo")} />
+            )}
+            {isEnabled("plannerName") && (
+              <AutocompleteField label="Planner name" name="planner" listId="ac-planner" options={suggestions.planner} defaultValue={event.planner ?? ""} required={isRequired("plannerName")} />
+            )}
+            {isEnabled("plannerContactInfo") && (
+              <Field label="Planner contact info" name="plannerContactInfo" type="text" defaultValue={event.plannerContactInfo ?? ""} required={isRequired("plannerContactInfo")} />
+            )}
+            {isEnabled("guestCount") && (
+              <Field label="Number of guests" name="guestCount" type="number" defaultValue={event.guestCount ?? ""} required={isRequired("guestCount")} />
+            )}
+            {isEnabled("numBars") && (
+              <Field label="Number of bars" name="numBars" type="number" defaultValue={event.numBars ?? ""} required={isRequired("numBars")} />
+            )}
+            {customFields.map((c) => (
+              <div key={c.fieldKey}>
+                <label className="label" htmlFor={`custom-${c.fieldKey}`}>{c.label}</label>
+                <input
+                  id={`custom-${c.fieldKey}`}
+                  name={`custom[${c.fieldKey}]`}
+                  type="text"
+                  required={c.required}
+                  defaultValue={customValueByKey.get(c.fieldKey) ?? ""}
+                  className="input"
+                />
+              </div>
+            ))}
           </section>
+
+          {attachmentsEnabled && (
+            <section>
+              <AttachmentsField existing={existingAttachments} label="Attachments (BEO, manuals, etc.)" />
+            </section>
+          )}
 
           <section>
             <h2 className="font-semibold mb-2">Positions</h2>
