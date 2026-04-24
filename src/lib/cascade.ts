@@ -159,8 +159,11 @@ async function notifyManagerNoBackup(event: EventRow, position: PositionRow, exp
  *   1. Mark it expired
  *   2. If there's ANOTHER pending priority on the same position, stop - let it ride.
  *      (Manager invited multiple priorities on purpose; no need to cascade yet.)
- *   3. Otherwise look for the lowest-tier unsent backup draft on that position
- *      and promote it: set tier=0, sendAt = now, email it.
+ *   3. Otherwise find the lowest backup tier that still has unsent drafts on
+ *      that position and promote EVERY draft in that tier: set tier=0, sentAt =
+ *      now, email each. Same first-come-first-served model priority uses — if
+ *      the manager invited 3 people to tier-1, all 3 get an invite when
+ *      priority expires and whoever accepts first lands the slot.
  *   4. If no backup exists, email the manager "action needed."
  *
  * Designed to be called from a daily cron (/api/cron/expire-invites). Idempotent
@@ -213,8 +216,10 @@ export async function runExpiryAndCascade() {
         continue;
       }
 
-      // Find lowest-tier unsent backup draft on this position
-      const backups = rows
+      // Find ALL unsent backup drafts on this position at the lowest backup
+      // tier that has any. Everyone in that tier gets promoted together (same
+      // first-come-first-served model as priority).
+      const allBackups = rows
         .filter((r) =>
           r.inv.positionId === pos.id &&
           r.inv.status === "pending" &&
@@ -223,17 +228,19 @@ export async function runExpiryAndCascade() {
         )
         .sort((a, b) => a.inv.tier - b.inv.tier);
 
-      if (backups.length > 0) {
-        const promote = backups[0].inv;
-        await db.update(schema.invitations)
-          .set({ tier: 0 })
-          .where(eq(schema.invitations.id, promote.id));
-        // Re-fetch the promoted invite so sentAt lands on the latest row
-        const [promoted] = await db.select().from(schema.invitations).where(eq(schema.invitations.id, promote.id));
-        if (promoted) {
-          await sendInvitationEmail(promoted, pos, ev, company.id);
+      if (allBackups.length > 0) {
+        const lowestTier = allBackups[0].inv.tier;
+        const toPromote = allBackups.filter((b) => b.inv.tier === lowestTier);
+        for (const b of toPromote) {
+          await db.update(schema.invitations)
+            .set({ tier: 0 })
+            .where(eq(schema.invitations.id, b.inv.id));
+          const [promoted] = await db.select().from(schema.invitations).where(eq(schema.invitations.id, b.inv.id));
+          if (promoted) {
+            await sendInvitationEmail(promoted, pos, ev, company.id);
+          }
+          results.push({ action: "promoted-backup", invId: b.inv.id });
         }
-        results.push({ action: "promoted-backup", invId: promote.id });
       } else {
         // No backup - ping the manager
         await notifyManagerNoBackup(ev, pos, inv.userId, company.id);
