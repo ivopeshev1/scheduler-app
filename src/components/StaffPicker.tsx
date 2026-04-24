@@ -82,10 +82,6 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
     const init: Record<string, Map<string, string>> = {};
     for (const s of staff) {
       const m = new Map<string, string>();
-      for (const id of currentAddOnsByUserId[s.userId]?.keys ?? []) {
-        m.set(id, "");
-      }
-      // currentAddOnsByUserId shape is Record<string, Array<{id,amount}>>
       const existing = currentAddOnsByUserId[s.userId] ?? [];
       for (const a of existing) {
         m.set(a.id, a.amount != null ? String(a.amount) : "");
