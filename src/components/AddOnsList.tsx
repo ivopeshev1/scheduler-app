@@ -50,13 +50,9 @@ export function AddOnsList({
     startTransition(() => onRemove(id));
   }
 
-  if (addOns.length === 0) {
-    return (
-      <div className="border rounded p-4 text-sm text-gray-500 bg-gray-50 mb-4">
-        No add-ons yet. Add your first below.
-      </div>
-    );
-  }
+  // Empty state: render nothing — the "Add a new add-on" form sits right
+  // below this, so a separate placeholder would just add noise.
+  if (addOns.length === 0) return null;
 
   return (
     <>
