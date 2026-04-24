@@ -174,6 +174,24 @@ export async function runMigrations(): Promise<void> {
   )`;
   await sql`CREATE INDEX IF NOT EXISTS add_ons_company_idx ON add_ons(company_id, sort_order)`;
 
+  // Per-event add-on configuration. Description is the shared text that
+  // goes out in every invitee's email for this add-on on this event.
+  await sql`CREATE TABLE IF NOT EXISTS event_add_ons (
+    event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    add_on_id TEXT NOT NULL REFERENCES add_ons(id) ON DELETE CASCADE,
+    description TEXT
+  )`;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS event_add_ons_pk ON event_add_ons(event_id, add_on_id)`;
+
+  // Per-invitation add-on assignments. Row present = this invitee is handling
+  // that add-on task on the event and should get the extra comp + description
+  // in their invite email.
+  await sql`CREATE TABLE IF NOT EXISTS invitation_add_ons (
+    invitation_id TEXT NOT NULL REFERENCES invitations(id) ON DELETE CASCADE,
+    add_on_id TEXT NOT NULL REFERENCES add_ons(id) ON DELETE CASCADE
+  )`;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS invitation_add_ons_pk ON invitation_add_ons(invitation_id, add_on_id)`;
+
   // Seed defaults for any company with no roles yet. We maintain a canonical
   // list of 12 hospitality roles — the ones cocktail-catering / event-staffing
   // companies typically use.

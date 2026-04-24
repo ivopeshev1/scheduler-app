@@ -66,6 +66,22 @@ async function createEventAction(formData: FormData) {
     sortOrder += 1;
   }
 
+  // Per-event add-on descriptions. For each add-on with includeDescription,
+  // the form sends addonDesc[<addOnId>]. Even blank descriptions get a row
+  // so the add-on is considered "wired up" on this event (gives the staff
+  // picker something to attach to).
+  const companyAddOns = await db.select().from(schema.addOns).where(eq(schema.addOns.companyId, session.companyId));
+  for (const a of companyAddOns) {
+    const key = `addonDesc[${a.id}]`;
+    if (!formData.has(key) && !a.includeDescription) continue;
+    const description = a.includeDescription ? str(formData.get(key)) : null;
+    await db.insert(schema.eventAddOns).values({
+      eventId,
+      addOnId: a.id,
+      description,
+    }).onConflictDoNothing();
+  }
+
   // Persist autocomplete values for next time
   const ac = [
     { field: "venue" as const, value: str(formData.get("venue")) },
@@ -111,6 +127,17 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
   roleRows.sort((a, b) => a.sortOrder - b.sortOrder);
   const roles = roleRows.map((r) => r.name);
 
+  // Company add-ons that exposed a description textbox when configured in
+  // Settings. Only these render on the event setup page — add-ons without a
+  // description are purely a per-invitation assignment handled on the staff
+  // picker.
+  const allAddOns = await db
+    .select()
+    .from(schema.addOns)
+    .where(eq(schema.addOns.companyId, session.companyId));
+  allAddOns.sort((a, b) => a.sortOrder - b.sortOrder);
+  const addOnsWithDescription = allAddOns.filter((a) => a.includeDescription);
+
   const autocomplete = await db
     .select()
     .from(schema.autocompleteValues)
@@ -155,6 +182,31 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
             <div><label className="label" htmlFor="staffNotes">Staff notes (visible to all invited staff)</label><textarea id="staffNotes" name="staffNotes" className="input" rows={3} /></div>
             <div><label className="label" htmlFor="internalNotes">Internal notes (manager only)</label><textarea id="internalNotes" name="internalNotes" className="input" rows={3} /></div>
           </section>
+
+          {addOnsWithDescription.length > 0 && (
+            <section>
+              <h2 className="font-semibold mb-2">Add-on descriptions</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                These text boxes come from add-ons you configured in Settings → Add-ons with
+                &quot;include description&quot;. Anything you write here only emails to the specific
+                staff you assign the add-on task to on the invite step.
+              </p>
+              <div className="space-y-3">
+                {addOnsWithDescription.map((a) => (
+                  <div key={a.id}>
+                    <label htmlFor={`addon-${a.id}`} className="label">{a.name}</label>
+                    <textarea
+                      id={`addon-${a.id}`}
+                      name={`addonDesc[${a.id}]`}
+                      rows={2}
+                      className="input"
+                      placeholder={`Notes for the ${a.name.toLowerCase()}`}
+                    />
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           <div className="flex gap-3">
             <button type="submit" className="btn btn-primary">Create event</button>

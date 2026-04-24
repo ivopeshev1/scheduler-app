@@ -195,6 +195,36 @@ export const invitations = pgTable(
   })
 );
 
+// Per-event per-add-on configuration. The description field is the shared
+// text that goes out to every invitee assigned to that add-on on this event
+// (replaces the old van_driving_instructions column, generalized). Row
+// exists only for add-ons the event actually uses.
+export const eventAddOns = pgTable(
+  "event_add_ons",
+  {
+    eventId: text("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
+    addOnId: text("add_on_id").notNull().references(() => addOns.id, { onDelete: "cascade" }),
+    description: text("description"),
+  },
+  (t) => ({
+    pk: uniqueIndex("event_add_ons_pk").on(t.eventId, t.addOnId),
+  })
+);
+
+// Per-invitation add-on assignments. If a row exists here, it means this
+// specific invitee is the one handling that add-on task on that event (gets
+// the extra comp + the shared description in their email).
+export const invitationAddOns = pgTable(
+  "invitation_add_ons",
+  {
+    invitationId: text("invitation_id").notNull().references(() => invitations.id, { onDelete: "cascade" }),
+    addOnId: text("add_on_id").notNull().references(() => addOns.id, { onDelete: "cascade" }),
+  },
+  (t) => ({
+    pk: uniqueIndex("invitation_add_ons_pk").on(t.invitationId, t.addOnId),
+  })
+);
+
 export const availabilityBlocks = pgTable(
   "availability_blocks",
   {
