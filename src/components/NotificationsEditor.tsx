@@ -100,6 +100,32 @@ export function NotificationsEditor({
         <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-3">To staff</h3>
         <div className="border rounded-lg bg-white divide-y">
           <Row
+            title="Priority invite auto-expire notice"
+            badge="KEY FEATURE"
+            highlight
+            description="When a priority invite auto-expires because the staff hasn't responded in time, let them know the shift is now being offered to other people (backups, if set up, otherwise whoever the manager invites next). They can still pick it up themselves if it hasn't been filled."
+            channels={settings.staff.autoExpire}
+            requireOne
+            onChange={(p) => updateChannels("staff", "autoExpire", p, true)}
+          >
+            <LabeledControl label="Auto-expire after">
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={60}
+                  required
+                  value={autoExpireDays}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => { setAutoExpireDays(e.target.value); setSaved(false); }}
+                  className="input text-sm py-1 w-20"
+                />
+                <span className="text-xs text-gray-600">days with no response</span>
+              </div>
+            </LabeledControl>
+          </Row>
+
+          <Row
             title="Invitation to sign up / onboard"
             description="Sent once when a staff member is added and first receives their login link."
             channels={settings.staff.onboardInvite}
@@ -213,29 +239,6 @@ export function NotificationsEditor({
             </LabeledControl>
           </Row>
 
-          <Row
-            title="Priority invite auto-expire notice"
-            description="When a priority invite auto-expires because the staff hasn't responded in time, let them know the shift is now being offered to other people (backups, if set up, otherwise whoever the manager invites next). They can still pick it up themselves if it hasn't been filled."
-            channels={settings.staff.autoExpire}
-            requireOne
-            onChange={(p) => updateChannels("staff", "autoExpire", p, true)}
-          >
-            <LabeledControl label="Auto-expire after">
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min={1}
-                  max={60}
-                  required
-                  value={autoExpireDays}
-                  onFocus={(e) => e.target.select()}
-                  onChange={(e) => { setAutoExpireDays(e.target.value); setSaved(false); }}
-                  className="input text-sm py-1 w-20"
-                />
-                <span className="text-xs text-gray-600">days with no response</span>
-              </div>
-            </LabeledControl>
-          </Row>
         </div>
       </section>
 
@@ -326,6 +329,8 @@ function Row({
   requireOne,
   onChange,
   children,
+  badge,
+  highlight,
 }: {
   title: string;
   description: React.ReactNode;
@@ -333,11 +338,24 @@ function Row({
   requireOne?: boolean;
   onChange: (patch: Partial<Channels>) => void;
   children?: React.ReactNode;
+  // Optional small pill rendered next to the title - draws attention to rows
+  // that are load-bearing for the product (auto-expire / cascade).
+  badge?: string;
+  // If true, tints the row background amber and adds a left border so the
+  // feature visually stands out from the rest of the list.
+  highlight?: boolean;
 }) {
   return (
-    <div className="px-4 py-3 flex gap-6 items-start flex-wrap">
+    <div className={`px-4 py-3 flex gap-6 items-start flex-wrap ${highlight ? "bg-amber-50 border-l-4 border-amber-400" : ""}`}>
       <div className="flex-1 min-w-[260px]">
-        <div className="text-sm font-medium">{title}</div>
+        <div className="text-sm font-medium flex items-center gap-2 flex-wrap">
+          {title}
+          {badge && (
+            <span className="text-[10px] uppercase tracking-wide bg-amber-500 text-white px-1.5 py-0.5 rounded">
+              {badge}
+            </span>
+          )}
+        </div>
         <div className="text-xs text-gray-500 mt-0.5">{description}</div>
         {requireOne && (
           <div className="text-[11px] text-gray-400 mt-1">At least one channel required.</div>
