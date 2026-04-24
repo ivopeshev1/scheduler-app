@@ -70,6 +70,31 @@ export const staffProfiles = pgTable("staff_profiles", {
   uniformSize: text("uniform_size"),
 });
 
+// Per-company catalog of optional event "add-on" tasks (van driver, setup
+// crew, early-arrival lead, whatever). Each add-on defines a default
+// compensation template and whether events should expose an extra description
+// textarea when the add-on is enabled. Companies start with zero add-ons and
+// add what fits their business.
+export const addOns = pgTable(
+  "add_ons",
+  {
+    id: text("id").primaryKey(),
+    companyId: text("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    // Same three-mode pattern positions.baseRate uses: "standard" means no
+    // default amount is set (manager fills it in per event), "flat" or
+    // "hourly" means the amount below is the preset.
+    compensationMode: text("compensation_mode", { enum: ["standard", "flat", "hourly"] }).notNull().default("standard"),
+    compensationAmount: real("compensation_amount"),
+    includeDescription: boolean("include_description").notNull().default(false),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    companyIdx: index("add_ons_company_idx").on(t.companyId, t.sortOrder),
+  })
+);
+
 // Per-company catalog of event roles (Bar Lead, Bartender, etc). Managers
 // maintain this from Settings → Roles. The positions table stores the role as
 // a plain string (not an FK), so removing a role from this catalog doesn't

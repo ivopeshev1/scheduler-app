@@ -159,6 +159,21 @@ export async function runMigrations(): Promise<void> {
   // notification type ships.
   await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS notification_settings JSONB`;
 
+  // Per-company catalog of optional event add-on tasks (van driver, setup
+  // crew, etc). Replaces the hardcoded van-driver feature that used to live
+  // on positions.
+  await sql`CREATE TABLE IF NOT EXISTS add_ons (
+    id TEXT PRIMARY KEY,
+    company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    compensation_mode TEXT NOT NULL DEFAULT 'standard' CHECK (compensation_mode IN ('standard','flat','hourly')),
+    compensation_amount REAL,
+    include_description BOOLEAN NOT NULL DEFAULT false,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS add_ons_company_idx ON add_ons(company_id, sort_order)`;
+
   // Seed defaults for any company with no roles yet. We maintain a canonical
   // list of 12 hospitality roles — the ones cocktail-catering / event-staffing
   // companies typically use.

@@ -6,6 +6,7 @@ import { eq, asc, desc } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { NotificationsEditor } from "@/components/NotificationsEditor";
 import { RolesList } from "@/components/RolesList";
+import { AddOnsList } from "@/components/AddOnsList";
 import {
   mergeNotificationSettings,
   type NotificationSettings,
@@ -154,6 +155,77 @@ async function removeRoleByIdAction(roleId: string) {
   revalidatePath("/manager/settings");
 }
 
+/* -------------------- Add-ons server actions -------------------- */
+
+async function addAddOnAction(formData: FormData) {
+  "use server";
+  const { session } = await requireSettingsAccess();
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) redirect("/manager/settings?error=addon-name-required");
+  if (name.length > 60) redirect("/manager/settings?error=addon-name-too-long");
+
+  const rawMode = String(formData.get("compensationMode") ?? "standard");
+  const compensationMode: "standard" | "flat" | "hourly" =
+    rawMode === "flat" ? "flat" : rawMode === "hourly" ? "hourly" : "standard";
+  const rawAmount = String(formData.get("compensationAmount") ?? "").trim();
+  const compensationAmount =
+    compensationMode === "standard" || rawAmount === ""
+      ? null
+      : Number.isFinite(Number(rawAmount)) ? Math.max(0, Number(rawAmount)) : null;
+  const includeDescription = formData.get("includeDescription") === "on";
+
+  // Reject name duplicates within a company (case-insensitive)
+  const existing = await db.select().from(schema.addOns).where(eq(schema.addOns.companyId, session.companyId));
+  if (existing.some((a) => a.name.toLowerCase() === name.toLowerCase())) {
+    redirect(`/manager/settings?error=addon-duplicate&name=${encodeURIComponent(name)}`);
+  }
+
+  const [last] = await db
+    .select()
+    .from(schema.addOns)
+    .where(eq(schema.addOns.companyId, session.companyId))
+    .orderBy(desc(schema.addOns.sortOrder))
+    .limit(1);
+  const nextSort = (last?.sortOrder ?? -1) + 1;
+
+  await db.insert(schema.addOns).values({
+    id: nanoid(),
+    companyId: session.companyId,
+    name,
+    compensationMode,
+    compensationAmount,
+    includeDescription,
+    sortOrder: nextSort,
+  });
+
+  revalidatePath("/manager/settings");
+  redirect("/manager/settings?saved=addon-added");
+}
+
+async function removeAddOnByIdAction(addOnId: string) {
+  "use server";
+  const { session } = await requireSettingsAccess();
+  const [target] = await db.select().from(schema.addOns).where(eq(schema.addOns.id, addOnId));
+  if (!target || target.companyId !== session.companyId) throw new Error("Not found");
+  await db.delete(schema.addOns).where(eq(schema.addOns.id, addOnId));
+  revalidatePath("/manager/settings");
+}
+
+async function reorderAddOnsAction(orderedIds: string[]) {
+  "use server";
+  const { session } = await requireSettingsAccess();
+  const all = await db.select().from(schema.addOns).where(eq(schema.addOns.companyId, session.companyId));
+  const allIds = new Set(all.map((a) => a.id));
+  if (orderedIds.length !== all.length) throw new Error("Order must include every add-on");
+  for (const id of orderedIds) {
+    if (!allIds.has(id)) throw new Error("Unknown add-on id");
+  }
+  for (let i = 0; i < orderedIds.length; i++) {
+    await db.update(schema.addOns).set({ sortOrder: i }).where(eq(schema.addOns.id, orderedIds[i]));
+  }
+  revalidatePath("/manager/settings");
+}
+
 /**
  * Persist the new order supplied by the drag-and-drop UI. Every id must
  * already belong to this company and the list must be complete (no deletes
@@ -194,6 +266,12 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
     .where(eq(schema.roles.companyId, session.companyId))
     .orderBy(asc(schema.roles.sortOrder));
 
+  const addOns = await db
+    .select()
+    .from(schema.addOns)
+    .where(eq(schema.addOns.companyId, session.companyId))
+    .orderBy(asc(schema.addOns.sortOrder));
+
   // Banners are scoped per section - a company-setup save doesn't flash a
   // message up under the Roles header and vice versa. Keeps feedback next to
   // the form that caused it.
@@ -216,6 +294,13 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
     err === "role-duplicate" ? `"${errName}" is already in your list of roles.` :
     err === "role-name-required" ? "Role name is required." :
     err === "role-name-too-long" ? "Role name must be 60 characters or fewer." :
+    null;
+
+  const addOnsSavedMsg = saved === "addon-added" ? "Add-on added." : null;
+  const addOnsErrorMsg =
+    err === "addon-duplicate" ? `"${errName}" is already in your list of add-ons.` :
+    err === "addon-name-required" ? "Add-on name is required." :
+    err === "addon-name-too-long" ? "Add-on name must be 60 characters or fewer." :
     null;
 
   return (
@@ -335,13 +420,88 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
           )}
         </section>
 
-        {/* -------------------- Add-ons (placeholder) -------------------- */}
-        <section className="border rounded-lg bg-white p-6 border-dashed">
-          <h2 className="text-lg font-semibold mb-1 text-gray-600">Add-ons</h2>
-          <p className="text-sm text-gray-500">
-            Coming soon - extra per-shift charges you can toggle on an event (travel, van driver, etc.) will
-            live here so they&apos;re managed in one place instead of entered per-event.
+        {/* -------------------- Add-ons -------------------- */}
+        <section className="border rounded-lg bg-white p-6">
+          <h2 className="text-lg font-semibold mb-1">Add-ons</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Optional extras you can tack onto an event (van driver, setup crew, early-arrival lead, etc.).
+            Anything you add here shows up as a toggle on the event setup page with the compensation template
+            you configure below.
           </p>
+
+          <AddOnsList
+            initialAddOns={addOns.map((a) => ({
+              id: a.id,
+              name: a.name,
+              compensationMode: a.compensationMode as "standard" | "flat" | "hourly",
+              compensationAmount: a.compensationAmount,
+              includeDescription: a.includeDescription,
+            }))}
+            onReorder={reorderAddOnsAction}
+            onRemove={removeAddOnByIdAction}
+          />
+
+          <form action={addAddOnAction} className="space-y-3 border-t pt-4">
+            <div className="text-sm font-medium">Add a new add-on</div>
+            <div className="grid md:grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="new-addon-name" className="label">Name</label>
+                <input
+                  id="new-addon-name"
+                  name="name"
+                  type="text"
+                  required
+                  maxLength={60}
+                  placeholder="e.g. Van driver, Setup crew, Early arrival"
+                  className="input"
+                />
+              </div>
+              <div>
+                <label htmlFor="new-addon-mode" className="label">Default compensation</label>
+                <div className="flex gap-2 items-stretch">
+                  <select
+                    id="new-addon-mode"
+                    name="compensationMode"
+                    defaultValue="standard"
+                    className="input flex-1"
+                  >
+                    <option value="standard">Standard (set per event)</option>
+                    <option value="flat">Flat $</option>
+                    <option value="hourly">Hourly $/hr</option>
+                  </select>
+                  <input
+                    name="compensationAmount"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="Amount"
+                    className="input w-28"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  The amount is ignored when mode is Standard. Manager enters it on the event page.
+                </p>
+              </div>
+            </div>
+            <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" name="includeDescription" className="w-4 h-4" />
+              <span>Include a description box on the event page (e.g. for driving directions).</span>
+            </label>
+            <div>
+              <button type="submit" className="btn btn-secondary">Add add-on</button>
+            </div>
+          </form>
+
+          {addOnsSavedMsg && (
+            <div className="mt-4 p-3 border border-green-300 bg-green-50 text-green-800 text-sm rounded">
+              {addOnsSavedMsg}
+            </div>
+          )}
+          {addOnsErrorMsg && (
+            <div className="mt-4 p-3 border border-red-300 bg-red-50 text-red-800 text-sm rounded">
+              {addOnsErrorMsg}
+            </div>
+          )}
         </section>
       </main>
     </div>

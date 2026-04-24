@@ -6,7 +6,6 @@ import { BaseRateControl } from "@/components/BaseRateControl";
 export function PositionRows({ roles }: { roles: string[] }) {
   const [rowIds, setRowIds] = useState<number[]>([0]);
   const [nextId, setNextId] = useState(1);
-  const [vanDriverRow, setVanDriverRow] = useState<number | null>(null);
 
   return (
     <div className="space-y-3">
@@ -15,8 +14,6 @@ export function PositionRows({ roles }: { roles: string[] }) {
           key={id}
           index={id}
           roles={roles}
-          isVanDriver={vanDriverRow === id}
-          onToggleVan={(checked) => setVanDriverRow(checked ? id : null)}
           onRemove={() => setRowIds((rows) => rows.filter((r) => r !== id))}
         />
       ))}
@@ -31,25 +28,9 @@ export function PositionRows({ roles }: { roles: string[] }) {
         + Add another position
       </button>
       <p className="text-xs text-gray-500">
-        Only one position can be designated the van driver per event. Manage the role list under{" "}
+        Manage the role list under{" "}
         <a href="/manager/settings" className="underline">Settings → Roles</a>.
       </p>
-    </div>
-  );
-}
-
-function MoneyInput({ name, defaultValue }: { name: string; defaultValue?: number | string }) {
-  return (
-    <div className="flex items-stretch border border-gray-300 rounded-md focus-within:border-gray-500 focus-within:ring-2 focus-within:ring-gray-200 max-w-[110px]">
-      <span className="flex items-center px-2 text-gray-500 text-sm bg-gray-50 border-r border-gray-300 rounded-l-md">$</span>
-      <input
-        name={name}
-        type="number"
-        min={0}
-        step="0.01"
-        defaultValue={defaultValue}
-        className="flex-1 min-w-0 px-2 py-2 text-sm rounded-r-md outline-none"
-      />
     </div>
   );
 }
@@ -57,14 +38,10 @@ function MoneyInput({ name, defaultValue }: { name: string; defaultValue?: numbe
 function PositionRow({
   index,
   roles,
-  isVanDriver,
-  onToggleVan,
   onRemove,
 }: {
   index: number;
   roles: string[];
-  isVanDriver: boolean;
-  onToggleVan: (checked: boolean) => void;
   onRemove: () => void;
 }) {
   // Default to Standard - managers already put each staff member's rate on file
@@ -75,14 +52,14 @@ function PositionRow({
         <label className="label">#</label>
         <input name={`needed${index}`} type="number" min={1} defaultValue={1} className="input" />
       </div>
-      <div className="col-span-3">
+      <div className="col-span-5">
         <label className="label">Role</label>
         <select name={`role${index}`} className="input" defaultValue="" required>
           <option value="" disabled>-</option>
           {roles.map((r) => (<option key={r} value={r}>{r}</option>))}
         </select>
       </div>
-      <div className="col-span-3">
+      <div className="col-span-5">
         <label className="label">Base rate</label>
         <BaseRateControl
           baseRateFieldName={`baseRate${index}`}
@@ -90,26 +67,6 @@ function PositionRow({
           defaultMode="standard"
           defaultAmount=""
         />
-      </div>
-      <div className="col-span-4">
-        <label className="label">Van driver</label>
-        <div className="flex items-center gap-2 h-[38px]">
-          <input
-            id={`vanReq${index}`}
-            name={`vanReq${index}`}
-            type="checkbox"
-            checked={isVanDriver}
-            onChange={(e) => onToggleVan(e.target.checked)}
-            className="w-4 h-4"
-          />
-          {!isVanDriver ? (
-            <label htmlFor={`vanReq${index}`} className="text-sm text-gray-500">
-              Check to assign
-            </label>
-          ) : (
-            <MoneyInput name={`vanRate${index}`} />
-          )}
-        </div>
       </div>
       <div className="col-span-1 pb-1 flex justify-end">
         <button

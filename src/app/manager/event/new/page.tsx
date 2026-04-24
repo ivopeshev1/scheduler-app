@@ -24,7 +24,9 @@ async function createEventAction(formData: FormData) {
     guestCount: num(formData.get("guestCount")), numBars: num(formData.get("numBars")),
     checkInTime: str(formData.get("checkInTime")), endTime: str(formData.get("endTime")),
     staffNotes: str(formData.get("staffNotes")), internalNotes: str(formData.get("internalNotes")),
-    vanDrivingInstructions: str(formData.get("vanDrivingInstructions")),
+    // Van instructions UI was removed; field kept on the row as null for
+    // backwards compat until the generalized Add-ons feature ships.
+    vanDrivingInstructions: null,
     createdBy: session.userId,
   });
 
@@ -152,18 +154,6 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
           <section className="grid md:grid-cols-2 gap-4">
             <div><label className="label" htmlFor="staffNotes">Staff notes (visible to all invited staff)</label><textarea id="staffNotes" name="staffNotes" className="input" rows={3} /></div>
             <div><label className="label" htmlFor="internalNotes">Internal notes (manager only)</label><textarea id="internalNotes" name="internalNotes" className="input" rows={3} /></div>
-            <div className="md:col-span-2">
-              <label className="label" htmlFor="vanDrivingInstructions">
-                Van driving instructions (sent only to the designated van driver)
-              </label>
-              <textarea
-                id="vanDrivingInstructions"
-                name="vanDrivingInstructions"
-                className="input"
-                rows={3}
-                placeholder=""
-              />
-            </div>
           </section>
 
           <div className="flex gap-3">

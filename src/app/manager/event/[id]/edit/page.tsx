@@ -38,7 +38,10 @@ async function saveEventEditAction(formData: FormData) {
     endTime: str(formData.get("endTime")),
     staffNotes: str(formData.get("staffNotes")),
     internalNotes: str(formData.get("internalNotes")),
-    vanDrivingInstructions: str(formData.get("vanDrivingInstructions")),
+    // Van-driving-instructions UI was removed; keep whatever was previously
+    // stored on the row untouched. The generalized Add-ons feature will own
+    // this kind of per-task detail.
+    vanDrivingInstructions: event.vanDrivingInstructions ?? null,
   };
 
   const changes: string[] = [];
@@ -75,16 +78,16 @@ async function saveEventEditAction(formData: FormData) {
       : "standard";
     // In standard mode, baseRate is ignored (each invitee gets their onboarded rate).
     const baseRate = baseRateMode === "standard" ? null : num(formData.get(`baseRate[${key}]`));
-    const vanRate = num(formData.get(`vanRate[${key}]`)) ?? 0;
-    const requiresVan = formData.get(`vanReq[${key}]`) === "on";
 
     if (key.startsWith("new-")) {
       const pid = nanoid();
       await db.insert(schema.positions).values({
         id: pid, eventId, role: role as any, mode: "pool", needed,
         sortOrder: existingPositions.length + 1,
-        baseRate, baseRateMode, vanDrivingRate: vanRate, travelRate: 0,
-        requiresVanDriving: requiresVan, rateType: "flat",
+        // Van fields: UI is gone, set the defaults so the column stays usable
+        // until the Add-ons feature replaces them.
+        baseRate, baseRateMode, vanDrivingRate: 0, travelRate: 0,
+        requiresVanDriving: false, rateType: "flat",
       });
       for (let s = 0; s < needed; s++) {
         await db.insert(schema.slots).values({ id: nanoid(), positionId: pid, index: s });
@@ -160,23 +163,14 @@ async function saveEventEditAction(formData: FormData) {
         if (oldRateLabel !== newRateLabel) {
           positionChangeLines.push(`Base rate: ${oldRateLabel} → ${newRateLabel}`);
         }
-        const oldVan = existing.vanDrivingRate ?? 0;
-        if (oldVan !== vanRate) {
-          positionChangeLines.push(`Van driving rate: $${oldVan} → $${vanRate}`);
-        }
-        if (existing.requiresVanDriving !== requiresVan) {
-          positionChangeLines.push(
-            requiresVan
-              ? "This shift now requires driving the van."
-              : "This shift no longer requires driving the van."
-          );
-        }
       }
       pendingPositionNotifications.push({ positionId: key, changes: positionChangeLines });
 
+      // Only update the fields the form still owns. Van-driver columns are
+      // left untouched so existing rows don't get clobbered by the reduced
+      // UI.
       await db.update(schema.positions).set({
         role: role as any, needed, baseRate, baseRateMode,
-        vanDrivingRate: vanRate, requiresVanDriving: requiresVan,
       }).where(eq(schema.positions.id, key));
     }
   }
@@ -196,38 +190,17 @@ async function saveEventEditAction(formData: FormData) {
     }
   }
 
-  // ---- Per-position change notifications (rate, van designation, van instructions) ----
-  // Van driving instructions are event-level but only matter to the van driver's invitees,
-  // so we fold that into the van driver position's change list.
-  const vanInstructionsChanged = (newValues.vanDrivingInstructions ?? "") !== (event.vanDrivingInstructions ?? "");
-
   // Re-fetch the final event + position state so the email reflects reality post-save
   const [updatedEvent] = await db.select().from(schema.events).where(eq(schema.events.id, eventId));
   const finalPositions = await db.select().from(schema.positions).where(eq(schema.positions.eventId, eventId));
 
-  // If van instructions changed, make sure the current van driver position gets a notification
-  // even if nothing else about that position changed
-  if (vanInstructionsChanged) {
-    const vanDriver = finalPositions.find((p) => p.requiresVanDriving);
-    if (vanDriver && !pendingPositionNotifications.some((n) => n.positionId === vanDriver.id)) {
-      pendingPositionNotifications.push({ positionId: vanDriver.id, changes: [] });
-    }
-  }
-
   for (const notif of pendingPositionNotifications) {
     const pos = finalPositions.find((p) => p.id === notif.positionId);
     if (!pos) continue;
-    const changes = [...notif.changes];
-    // For the van driver position, append the van-instructions change if applicable
-    const newVanInstr = pos.requiresVanDriving && vanInstructionsChanged
-      ? (updatedEvent?.vanDrivingInstructions ?? "")
-      : null;
-    if (pos.requiresVanDriving && vanInstructionsChanged && newVanInstr) {
-      changes.push("Van driving instructions updated.");
-    }
-    if (changes.length === 0) continue;
+    if (notif.changes.length === 0) continue;
     if (updatedEvent) {
-      await notifyPositionChanged(updatedEvent, pos, changes, newVanInstr, session.companyId);
+      // Van-instructions param is null now that the UI no longer owns it.
+      await notifyPositionChanged(updatedEvent, pos, notif.changes, null, session.companyId);
     }
   }
 
@@ -340,10 +313,6 @@ export default async function EditEventPage({ params }: { params: { id: string }
           <section className="grid md:grid-cols-2 gap-4">
             <div><label className="label" htmlFor="staffNotes">Staff notes</label><textarea id="staffNotes" name="staffNotes" className="input" rows={3} defaultValue={event.staffNotes ?? ""} /></div>
             <div><label className="label" htmlFor="internalNotes">Internal notes</label><textarea id="internalNotes" name="internalNotes" className="input" rows={3} defaultValue={event.internalNotes ?? ""} /></div>
-            <div className="md:col-span-2">
-              <label className="label" htmlFor="vanDrivingInstructions">Van driving instructions</label>
-              <textarea id="vanDrivingInstructions" name="vanDrivingInstructions" className="input" rows={3} defaultValue={event.vanDrivingInstructions ?? ""} />
-            </div>
           </section>
 
           <div className="flex gap-3">

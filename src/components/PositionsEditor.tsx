@@ -12,12 +12,16 @@ export type InvitedStaff = {
 
 export type PositionData = {
   id: string;
-  // Role is now free text driven by Settings → Roles; the old hardcoded enum
+  // Role is free text driven by Settings → Roles; the old hardcoded enum
   // no longer fits now that managers can add custom roles.
   role: string;
   needed: number;
   baseRate: number | null;
   baseRateMode: BaseRateMode;
+  // Van-driver fields still exist on the DB row, but the UI no longer exposes
+  // them. The generalized Add-ons feature will replace van driving with a
+  // per-company configurable task. We keep these fields on PositionData so
+  // server code that still reads them (cascade emails, etc.) compiles cleanly.
   vanDrivingRate: number | null;
   travelRate: number | null;
   requiresVanDriving: boolean;
@@ -32,10 +36,6 @@ type Removal = {
 export function PositionsEditor({ positions, roles }: { positions: PositionData[]; roles: string[] }) {
   const [newRows, setNewRows] = useState<number[]>([]);
   const [nextNewId, setNextNewId] = useState(0);
-
-  // Van driver: which row (existing position id OR `new-N`) is the single van driver
-  const initialVan = positions.find((p) => p.requiresVanDriving)?.id ?? null;
-  const [vanKey, setVanKey] = useState<string | null>(initialVan);
 
   // Removals, keyed by existing position id
   const [removals, setRemovals] = useState<Record<string, Removal>>({});
@@ -58,7 +58,6 @@ export function PositionsEditor({ positions, roles }: { positions: PositionData[
     <div className="space-y-3">
       {positions.map((p) => {
         const r = removals[p.id];
-        const isVan = vanKey === p.id;
         return (
           <ExistingRow
             key={p.id}
@@ -67,22 +66,17 @@ export function PositionsEditor({ positions, roles }: { positions: PositionData[
             removal={r}
             onOpenRemoveModal={() => openModal(p.id)}
             onUndoRemoval={() => undoRemoval(p.id)}
-            isVan={isVan}
-            onToggleVan={(on) => setVanKey(on ? p.id : null)}
           />
         );
       })}
 
       {newRows.map((id) => {
         const k = `new-${id}`;
-        const isVan = vanKey === k;
         return (
           <NewRow
             key={k}
             newKey={k}
             roles={roles}
-            isVan={isVan}
-            onToggleVan={(on) => setVanKey(on ? k : null)}
             onRemove={() => setNewRows((rows) => rows.filter((r) => r !== id))}
           />
         );
@@ -99,10 +93,6 @@ export function PositionsEditor({ positions, roles }: { positions: PositionData[
         + Add another position
       </button>
 
-      <p className="text-xs text-gray-500">
-        Only one position per event can be designated the van driver.
-      </p>
-
       {modalKey && (
         <RemoveModal
           position={positions.find((p) => p.id === modalKey)!}
@@ -115,22 +105,6 @@ export function PositionsEditor({ positions, roles }: { positions: PositionData[
   );
 }
 
-function MoneyInput({ name, defaultValue }: { name: string; defaultValue?: number | string }) {
-  return (
-    <div className="flex items-stretch border border-gray-300 rounded-md focus-within:border-gray-500 focus-within:ring-2 focus-within:ring-gray-200 max-w-[110px]">
-      <span className="flex items-center px-2 text-gray-500 text-sm bg-gray-50 border-r border-gray-300 rounded-l-md">$</span>
-      <input
-        name={name}
-        type="number"
-        min={0}
-        step="0.01"
-        defaultValue={defaultValue}
-        className="flex-1 min-w-0 px-2 py-2 text-sm rounded-r-md outline-none"
-      />
-    </div>
-  );
-}
-
 /* -------------------- existing row -------------------- */
 
 function ExistingRow({
@@ -139,16 +113,12 @@ function ExistingRow({
   removal,
   onOpenRemoveModal,
   onUndoRemoval,
-  isVan,
-  onToggleVan,
 }: {
   p: PositionData;
   roles: string[];
   removal: Removal | undefined;
   onOpenRemoveModal: () => void;
   onUndoRemoval: () => void;
-  isVan: boolean;
-  onToggleVan: (on: boolean) => void;
 }) {
   const key = p.id;
 
@@ -179,7 +149,7 @@ function ExistingRow({
           <label className="label">#</label>
           <input name={`needed[${key}]`} type="number" min={1} defaultValue={reducedNeeded} className="input" />
         </div>
-        <div className="col-span-3">
+        <div className="col-span-5">
           <label className="label">Role</label>
           <select
             name={`role[${key}]`}
@@ -196,7 +166,7 @@ function ExistingRow({
             )}
           </select>
         </div>
-        <div className="col-span-3">
+        <div className="col-span-5">
           <label className="label">Base rate</label>
           <BaseRateControl
             baseRateFieldName={`baseRate[${key}]`}
@@ -204,26 +174,6 @@ function ExistingRow({
             defaultMode={p.baseRateMode}
             defaultAmount={p.baseRate ?? ""}
           />
-        </div>
-        <div className="col-span-4">
-          <label className="label">Van driver</label>
-          <div className="flex items-center gap-2 h-[38px]">
-            <input
-              id={`vanReq[${key}]`}
-              name={`vanReq[${key}]`}
-              type="checkbox"
-              checked={isVan}
-              onChange={(e) => onToggleVan(e.target.checked)}
-              className="w-4 h-4"
-            />
-            {!isVan ? (
-              <label htmlFor={`vanReq[${key}]`} className="text-sm text-gray-500">
-                Check to assign
-              </label>
-            ) : (
-              <MoneyInput name={`vanRate[${key}]`} defaultValue={p.vanDrivingRate ?? ""} />
-            )}
-          </div>
         </div>
         <div className="col-span-1 pb-1 flex justify-end">
           <button
@@ -264,14 +214,10 @@ function ExistingRow({
 function NewRow({
   newKey,
   roles,
-  isVan,
-  onToggleVan,
   onRemove,
 }: {
   newKey: string;
   roles: string[];
-  isVan: boolean;
-  onToggleVan: (on: boolean) => void;
   onRemove: () => void;
 }) {
   return (
@@ -280,14 +226,14 @@ function NewRow({
         <label className="label">#</label>
         <input name={`needed[${newKey}]`} type="number" min={1} defaultValue={1} className="input" />
       </div>
-      <div className="col-span-3">
+      <div className="col-span-5">
         <label className="label">Role</label>
         <select name={`role[${newKey}]`} className="input" defaultValue="" required>
           <option value="" disabled>-</option>
           {roles.map((r) => (<option key={r} value={r}>{r}</option>))}
         </select>
       </div>
-      <div className="col-span-3">
+      <div className="col-span-5">
         <label className="label">Base rate</label>
         <BaseRateControl
           baseRateFieldName={`baseRate[${newKey}]`}
@@ -295,26 +241,6 @@ function NewRow({
           defaultMode="standard"
           defaultAmount=""
         />
-      </div>
-      <div className="col-span-4">
-        <label className="label">Van driver</label>
-        <div className="flex items-center gap-2 h-[38px]">
-          <input
-            id={`vanReq[${newKey}]`}
-            name={`vanReq[${newKey}]`}
-            type="checkbox"
-            checked={isVan}
-            onChange={(e) => onToggleVan(e.target.checked)}
-            className="w-4 h-4"
-          />
-          {!isVan ? (
-            <label htmlFor={`vanReq[${newKey}]`} className="text-sm text-gray-500">
-              Check to assign
-            </label>
-          ) : (
-            <MoneyInput name={`vanRate[${newKey}]`} />
-          )}
-        </div>
       </div>
       <div className="col-span-1 pb-1 flex justify-end">
         <button
