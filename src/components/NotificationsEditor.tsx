@@ -208,7 +208,7 @@ export function NotificationsEditor({
 
           <Row
             title="Auto-expire notice"
-            description="When a priority invite auto-expires because the staff hasn't responded in time, let them know. Others won't receive a new invite in their place, but the staff can still pick up the shift themselves if it's still open."
+            description="When a priority invite auto-expires because the staff hasn't responded in time, let them know the shift is now being offered to other people (backups, if set up, otherwise whoever the manager invites next). They can still pick it up themselves if it hasn't been filled."
             channels={settings.staff.autoExpire}
             requireOne
             onChange={(p) => updateChannels("staff", "autoExpire", p, true)}
