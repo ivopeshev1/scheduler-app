@@ -25,6 +25,31 @@ export async function sendInvitationEmail(inv: InvitationRow, position: Position
   const timeRange = `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`;
   const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
 
+  // Load any add-on tasks assigned to this specific invitation, plus the
+  // company template + this event's description for each.
+  const invAddOnRows = await db
+    .select({ row: schema.invitationAddOns, addOn: schema.addOns })
+    .from(schema.invitationAddOns)
+    .innerJoin(schema.addOns, eq(schema.invitationAddOns.addOnId, schema.addOns.id))
+    .where(eq(schema.invitationAddOns.invitationId, inv.id));
+  const eventDescRows = invAddOnRows.length
+    ? await db.select().from(schema.eventAddOns).where(eq(schema.eventAddOns.eventId, event.id))
+    : [];
+  const descByAddOnId = new Map(eventDescRows.map((r) => [r.addOnId, r.description]));
+  const assignedAddOns = invAddOnRows.map(({ addOn }) => ({
+    id: addOn.id,
+    name: addOn.name,
+    compensationMode: addOn.compensationMode,
+    compensationAmount: addOn.compensationAmount,
+    description: descByAddOnId.get(addOn.id) ?? null,
+  }));
+
+  function addOnCompensationLabel(a: typeof assignedAddOns[number]): string {
+    if (a.compensationMode === "standard") return "Standard rate (set per event)";
+    if (a.compensationMode === "flat") return `$${a.compensationAmount ?? 0} flat`;
+    return `$${a.compensationAmount ?? 0}/hr`;
+  }
+
   const baseRateDisplay = (() => {
     if (position.baseRateMode === "standard") {
       const rate = profile?.defaultRate;
@@ -48,6 +73,16 @@ export async function sendInvitationEmail(inv: InvitationRow, position: Position
   const compLinesText: string[] = [`Base rate:      ${baseRateDisplay}`];
   if (position.requiresVanDriving) compLinesText.push(`Van driving:    $${vanAmount}`);
   if (travel > 0) compLinesText.push(`Travel comp:    $${travel}`);
+  for (const a of assignedAddOns) compLinesText.push(`${a.name}:  ${addOnCompensationLabel(a)}`);
+
+  // Task description block (only add-ons with a non-empty description text
+  // for this event).
+  const taskDescLinesText: string[] = [];
+  for (const a of assignedAddOns) {
+    if (a.description && a.description.trim()) {
+      taskDescLinesText.push(`${a.name} notes: ${a.description}`);
+    }
+  }
 
   const textBody = [
     `Hi ${profile?.firstName ?? ""},`, ``,
@@ -62,6 +97,7 @@ export async function sendInvitationEmail(inv: InvitationRow, position: Position
     ...compLinesText, ``,
     vanLine,
     vanInstructions,
+    ...taskDescLinesText,
     event.staffNotes ? `Notes: ${event.staffNotes}` : "",
     ``,
     `Accept or reject this shift at your staff dashboard.`, ``,
@@ -86,9 +122,15 @@ export async function sendInvitationEmail(inv: InvitationRow, position: Position
       ${row("Base rate", escapeHtml(baseRateDisplay))}
       ${position.requiresVanDriving ? row("Van driving", `$${vanAmount}`) : ""}
       ${travel > 0 ? row("Travel comp", `$${travel}`) : ""}
+      ${assignedAddOns.map((a) => row(escapeHtml(a.name), escapeHtml(addOnCompensationLabel(a)))).join("")}
     </table>`,
     vanLine ? `<p style="margin:0 0 12px;">${escapeHtml(vanLine)}</p>` : "",
     vanInstructions ? `<p style="margin:0 0 12px;color:#555;">${escapeHtml(vanInstructions)}</p>` : "",
+    // Add-on task descriptions - only the ones relevant to THIS invitee get
+    // surfaced; non-assigned add-ons don't leak their descriptions.
+    ...assignedAddOns
+      .filter((a) => a.description && a.description.trim())
+      .map((a) => `<p style="margin:0 0 12px;"><strong>${escapeHtml(a.name)} notes:</strong> ${escapeHtml(a.description!)}</p>`),
     event.staffNotes ? `<p style="margin:0 0 12px;"><strong>Notes:</strong> ${escapeHtml(event.staffNotes)}</p>` : "",
     `<p style="margin:24px 0 0;">Accept or reject this shift at your staff dashboard.</p>`,
     signoff(companyName),

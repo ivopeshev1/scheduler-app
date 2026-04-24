@@ -27,6 +27,10 @@ async function saveInvitations(formData: FormData) {
   const eventId = String(formData.get("eventId"));
   const selections = JSON.parse(String(formData.get("selections") ?? "{}")) as Record<string, number | null>;
   const rawTravelRates = JSON.parse(String(formData.get("travelRates") ?? "{}")) as Record<string, string>;
+  // Per-user add-on assignments: { [userId]: addOnId[] }. Users not in the
+  // object are treated as "no add-ons assigned" (the StaffPicker always
+  // sends a full map for checked users).
+  const addOnAssignments = JSON.parse(String(formData.get("addOnAssignments") ?? "{}")) as Record<string, string[]>;
   // Parse each travel-rate string to a number (or null if blank/invalid)
   const travelRates: Record<string, number | null> = {};
   for (const [uid, raw] of Object.entries(rawTravelRates)) {
@@ -156,6 +160,21 @@ async function saveInvitations(formData: FormData) {
         token: nanoid(32),
         travelRate: travelRates[userId] ?? null,
       });
+    }
+  }
+
+  // Sync invitation_add_ons for every user the UI sent us. Replace-style sync:
+  // delete all existing rows for the invitation then insert the new set. Safe
+  // because invitation_add_ons is pure join-table metadata.
+  const positionInvites = await db.select().from(schema.invitations).where(eq(schema.invitations.positionId, positionId));
+  for (const [userId, addOnIds] of Object.entries(addOnAssignments)) {
+    const inv = positionInvites.find((i) => i.userId === userId);
+    if (!inv) continue;
+    await db.delete(schema.invitationAddOns).where(eq(schema.invitationAddOns.invitationId, inv.id));
+    for (const addOnId of addOnIds) {
+      await db.insert(schema.invitationAddOns)
+        .values({ invitationId: inv.id, addOnId })
+        .onConflictDoNothing();
     }
   }
 
@@ -406,6 +425,40 @@ export default async function EventDetailPage({ params }: { params: { id: string
     invitesByPosition[p.id] = await db.select().from(schema.invitations).where(eq(schema.invitations.positionId, p.id));
   }
 
+  // Company add-ons + per-invitation assignments. Passed into each
+  // StaffPicker so the manager can tick which invitee handles each add-on
+  // task, and saved assignments pre-populate on re-open.
+  const companyAddOnsList = await db
+    .select()
+    .from(schema.addOns)
+    .where(eq(schema.addOns.companyId, session.companyId));
+  companyAddOnsList.sort((a, b) => a.sortOrder - b.sortOrder);
+  const companyAddOnsForPicker = companyAddOnsList.map((a) => ({ id: a.id, name: a.name }));
+
+  // Invitation add-ons for THIS event - grouped by (positionId → userId → list of addOnIds)
+  const allInvIds = new Set<string>();
+  for (const list of Object.values(invitesByPosition)) for (const inv of list) allInvIds.add(inv.id);
+  const invAddOnRows = allInvIds.size
+    ? await db.select().from(schema.invitationAddOns)
+    : [];
+  const addOnsByInvitationId = new Map<string, string[]>();
+  for (const row of invAddOnRows) {
+    if (!allInvIds.has(row.invitationId)) continue;
+    const arr = addOnsByInvitationId.get(row.invitationId) ?? [];
+    arr.push(row.addOnId);
+    addOnsByInvitationId.set(row.invitationId, arr);
+  }
+  // For each position, build userId → addOnIds map so StaffPicker can seed state.
+  const addOnsByUserForPosition: Record<string, Record<string, string[]>> = {};
+  for (const p of positionsList) {
+    const perUser: Record<string, string[]> = {};
+    for (const inv of invitesByPosition[p.id] ?? []) {
+      const ids = addOnsByInvitationId.get(inv.id);
+      if (ids && ids.length > 0) perUser[inv.userId] = ids;
+    }
+    addOnsByUserForPosition[p.id] = perUser;
+  }
+
   // Find every active invitation company-wide, so we can mark staff as "busy"
   // when they're invited/accepted for another position (any event).
   const companyInvites = await db
@@ -563,7 +616,17 @@ export default async function EventDetailPage({ params }: { params: { id: string
                       <div className="text-xs text-gray-400">+ travel (per invitee)</div>
                     </td>
                     <td className="py-3">
-                      <StaffPicker positionId={p.id} eventId={event.id} role={p.role} needed={p.needed} mode={p.mode} staff={staffOptions} onSave={saveInvitations} />
+                      <StaffPicker
+                        positionId={p.id}
+                        eventId={event.id}
+                        role={p.role}
+                        needed={p.needed}
+                        mode={p.mode}
+                        staff={staffOptions}
+                        onSave={saveInvitations}
+                        companyAddOns={companyAddOnsForPicker}
+                        currentAddOnsByUserId={addOnsByUserForPosition[p.id] ?? {}}
+                      />
                     </td>
                   </tr>
                 );

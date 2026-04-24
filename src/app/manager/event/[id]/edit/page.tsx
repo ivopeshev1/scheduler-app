@@ -183,6 +183,26 @@ async function saveEventEditAction(formData: FormData) {
     await db.delete(schema.positions).where(eq(schema.positions.id, existing.id));
   }
 
+  // Upsert per-event add-on descriptions. Only add-ons the company has
+  // configured with includeDescription=true send this field from the UI.
+  const companyAddOnsForEvent = await db.select().from(schema.addOns).where(eq(schema.addOns.companyId, session.companyId));
+  for (const a of companyAddOnsForEvent) {
+    if (!a.includeDescription) continue;
+    const description = str(formData.get(`addonDesc[${a.id}]`));
+    const [existing] = await db
+      .select()
+      .from(schema.eventAddOns)
+      .where(and(eq(schema.eventAddOns.eventId, eventId), eq(schema.eventAddOns.addOnId, a.id)));
+    if (existing) {
+      await db
+        .update(schema.eventAddOns)
+        .set({ description })
+        .where(and(eq(schema.eventAddOns.eventId, eventId), eq(schema.eventAddOns.addOnId, a.id)));
+    } else {
+      await db.insert(schema.eventAddOns).values({ eventId, addOnId: a.id, description });
+    }
+  }
+
   if (changes.length > 0) {
     const [updated] = await db.select().from(schema.events).where(eq(schema.events.id, eventId));
     if (updated) {
@@ -273,6 +293,19 @@ export default async function EditEventPage({ params }: { params: { id: string }
     });
   }
 
+  // Company add-ons with descriptions + any saved per-event descriptions.
+  const allAddOns = await db
+    .select()
+    .from(schema.addOns)
+    .where(eq(schema.addOns.companyId, session.companyId));
+  allAddOns.sort((a, b) => a.sortOrder - b.sortOrder);
+  const addOnsWithDescription = allAddOns.filter((a) => a.includeDescription);
+  const existingEventAddOns = await db
+    .select()
+    .from(schema.eventAddOns)
+    .where(eq(schema.eventAddOns.eventId, event.id));
+  const descriptionByAddOnId = new Map(existingEventAddOns.map((e) => [e.addOnId, e.description]));
+
   const autocomplete = await db.select().from(schema.autocompleteValues).where(eq(schema.autocompleteValues.companyId, session.companyId));
   const suggestions = {
     venue: autocomplete.filter((a) => a.field === "venue").map((a) => a.value).sort(),
@@ -314,6 +347,29 @@ export default async function EditEventPage({ params }: { params: { id: string }
             <div><label className="label" htmlFor="staffNotes">Staff notes</label><textarea id="staffNotes" name="staffNotes" className="input" rows={3} defaultValue={event.staffNotes ?? ""} /></div>
             <div><label className="label" htmlFor="internalNotes">Internal notes</label><textarea id="internalNotes" name="internalNotes" className="input" rows={3} defaultValue={event.internalNotes ?? ""} /></div>
           </section>
+
+          {addOnsWithDescription.length > 0 && (
+            <section>
+              <h2 className="font-semibold mb-2">Add-on descriptions</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                Notes below only email to the staff you assign the matching add-on task to.
+              </p>
+              <div className="space-y-3">
+                {addOnsWithDescription.map((a) => (
+                  <div key={a.id}>
+                    <label htmlFor={`addon-${a.id}`} className="label">{a.name}</label>
+                    <textarea
+                      id={`addon-${a.id}`}
+                      name={`addonDesc[${a.id}]`}
+                      rows={2}
+                      className="input"
+                      defaultValue={descriptionByAddOnId.get(a.id) ?? ""}
+                    />
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           <div className="flex gap-3">
             <button type="submit" className="btn btn-primary">Save changes</button>

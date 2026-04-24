@@ -19,6 +19,11 @@ export type StaffOption = {
   busyWith: { eventDate: string; clientName: string; role: string } | null;
 };
 
+export type AddOnOption = {
+  id: string;
+  name: string;
+};
+
 type Props = {
   positionId: string;
   eventId: string;
@@ -27,11 +32,18 @@ type Props = {
   mode: "pool" | "individual";
   staff: StaffOption[];
   onSave: (formData: FormData) => void;
+  // Company-configured add-on tasks (van driver, setup crew, etc). Rendered
+  // as a compact row of checkboxes per invited staff so the manager can
+  // assign each task to the specific person doing it.
+  companyAddOns: AddOnOption[];
+  // Per-user add-on IDs already persisted to invitation_add_ons on this
+  // position (used as initial state so existing assignments stay checked).
+  currentAddOnsByUserId: Record<string, string[]>;
 };
 
 const TIER_LABELS = ["Priority", "Backup 1", "Backup 2", "Backup 3"] as const;
 
-export function StaffPicker({ positionId, eventId, role, needed, mode, staff, onSave }: Props) {
+export function StaffPicker({ positionId, eventId, role, needed, mode, staff, onSave, companyAddOns, currentAddOnsByUserId }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -49,20 +61,29 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
     }
     return init;
   });
-  // Re-sync selections and travel rates when the server sends fresh staff props,
-  // BUT only when the modal is closed - otherwise we'd clobber the user's
-  // in-progress edits every time React re-renders during a session.
+  // Per-invitee add-on assignments, keyed by userId → Set of add-on IDs.
+  const [addOnAssignments, setAddOnAssignments] = useState<Record<string, Set<string>>>(() => {
+    const init: Record<string, Set<string>> = {};
+    for (const s of staff) init[s.userId] = new Set(currentAddOnsByUserId[s.userId] ?? []);
+    return init;
+  });
+  // Re-sync selections, travel rates, and add-on assignments when the server
+  // sends fresh staff props, BUT only when the modal is closed - otherwise
+  // we'd clobber the user's in-progress edits every time React re-renders.
   useEffect(() => {
     if (open) return;
     const nextSel: Record<string, number | null> = {};
     const nextTravel: Record<string, string> = {};
+    const nextAddOns: Record<string, Set<string>> = {};
     for (const s of staff) {
       nextSel[s.userId] = s.currentTier;
       nextTravel[s.userId] = s.currentTravelRate != null ? String(s.currentTravelRate) : "";
+      nextAddOns[s.userId] = new Set(currentAddOnsByUserId[s.userId] ?? []);
     }
     setSelections(nextSel);
     setTravelRates(nextTravel);
-  }, [staff, open]);
+    setAddOnAssignments(nextAddOns);
+  }, [staff, open, currentAddOnsByUserId]);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -118,6 +139,12 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
               // Serialize the per-invitee travel rates alongside selections. Empty
               // strings get dropped; the server parses each as a number or null.
               formData.set("travelRates", JSON.stringify(travelRates));
+              // Flatten Sets to arrays for JSON serialization.
+              const assignments: Record<string, string[]> = {};
+              for (const [uid, ids] of Object.entries(addOnAssignments)) {
+                assignments[uid] = Array.from(ids);
+              }
+              formData.set("addOnAssignments", JSON.stringify(assignments));
               await onSave(formData);
               router.refresh();
               setOpen(false);
@@ -160,77 +187,108 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                 //  - Otherwise, lock if they're busy elsewhere on this date, or they rejected a prior invite here
                 const locked = !alreadyOnThisPosition && (!!s.busyWith || s.currentStatus === "rejected");
                 const checked = tier !== null && tier !== undefined;
+                const assignedAddOns = addOnAssignments[s.userId] ?? new Set<string>();
                 return (
-                  <label key={s.userId} className={`flex items-center gap-3 px-3 py-2 border-b last:border-b-0 text-sm ${locked ? "opacity-50 cursor-not-allowed bg-gray-50" : "hover:bg-gray-50 cursor-pointer"}`}>
-                    <input type="checkbox" checked={checked} disabled={locked} onChange={(e) => {
-                      if (locked) return;
-                      setSelections((prev) => ({ ...prev, [s.userId]: e.target.checked ? (tier ?? 0) : null }));
-                    }} className="w-4 h-4" />
-                    <div className="flex-1">
-                      <div className="font-medium flex items-center gap-2">
-                        {s.firstName} {s.lastName}
-                        <span className="text-[10px] uppercase tracking-wide bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
-                          {s.position}
-                        </span>
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {s.city ?? "-"}
-                        {s.defaultRate ? ` · $${s.defaultRate}${s.defaultRateType === "hourly" ? "/hr" : ""}` : ""}
-                        {/* Status label priority: current-position status wins over busy-elsewhere,
-                            because if they're already on this position the busy-elsewhere message
-                            is misleading (it's telling us about a secondary invite, not a real conflict). */}
-                        {s.currentStatus === "accepted" && <span className="ml-2 text-status-confirmed font-medium">Accepted</span>}
-                        {s.currentStatus === "rejected" && <span className="ml-2">Rejected</span>}
-                        {s.currentStatus === "pending" && <span className="ml-2 status-pending">Pending</span>}
-                        {!alreadyOnThisPosition && s.busyWith && (
-                          <span className="ml-2 text-amber-700 font-medium">
-                            Busy - {s.busyWith.clientName} ({s.busyWith.eventDate}) as {s.busyWith.role}
+                  <label key={s.userId} className={`block px-3 py-2 border-b last:border-b-0 text-sm ${locked ? "opacity-50 cursor-not-allowed bg-gray-50" : "hover:bg-gray-50 cursor-pointer"}`}>
+                    <div className="flex items-center gap-3">
+                      <input type="checkbox" checked={checked} disabled={locked} onChange={(e) => {
+                        if (locked) return;
+                        setSelections((prev) => ({ ...prev, [s.userId]: e.target.checked ? (tier ?? 0) : null }));
+                      }} className="w-4 h-4" />
+                      <div className="flex-1">
+                        <div className="font-medium flex items-center gap-2">
+                          {s.firstName} {s.lastName}
+                          <span className="text-[10px] uppercase tracking-wide bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
+                            {s.position}
                           </span>
-                        )}
-                        {alreadyOnThisPosition && s.busyWith && (
-                          <span className="ml-2 text-red-600 font-medium">
-                            ⚠ Also invited as {s.busyWith.role} - remove one
-                          </span>
-                        )}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {s.city ?? "-"}
+                          {s.defaultRate ? ` · $${s.defaultRate}${s.defaultRateType === "hourly" ? "/hr" : ""}` : ""}
+                          {s.currentStatus === "accepted" && <span className="ml-2 text-status-confirmed font-medium">Accepted</span>}
+                          {s.currentStatus === "rejected" && <span className="ml-2">Rejected</span>}
+                          {s.currentStatus === "pending" && <span className="ml-2 status-pending">Pending</span>}
+                          {!alreadyOnThisPosition && s.busyWith && (
+                            <span className="ml-2 text-amber-700 font-medium">
+                              Busy - {s.busyWith.clientName} ({s.busyWith.eventDate}) as {s.busyWith.role}
+                            </span>
+                          )}
+                          {alreadyOnThisPosition && s.busyWith && (
+                            <span className="ml-2 text-red-600 font-medium">
+                              ⚠ Also invited as {s.busyWith.role} - remove one
+                            </span>
+                          )}
+                        </div>
                       </div>
+                      {checked && (
+                        <div className="flex items-center gap-1 text-xs">
+                          <span className="text-gray-500">Travel $</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={travelRates[s.userId] ?? ""}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setTravelRates((prev) => ({ ...prev, [s.userId]: v }));
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            placeholder="0"
+                            className="w-14 border border-gray-300 rounded px-1.5 py-1 text-xs outline-none focus:border-gray-500"
+                          />
+                        </div>
+                      )}
+                      <select
+                        value={checked ? String(tier) : ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setSelections((prev) => ({
+                            ...prev,
+                            [s.userId]: v === "" ? null : Number(v),
+                          }));
+                        }}
+                        className="input !w-auto !py-1 text-xs"
+                      >
+                        <option value="">Not invited</option>
+                        {TIER_LABELS.map((label, i) => (
+                          <option key={i} value={i}>{label}</option>
+                        ))}
+                      </select>
                     </div>
-                    {/* Travel comp for this specific invitee - only shown when
-                        they're checked, since travel only makes sense for
-                        people you're actually inviting. Blank = no travel. */}
-                    {checked && (
-                      <div className="flex items-center gap-1 text-xs">
-                        <span className="text-gray-500">Travel $</span>
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={travelRates[s.userId] ?? ""}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setTravelRates((prev) => ({ ...prev, [s.userId]: v }));
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                          placeholder="0"
-                          className="w-14 border border-gray-300 rounded px-1.5 py-1 text-xs outline-none focus:border-gray-500"
-                        />
+
+                    {/* Compact add-on checkbox row - only when checked, and only if
+                        the company has defined any add-ons. One line per staff, wraps
+                        if too many. Clicks are stopPropagation'd so the outer row
+                        label doesn't swallow them. */}
+                    {checked && companyAddOns.length > 0 && (
+                      <div className="mt-2 pl-7 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                        <span className="text-gray-500 uppercase tracking-wide">Add-ons:</span>
+                        {companyAddOns.map((a) => {
+                          const on = assignedAddOns.has(a.id);
+                          return (
+                            <span
+                              key={a.id}
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={on}
+                                onChange={(e) => {
+                                  const next = new Set(assignedAddOns);
+                                  if (e.target.checked) next.add(a.id);
+                                  else next.delete(a.id);
+                                  setAddOnAssignments((prev) => ({ ...prev, [s.userId]: next }));
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="w-3.5 h-3.5"
+                              />
+                              <span>{a.name}</span>
+                            </span>
+                          );
+                        })}
                       </div>
                     )}
-                    <select
-                      value={checked ? String(tier) : ""}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setSelections((prev) => ({
-                          ...prev,
-                          [s.userId]: v === "" ? null : Number(v),
-                        }));
-                      }}
-                      className="input !w-auto !py-1 text-xs"
-                    >
-                      <option value="">Not invited</option>
-                      {TIER_LABELS.map((label, i) => (
-                        <option key={i} value={i}>{label}</option>
-                      ))}
-                    </select>
                   </label>
                 );
               })
