@@ -224,8 +224,8 @@ export async function runMigrations(): Promise<void> {
   // any preset field that's missing from their configs (e.g. new
   // 'attachments' row added after initial seed). Safe because we only insert
   // when the key doesn't already exist for that company.
-  const allCompanies = (await sql`SELECT id FROM companies`) as Array<{ id: string }>;
-  for (const { id: companyId } of allCompanies) {
+  const allCompaniesForFieldBackfill = (await sql`SELECT id FROM companies`) as Array<{ id: string }>;
+  for (const { id: companyId } of allCompaniesForFieldBackfill) {
     const existingKeys = (await sql`
       SELECT field_key FROM event_field_configs WHERE company_id = ${companyId}
     `) as Array<{ field_key: string }>;
