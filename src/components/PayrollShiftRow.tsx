@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { computeTotalHours } from "@/lib/pay-period";
 import { formatMDY } from "@/lib/format-mdy";
@@ -58,6 +58,12 @@ export function PayrollShiftRow({
   const [breakTo, setBreakTo] = useState(initialBreakTo ?? "");
   const [gratuity, setGratuity] = useState(initialGratuity != null ? String(initialGratuity) : "");
   const [savedPaidAt, setSavedPaidAt] = useState(paidAt);
+  // When Mark-all-paid fires on the parent server component, this row
+  // gets re-rendered with a fresh paidAt prop. Mirror it into local
+  // state so the toggle flips without a hard reload.
+  useEffect(() => {
+    setSavedPaidAt(paidAt);
+  }, [paidAt]);
   const [pending, startTransition] = useTransition();
 
   const hours = useMemo(
