@@ -8,6 +8,7 @@ import { NotificationsEditor } from "@/components/NotificationsEditor";
 import { RolesList } from "@/components/RolesList";
 import { AddOnsList } from "@/components/AddOnsList";
 import { EventFieldsEditor, type FieldRow } from "@/components/EventFieldsEditor";
+import { PayPeriodForm } from "@/components/PayPeriodForm";
 import { PRESET_BY_KEY, PRESET_FIELDS, isPresetKey } from "@/lib/event-fields";
 import {
   mergeNotificationSettings,
@@ -105,16 +106,38 @@ async function saveNotificationSettingsAction(payload: {
 }
 
 /**
- * Save pay-period config: cadence + anchor. Anchor is a YYYY-MM-DD
- * date the recurring periods line up with.
+ * Save pay-period config. UI exposes cadence + "starts on" (day of
+ * week for weekly / biweekly, day of month for monthly). We convert
+ * that into a canonical YYYY-MM-DD anchor so the pay-period math
+ * stays simple.
  */
 async function savePayPeriodAction(formData: FormData) {
   "use server";
   const { session } = await requireSettingsAccess();
   const cadenceRaw = String(formData.get("payPeriodCadence") ?? "weekly");
   const cadence = (cadenceRaw === "biweekly" || cadenceRaw === "monthly" ? cadenceRaw : "weekly") as "weekly" | "biweekly" | "monthly";
-  const anchorRaw = String(formData.get("payPeriodAnchor") ?? "").trim();
-  const anchor = /^\d{4}-\d{2}-\d{2}$/.test(anchorRaw) ? anchorRaw : null;
+
+  // Compute anchor from the picked start-day.
+  let anchor: string | null = null;
+  if (cadence === "monthly") {
+    const dom = Math.max(1, Math.min(31, Number(formData.get("startDayOfMonth") ?? 1)));
+    // Build an anchor on this calendar month at the chosen day. The
+    // pay-period math only uses year/month/day; this is just a seed.
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    const day = Math.min(dom, new Date(y, m + 1, 0).getDate());
+    anchor = `${y}-${String(m + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  } else {
+    const dow = Math.max(0, Math.min(6, Number(formData.get("startDayOfWeek") ?? 1))); // 0 = Sun, 1 = Mon ...
+    // Find the most recent occurrence of that weekday as the anchor.
+    const now = new Date();
+    const todayDow = now.getUTCDay();
+    const back = (todayDow - dow + 7) % 7;
+    const anchorDate = new Date(now.getTime() - back * 24 * 60 * 60 * 1000);
+    anchor = `${anchorDate.getUTCFullYear()}-${String(anchorDate.getUTCMonth() + 1).padStart(2, "0")}-${String(anchorDate.getUTCDate()).padStart(2, "0")}`;
+  }
+
   await db.update(schema.companies)
     .set({ payPeriodCadence: cadence, payPeriodAnchor: anchor })
     .where(eq(schema.companies.id, session.companyId));
@@ -606,37 +629,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
             How often you cut checks. Used by the Payroll tab to group shifts into the right period
             and let you flip Prev / Next between periods.
           </p>
-          <form action={savePayPeriodAction} className="grid md:grid-cols-2 gap-4 max-w-xl">
-            <div>
-              <label className="label" htmlFor="payPeriodCadence">Cadence</label>
-              <select
-                id="payPeriodCadence"
-                name="payPeriodCadence"
-                className="input"
-                defaultValue={company.payPeriodCadence ?? "weekly"}
-              >
-                <option value="weekly">Weekly</option>
-                <option value="biweekly">Bi-weekly</option>
-                <option value="monthly">Monthly</option>
-              </select>
-            </div>
-            <div>
-              <label className="label" htmlFor="payPeriodAnchor">Anchor date</label>
-              <input
-                id="payPeriodAnchor"
-                name="payPeriodAnchor"
-                type="date"
-                defaultValue={company.payPeriodAnchor ?? ""}
-                className="input"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Any date a pay period starts on. Weeks / bi-weeks line up with this day.
-              </p>
-            </div>
-            <div className="md:col-span-2">
-              <button type="submit" className="btn btn-secondary">Save pay period</button>
-            </div>
-          </form>
+          <PayPeriodForm
+            action={savePayPeriodAction}
+            initialCadence={(company.payPeriodCadence as "weekly" | "biweekly" | "monthly" | null) ?? "weekly"}
+            initialAnchor={company.payPeriodAnchor ?? null}
+          />
         </section>
 
         {/* -------------------- Event fields -------------------- */}
