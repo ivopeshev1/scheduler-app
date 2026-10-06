@@ -133,6 +133,8 @@ export async function runMigrations(): Promise<void> {
   await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS travel_rate REAL`;
   await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS nudge_sent_at TIMESTAMPTZ`;
   await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS last_call_sent_at TIMESTAMPTZ`;
+  await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS rate_override_amount REAL`;
+  await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS rate_override_mode TEXT CHECK (rate_override_mode IN ('flat','hourly'))`;
   await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS priority_expire_days INTEGER`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_owner BOOLEAN NOT NULL DEFAULT false`;

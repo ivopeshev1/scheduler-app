@@ -48,6 +48,11 @@ export async function sendInvitationEmail(inv: InvitationRow, position: Position
   }
 
   const baseRateDisplay = (() => {
+    // Per-invitee override wins over the position default.
+    if (inv.rateOverrideAmount != null) {
+      const unit = inv.rateOverrideMode === "hourly" ? "/hr" : " flat";
+      return `$${inv.rateOverrideAmount}${unit} (custom for this shift)`;
+    }
     if (position.baseRateMode === "standard") {
       const rate = profile?.defaultRate;
       const type = profile?.defaultRateType;

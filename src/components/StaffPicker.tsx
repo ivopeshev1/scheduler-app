@@ -15,6 +15,9 @@ export type StaffOption = {
   currentStatus: "pending" | "accepted" | "rejected" | "expired" | "filled" | null;
   // Travel comp already stored on THIS invitation, if any
   currentTravelRate: number | null;
+  // Per-invitee rate override already stored on THIS invitation, if any
+  currentRateOverrideAmount: number | null;
+  currentRateOverrideMode: "flat" | "hourly" | null;
   // If set, this staff member is already invited/accepted elsewhere - show but make un-selectable
   busyWith: { eventDate: string; clientName: string; role: string } | null;
 };
@@ -75,6 +78,23 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
     for (const s of staff) init[s.userId] = s.currentTravelRate != null;
     return init;
   });
+  // Per-invitee custom rate override. Blank amount + checked = unset. Checked
+  // + value = override the position's base rate for just this person.
+  const [rateOverrides, setRateOverrides] = useState<Record<string, { amount: string; mode: "flat" | "hourly" }>>(() => {
+    const init: Record<string, { amount: string; mode: "flat" | "hourly" }> = {};
+    for (const s of staff) {
+      init[s.userId] = {
+        amount: s.currentRateOverrideAmount != null ? String(s.currentRateOverrideAmount) : "",
+        mode: s.currentRateOverrideMode ?? "flat",
+      };
+    }
+    return init;
+  });
+  const [rateOverrideChecked, setRateOverrideChecked] = useState<Record<string, boolean>>(() => {
+    const init: Record<string, boolean> = {};
+    for (const s of staff) init[s.userId] = s.currentRateOverrideAmount != null;
+    return init;
+  });
   // Per-invitee add-on assignments: userId → Map of addOnId → amount string.
   // Presence in the map = add-on is checked for this user. Amount can be
   // blank (treated as $0 on save).
@@ -99,6 +119,8 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
     const nextTravel: Record<string, string> = {};
     const nextTravelChecked: Record<string, boolean> = {};
     const nextAddOns: Record<string, Map<string, string>> = {};
+    const nextRateOverrides: Record<string, { amount: string; mode: "flat" | "hourly" }> = {};
+    const nextRateOverrideChecked: Record<string, boolean> = {};
     for (const s of staff) {
       nextSel[s.userId] = s.currentTier;
       nextTravel[s.userId] = s.currentTravelRate != null ? String(s.currentTravelRate) : "";
@@ -109,11 +131,18 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
         m.set(a.id, a.amount != null ? String(a.amount) : "");
       }
       nextAddOns[s.userId] = m;
+      nextRateOverrides[s.userId] = {
+        amount: s.currentRateOverrideAmount != null ? String(s.currentRateOverrideAmount) : "",
+        mode: s.currentRateOverrideMode ?? "flat",
+      };
+      nextRateOverrideChecked[s.userId] = s.currentRateOverrideAmount != null;
     }
     setSelections(nextSel);
     setTravelRates(nextTravel);
     setTravelChecked(nextTravelChecked);
     setAddOnAssignments(nextAddOns);
+    setRateOverrides(nextRateOverrides);
+    setRateOverrideChecked(nextRateOverrideChecked);
   }, [staff, open, currentAddOnsByUserId]);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -189,6 +218,17 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                 assignments[uid] = list;
               }
               formData.set("addOnAssignments", JSON.stringify(assignments));
+              // Serialize custom-rate overrides. Unchecked = key omitted
+              // (server clears the override). Checked + blank amount =
+              // omitted too (treat as "not actually overriding").
+              const serializedRateOverrides: Record<string, { amount: string; mode: "flat" | "hourly" }> = {};
+              for (const s of staff) {
+                if (!rateOverrideChecked[s.userId]) continue;
+                const row = rateOverrides[s.userId];
+                if (!row || row.amount.trim() === "") continue;
+                serializedRateOverrides[s.userId] = row;
+              }
+              formData.set("rateOverrides", JSON.stringify(serializedRateOverrides));
               await onSave(formData);
               router.refresh();
               setOpen(false);
@@ -271,6 +311,28 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                           every chip — checkbox + label + conditional $ input. */}
                       {checked && (
                         <div className="flex flex-col items-start gap-1 text-xs shrink-0">
+                          <RateChip
+                            checked={rateOverrideChecked[s.userId] ?? false}
+                            amount={rateOverrides[s.userId]?.amount ?? ""}
+                            mode={rateOverrides[s.userId]?.mode ?? "flat"}
+                            onToggle={(on) => {
+                              setRateOverrideChecked((prev) => ({ ...prev, [s.userId]: on }));
+                              if (!on) {
+                                setRateOverrides((prev) => ({
+                                  ...prev,
+                                  [s.userId]: { amount: "", mode: prev[s.userId]?.mode ?? "flat" },
+                                }));
+                              }
+                            }}
+                            onAmountChange={(v) => setRateOverrides((prev) => ({
+                              ...prev,
+                              [s.userId]: { amount: v, mode: prev[s.userId]?.mode ?? "flat" },
+                            }))}
+                            onModeChange={(m) => setRateOverrides((prev) => ({
+                              ...prev,
+                              [s.userId]: { amount: prev[s.userId]?.amount ?? "", mode: m },
+                            }))}
+                          />
                           <ExtraChip
                             label="Travel"
                             checked={tChecked}
@@ -355,6 +417,66 @@ function CityPill({ label, active, onClick }: { label: string; active: boolean; 
  * a per-person amount into. Clicks are stopPropagation'd so ticking here
  * doesn't toggle the outer staff-row label.
  */
+/**
+ * Per-invitee custom rate override chip. Mirrors ExtraChip but exposes a
+ * flat/hourly dropdown next to the dollar input, since the manager needs
+ * to say "$75 flat for this gig" vs "$30/hr for this gig" independently
+ * of what the position itself is set to.
+ */
+function RateChip({
+  checked,
+  amount,
+  mode,
+  onToggle,
+  onAmountChange,
+  onModeChange,
+}: {
+  checked: boolean;
+  amount: string;
+  mode: "flat" | "hourly";
+  onToggle: (on: boolean) => void;
+  onAmountChange: (v: string) => void;
+  onModeChange: (m: "flat" | "hourly") => void;
+}) {
+  return (
+    <span onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onToggle(e.target.checked)}
+        onClick={(e) => e.stopPropagation()}
+        className="w-3.5 h-3.5"
+      />
+      <span className="text-gray-700">Custom rate</span>
+      {checked && (
+        <>
+          <span className="text-gray-500">$</span>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={amount}
+            onChange={(e) => onAmountChange(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onFocus={(e) => e.target.select()}
+            placeholder="0"
+            className="w-14 border border-gray-300 rounded px-1.5 py-0.5 text-xs outline-none focus:border-gray-500"
+          />
+          <select
+            value={mode}
+            onChange={(e) => onModeChange(e.target.value as "flat" | "hourly")}
+            onClick={(e) => e.stopPropagation()}
+            className="border border-gray-300 rounded px-1 py-0.5 text-xs outline-none focus:border-gray-500 bg-white"
+          >
+            <option value="flat">flat</option>
+            <option value="hourly">/hr</option>
+          </select>
+        </>
+      )}
+    </span>
+  );
+}
+
 function ExtraChip({
   label,
   checked,

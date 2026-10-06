@@ -246,6 +246,12 @@ export const invitations = pgTable(
     // the invite, because travel cost depends on where the individual is coming
     // from - it's not a property of the position.
     travelRate: real("travel_rate"),
+    // Optional per-invitee rate override. When set, this replaces the position's
+    // baseRate / baseRateMode for just this one person - lets the manager offer
+    // a custom amount for a specific invitee without changing what everyone
+    // else gets. mode narrows how the number is interpreted.
+    rateOverrideAmount: real("rate_override_amount"),
+    rateOverrideMode: text("rate_override_mode", { enum: ["flat", "hourly"] }),
     // Priority-invite nudge timestamps. The cron fires a mid-window nudge at
     // 50% of the auto-expire window, then a "last call" ~3h before expiry.
     // Each column is set to now() when its nudge goes out so we never double-send.

@@ -30,6 +30,16 @@ async function saveInvitations(formData: FormData) {
   // Per-user add-on assignments: { [userId]: Array<{id, amount}> }. amount
   // is the string from the <input type="number">, blank = $0.
   const addOnAssignments = JSON.parse(String(formData.get("addOnAssignments") ?? "{}")) as Record<string, Array<{ id: string; amount: string }>>;
+  // Per-user custom rate overrides. Only present for users where the manager
+  // ticked "Custom rate" and typed a non-blank amount; others fall through to
+  // the position's base rate.
+  const rawRateOverrides = JSON.parse(String(formData.get("rateOverrides") ?? "{}")) as Record<string, { amount: string; mode: "flat" | "hourly" }>;
+  const rateOverrides: Record<string, { amount: number; mode: "flat" | "hourly" } | null> = {};
+  for (const [uid, row] of Object.entries(rawRateOverrides)) {
+    const amt = Number((row?.amount ?? "").toString().trim());
+    const mode = row?.mode === "hourly" ? "hourly" : "flat";
+    rateOverrides[uid] = Number.isFinite(amt) && amt >= 0 ? { amount: amt, mode } : null;
+  }
   // Parse each travel-rate string to a number (or null if blank/invalid)
   const travelRates: Record<string, number | null> = {};
   for (const [uid, raw] of Object.entries(rawTravelRates)) {
@@ -130,20 +140,36 @@ async function saveInvitations(formData: FormData) {
       continue;
     }
 
+    // Resolve the rate-override values we're going to write. If the UI
+    // omitted the user from rateOverrides, that means "no override" - clear
+    // whatever was previously set.
+    const overrideRow = userId in rateOverrides ? rateOverrides[userId] : null;
+    const nextOverrideAmount = overrideRow?.amount ?? null;
+    const nextOverrideMode = overrideRow?.mode ?? null;
+
     if (current) {
-      // Travel rate can be updated at any time (it's not something the staff sees
-      // until the invite email fires, and even sent-priority invites can have their
-      // travel comp adjusted up/down by the manager).
+      // Travel rate + custom rate can be updated at any time (neither is in
+      // the email staff already received - the manager just wants to adjust
+      // what the person is paid or will see on their dashboard).
       const newTravel = userId in travelRates ? travelRates[userId] : current.travelRate ?? null;
       if (current.status === "pending" && !current.sentAt) {
         // Can still change tier on unsent drafts
         await db.update(schema.invitations)
-          .set({ tier, travelRate: newTravel })
+          .set({
+            tier,
+            travelRate: newTravel,
+            rateOverrideAmount: nextOverrideAmount,
+            rateOverrideMode: nextOverrideMode,
+          })
           .where(eq(schema.invitations.id, current.id));
-      } else if (newTravel !== (current.travelRate ?? null)) {
-        // Tier is locked (email sent) but travel can still be tweaked
+      } else {
+        // Tier is locked (email sent) but travel + custom rate can still be tweaked
         await db.update(schema.invitations)
-          .set({ travelRate: newTravel })
+          .set({
+            travelRate: newTravel,
+            rateOverrideAmount: nextOverrideAmount,
+            rateOverrideMode: nextOverrideMode,
+          })
           .where(eq(schema.invitations.id, current.id));
       }
     } else {
@@ -158,6 +184,8 @@ async function saveInvitations(formData: FormData) {
         sentAt: null,
         token: nanoid(32),
         travelRate: travelRates[userId] ?? null,
+        rateOverrideAmount: nextOverrideAmount,
+        rateOverrideMode: nextOverrideMode,
       });
     }
   }
@@ -302,6 +330,12 @@ async function sendPendingInvitations(formData: FormData) {
       //   "flat"     - fixed $ for the whole shift
       //   "hourly"   - $ per hour, overriding the staff's onboarded rate
       const baseRateDisplay = (() => {
+        // Per-invitee override wins over anything the position says - the
+        // manager explicitly set a custom rate for this person.
+        if (inv.rateOverrideAmount != null) {
+          const unit = inv.rateOverrideMode === "hourly" ? "/hr" : " flat";
+          return `$${inv.rateOverrideAmount}${unit} (custom for this shift)`;
+        }
         if (position.baseRateMode === "standard") {
           const rate = profile?.defaultRate;
           const type = profile?.defaultRateType;
@@ -524,6 +558,8 @@ export default async function EventDetailPage({ params }: { params: { id: string
         currentTier: inv ? inv.tier : null,
         currentStatus: inv ? inv.status : null,
         currentTravelRate: inv ? inv.travelRate ?? null : null,
+        currentRateOverrideAmount: inv ? inv.rateOverrideAmount ?? null : null,
+        currentRateOverrideMode: inv ? inv.rateOverrideMode ?? null : null,
         busyWith,
       };
     });
@@ -643,7 +679,15 @@ export default async function EventDetailPage({ params }: { params: { id: string
                       {s.subLabel && (<div className="text-xs text-gray-400 font-normal">{s.subLabel}</div>)}
                     </td>
                     <td className="py-3 text-sm">
-                      <div>{baseLabel}</div>
+                      {singlePrimaryInv?.rateOverrideAmount != null ? (
+                        <div>
+                          ${singlePrimaryInv.rateOverrideAmount}
+                          {singlePrimaryInv.rateOverrideMode === "hourly" ? "/hr" : " flat"}
+                          <span className="text-xs text-gray-400 ml-1">(custom)</span>
+                        </div>
+                      ) : (
+                        <div>{baseLabel}</div>
+                      )}
                       {primaryAddOns.map((a) => (
                         <div key={a.id} className="text-xs text-gray-400">
                           + {addOnNameById.get(a.id) ?? "Add-on"}{a.amount != null ? ` $${a.amount}` : ""}
