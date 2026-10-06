@@ -423,6 +423,12 @@ async function EventCard({ event }: { event: typeof schema.events.$inferSelect }
                       {s.onCallLines.map((ln, idx) => (
                         <div key={idx} className={`italic text-xs ${ln.paid ? "text-green-600 font-semibold" : "text-gray-500"}`}>
                           On call: {ln.text}
+                          {ln.beo === "received" && (
+                            <span className="text-xs text-green-600 font-normal ml-2 not-italic">BEO received</span>
+                          )}
+                          {ln.beo === "sent" && (
+                            <span className="text-xs text-gray-400 font-normal ml-2 not-italic">BEO sent</span>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -436,8 +442,22 @@ async function EventCard({ event }: { event: typeof schema.events.$inferSelect }
       </table>
       </Link>
       {!event.cancelledAt && (
-        <div className="mt-3 flex justify-center">
+        <div className="mt-3 flex flex-col items-center gap-1">
           <SendBeoButton eventId={event.id} action={sendBeoAction} context={beoContext} />
+          {beoRevisions.length > 0 && (
+            <div className="text-xs text-gray-500 text-center">
+              {beoRevisions.length} BEO{beoRevisions.length === 1 ? "" : "s"} sent:{" "}
+              {beoRevisions.map((r, i) => {
+                const label = `BEO ${r.version} on ${r.sentAt.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+                return (
+                  <span key={r.id}>
+                    {i > 0 && ", "}
+                    {label}
+                  </span>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>

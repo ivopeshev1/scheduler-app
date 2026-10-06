@@ -35,6 +35,9 @@ export type PositionStatus = {
     text: string;
     state: "pending" | "confirmed";
     paid?: boolean;
+    // BEO status for on-call invitees who've been emailed the BEO.
+    // Mirrors the main-roster beo column semantics.
+    beo?: "sent" | "received";
   }>;
 };
 
@@ -85,12 +88,14 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
   }
 
   // Precompute on-call lines once - every return path spreads them in.
-  const onCallLines: Array<{ text: string; state: "pending" | "confirmed"; paid?: boolean }> = [];
+  const onCallLines: Array<{ text: string; state: "pending" | "confirmed"; paid?: boolean; beo?: "sent" | "received" }> = [];
   for (const inv of onCallInvites) {
+    const beo = inv.beoReceivedAt ? "received" : inv.beoSentAt ? "sent" : undefined;
     onCallLines.push({
       text: await firstNameOf(inv.userId),
       state: inv.status === "accepted" ? "confirmed" : "pending",
       paid: !!inv.paidAt,
+      beo,
     });
   }
   const onCallField = onCallLines.length > 0 ? onCallLines : undefined;

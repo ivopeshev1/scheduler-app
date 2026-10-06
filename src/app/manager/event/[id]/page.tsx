@@ -456,10 +456,10 @@ async function sendPendingInvitations(formData: FormData) {
       const [companyRow] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
       const onCallFee = companyRow?.onCallFee ?? 0;
       const leadLineText = inv.isOnCall
-        ? `You've been invited to be ON CALL for the following shift. You'll be paid a $${onCallFee} standby fee whether or not you're activated. If you're activated by the manager, you'll earn the shift rate below on top.`
+        ? `You've been invited to be ON CALL for the following shift. If you're NOT activated, you'll be paid a $${onCallFee} standby fee for keeping your calendar open. If you ARE activated, your pay switches to the shift rate below (the $${onCallFee} standby fee is replaced, not stacked).`
         : `You're invited to work the following shift:`;
       const leadLineHtml = leadLineText;
-      const onCallCompNote = inv.isOnCall ? [`Standby fee:    $${onCallFee} (paid regardless)`] : [];
+      const onCallCompNote = inv.isOnCall ? [`Standby fee (if NOT activated):  $${onCallFee}`] : [];
 
       const textBody = [
         `Hi ${profile?.firstName ?? ""},`, ``,
@@ -472,7 +472,7 @@ async function sendPendingInvitations(formData: FormData) {
         `Client:      ${event.clientName}`, ``,
         inv.isOnCall ? `On-call compensation:` : `Compensation:`,
         ...onCallCompNote,
-        ...(inv.isOnCall ? [`If activated, you'd also earn:`] : []),
+        ...(inv.isOnCall ? [`If activated, your pay switches to the shift rate instead (not stacked):`] : []),
         ...compLinesText,
         ``,
         vanLine,
@@ -508,8 +508,8 @@ async function sendPendingInvitations(formData: FormData) {
 
   <p style="margin:0 0 8px;font-weight:600;">${inv.isOnCall ? "On-call compensation" : "Compensation"}</p>
   <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 24px;">
-    ${inv.isOnCall ? row("Standby fee", `$${onCallFee} (paid regardless)`) : ""}
-    ${inv.isOnCall ? `<tr><td colspan="2" style="padding:8px 0 4px;color:#555;font-style:italic;">If activated, you'd also earn:</td></tr>` : ""}
+    ${inv.isOnCall ? row("Standby fee (if NOT activated)", `$${onCallFee}`) : ""}
+    ${inv.isOnCall ? `<tr><td colspan="2" style="padding:8px 0 4px;color:#555;font-style:italic;">If activated, your pay switches to the shift rate instead (not stacked):</td></tr>` : ""}
     ${row("Base rate", escapeHtml(baseRateDisplay))}
     ${position.requiresVanDriving ? row("Van driving", `$${vanAmount}`) : ""}
     ${travel > 0 ? row("Travel comp", `$${travel}`) : ""}
@@ -852,6 +852,11 @@ export default async function EventDetailPage({ params }: { params: { id: string
                                   <span className={`italic text-sm ${inv.paidAt ? "text-green-600 font-semibold" : "text-gray-500"}`}>
                                     On call: {s.onCallLines![onCallInvs.indexOf(inv)]?.text ?? ""}
                                   </span>
+                                  {inv.beoReceivedAt ? (
+                                    <span className="text-xs text-green-600 font-normal not-italic">BEO received</span>
+                                  ) : inv.beoSentAt ? (
+                                    <span className="text-xs text-gray-400 font-normal not-italic">BEO sent</span>
+                                  ) : null}
                                   {inv.activationRequestedAt ? (
                                     <span className="text-xs text-amber-700">activating — waiting on their confirm</span>
                                   ) : inv.status === "accepted" ? (
