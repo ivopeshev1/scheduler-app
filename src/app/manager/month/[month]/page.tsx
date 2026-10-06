@@ -386,7 +386,15 @@ async function EventCard({ event }: { event: typeof schema.events.$inferSelect }
                 <td className="py-1 font-medium">
                   <div>{p.role}</div>
                   {s.sendIndicator && (
-                    <div className="text-xs text-gray-400 font-normal">{s.sendIndicator}</div>
+                    <div
+                      className={`text-xs font-normal ${
+                        s.sendIndicator === "Invitation not sent"
+                          ? "italic text-red-600"
+                          : "text-gray-400"
+                      }`}
+                    >
+                      {s.sendIndicator}
+                    </div>
                   )}
                 </td>
                 <td className="py-1">
