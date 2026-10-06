@@ -456,7 +456,7 @@ async function sendPendingInvitations(formData: FormData) {
       const [companyRow] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
       const onCallFee = companyRow?.onCallFee ?? 0;
       const leadLineText = inv.isOnCall
-        ? `You've been invited to be ON CALL for the following shift. If you're NOT activated, you'll be paid a $${onCallFee} standby fee for keeping your calendar open. If you ARE activated, your pay switches to the shift rate below (the $${onCallFee} standby fee is replaced, not stacked).`
+        ? `You've been invited to be ON CALL for the following shift. If you're NOT activated, you'll be paid a $${onCallFee} standby fee for keeping your calendar open. If you ARE activated, your pay switches to the shift rate below (the $${onCallFee} standby fee is replaced, not stacked). By accepting this invite, you agree to be available and ready to come in starting up to 3 hours before the event's check-in time.`
         : `You're invited to work the following shift:`;
       const leadLineHtml = leadLineText;
       const onCallCompNote = inv.isOnCall ? [`Standby fee (if NOT activated):  $${onCallFee}`] : [];
