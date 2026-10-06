@@ -133,12 +133,12 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
     .innerJoin(schema.staffProfiles, eq(schema.users.id, schema.staffProfiles.userId));
 
   const filter = searchParams.filter === "unpaid" ? "unpaid" : searchParams.filter === "paid" ? "paid" : "all";
-  // Include accepted shifts AND on-call standby invitations - both
-  // generate payroll owed to the staffer within the pay period.
+  // Only accepted shifts count for payroll - whether they're regular
+  // or on-call. Pending on-call invites don't owe the staffer anything
+  // yet (they haven't confirmed they'll keep the slot free).
   const inPeriod = rows.filter((r) => {
     if (r.ev.companyId !== session.companyId) return false;
-    const eligible = r.inv.status === "accepted" || r.inv.isOnCall;
-    if (!eligible) return false;
+    if (r.inv.status !== "accepted") return false;
     if (r.ev.cancelledAt) return false;
     const d = r.ev.date;
     return d >= period.start && d <= period.end;
