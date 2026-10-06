@@ -140,7 +140,9 @@ async function sendBeoAction(
     }
     const confirmUrl = `${publicBase}/beo/confirm/${token}`;
 
-    const lead = isRevision && inv.beoSentAt
+    const lead = inv.isOnCall
+      ? `You're on-call for this shift and we're sharing the BEO (Banquet Event Order) with you so you're ready in case we need you. Please review it and confirm receipt. You'll be contacted directly if you need to come in.`
+      : isRevision && inv.beoSentAt
       ? `An updated BEO for your upcoming shift is attached. Please review the latest version and confirm receipt below.`
       : `The BEO (Banquet Event Order) for your upcoming shift is attached. Please review it and confirm receipt below.`;
     const kv: Array<[string, string]> = [

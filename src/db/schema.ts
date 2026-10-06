@@ -345,6 +345,10 @@ export const invitations = pgTable(
     // into a real slot if someone else bails. Tier is irrelevant when
     // isOnCall is true - they skip the backup cascade.
     isOnCall: boolean("is_on_call").notNull().default(false),
+    // Set when the manager clicks Activate on an on-call standby row.
+    // Fires an activation email; the slot binding + isOnCall flip to
+    // false only happen after the staffer confirms via that email.
+    activationRequestedAt: timestamp("activation_requested_at", { withTimezone: true }),
   },
   (t) => ({
     positionTierIdx: index("invitations_position_tier_idx").on(t.positionId, t.tier),

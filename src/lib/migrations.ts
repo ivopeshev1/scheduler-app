@@ -165,6 +165,7 @@ export async function runMigrations(): Promise<void> {
   await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS pay_period_anchor TEXT`;
   await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS on_call_fee REAL`;
   await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS is_on_call BOOLEAN NOT NULL DEFAULT false`;
+  await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS activation_requested_at TIMESTAMPTZ`;
   // Backfill one staff_roles row per onboarded staffer that still has a
   // primary position + rate on their profile but no staff_roles yet.
   // 'both' maps to hourly for the backfill since the new table doesn't

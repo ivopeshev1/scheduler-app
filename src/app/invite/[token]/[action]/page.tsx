@@ -20,7 +20,7 @@ export default async function InviteActionPage({
   params: { token: string; action: string };
 }) {
   const action = params.action;
-  if (action !== "accept" && action !== "decline") notFound();
+  if (action !== "accept" && action !== "decline" && action !== "activate") notFound();
 
   const [inv] = await db.select().from(schema.invitations).where(eq(schema.invitations.token, params.token));
   if (!inv) {
@@ -38,23 +38,20 @@ export default async function InviteActionPage({
   const timeRange = event ? `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}` : "";
 
   // Terminal states - don't re-process, just show the current state.
-  let outcome: "accepted" | "declined" | "expired" | "already-filled" | "shift-filled" =
-    inv.status === "accepted" ? "accepted"
+  let outcome: "accepted" | "declined" | "expired" | "already-filled" | "shift-filled" | "activated" =
+    inv.status === "accepted" && !inv.isOnCall ? "accepted"
     : inv.status === "rejected" ? "declined"
     : inv.status === "expired" ? "expired"
     : inv.status === "filled" ? "already-filled"
     : "shift-filled";
 
-  if (inv.status === "pending") {
-    if (action === "decline") {
-      await db.update(schema.invitations)
-        .set({ status: "rejected", respondedAt: new Date() })
-        .where(eq(schema.invitations.id, inv.id));
-      outcome = "declined";
+  if (action === "activate") {
+    // Only on-call accepted invitees can activate. Idempotent on repeat.
+    if (!inv.isOnCall || inv.status !== "accepted") {
+      outcome = inv.status === "accepted" ? "accepted" : "expired";
     } else {
-      // Accept: bind to the first open slot on this position.
       const slots = await db.select().from(schema.slots)
-        .where(and(eq(schema.slots.positionId, inv.positionId)))
+        .where(eq(schema.slots.positionId, inv.positionId))
         .orderBy(schema.slots.index);
       const openSlot = slots.find((s) => !s.acceptedUserId);
       if (!openSlot) {
@@ -64,26 +61,65 @@ export default async function InviteActionPage({
           .set({ acceptedUserId: inv.userId, acceptedAt: new Date() })
           .where(eq(schema.slots.id, openSlot.id));
         await db.update(schema.invitations)
-          .set({ status: "accepted", respondedAt: new Date(), slotId: openSlot.id })
+          .set({ isOnCall: false, slotId: openSlot.id })
+          .where(eq(schema.invitations.id, inv.id));
+        outcome = "activated";
+      }
+    }
+  } else if (inv.status === "pending") {
+    if (action === "decline") {
+      await db.update(schema.invitations)
+        .set({ status: "rejected", respondedAt: new Date() })
+        .where(eq(schema.invitations.id, inv.id));
+      outcome = "declined";
+    } else {
+      // On-call accept: don't bind to a slot - they're standby. Just
+      // flip to accepted with isOnCall still true.
+      if (inv.isOnCall) {
+        await db.update(schema.invitations)
+          .set({ status: "accepted", respondedAt: new Date() })
           .where(eq(schema.invitations.id, inv.id));
         outcome = "accepted";
+      } else {
+        // Regular accept: bind to the first open slot on this position.
+        const slots = await db.select().from(schema.slots)
+          .where(and(eq(schema.slots.positionId, inv.positionId)))
+          .orderBy(schema.slots.index);
+        const openSlot = slots.find((s) => !s.acceptedUserId);
+        if (!openSlot) {
+          outcome = "shift-filled";
+        } else {
+          await db.update(schema.slots)
+            .set({ acceptedUserId: inv.userId, acceptedAt: new Date() })
+            .where(eq(schema.slots.id, openSlot.id));
+          await db.update(schema.invitations)
+            .set({ status: "accepted", respondedAt: new Date(), slotId: openSlot.id })
+            .where(eq(schema.invitations.id, inv.id));
+          outcome = "accepted";
+        }
       }
     }
   }
 
   const headline =
-    outcome === "accepted" ? "Shift accepted"
+    outcome === "accepted" && inv.isOnCall ? "On-call confirmed"
+    : outcome === "accepted" ? "Shift accepted"
+    : outcome === "activated" ? "Activation confirmed"
     : outcome === "declined" ? "Shift declined"
     : outcome === "expired" ? "This invite has expired"
     : outcome === "already-filled" ? "This slot was filled by someone else"
     : "Shift already filled";
   const emoji =
-    outcome === "accepted" ? "✅"
+    outcome === "accepted" || outcome === "activated" ? "✅"
     : outcome === "declined" ? "👋"
     : "⏳";
   const message =
-    outcome === "accepted"
+    outcome === "accepted" && inv.isOnCall
+      ? "You're officially on-call. You'll get the BEO closer to the date and will be contacted if we need you to come in."
+      : outcome === "accepted"
       ? "You're confirmed. We'll send the BEO closer to the date."
+      : outcome === "activated"
+      ? "You're confirmed for the shift. See you there."
       : outcome === "declined"
       ? "Thanks for letting us know. Your manager has been notified."
       : outcome === "expired"

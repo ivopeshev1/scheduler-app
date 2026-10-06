@@ -240,20 +240,58 @@ async function activateOnCallAction(formData: FormData) {
   const [event] = await db.select().from(schema.events).where(eq(schema.events.id, pos.eventId));
   if (!event || event.companyId !== session.companyId) throw new Error("Not found");
 
-  // Find the first open slot on this position.
-  const slots = await db.select().from(schema.slots).where(eq(schema.slots.positionId, pos.id)).orderBy(schema.slots.index);
-  const openSlot = slots.find((s) => !s.acceptedUserId);
-  if (!openSlot) {
-    // No slot available - just flip isOnCall off; manager will handle manually.
-    await db.update(schema.invitations).set({ isOnCall: false }).where(eq(schema.invitations.id, invitationId));
-  } else {
-    await db.update(schema.slots)
-      .set({ acceptedUserId: inv.userId, acceptedAt: new Date() })
-      .where(eq(schema.slots.id, openSlot.id));
-    await db.update(schema.invitations)
-      .set({ status: "accepted", respondedAt: new Date(), slotId: openSlot.id, isOnCall: false })
-      .where(eq(schema.invitations.id, invitationId));
+  // Activation is a two-step handshake: manager clicks Activate here,
+  // we email the staffer with a confirm link. Only when they tap that
+  // link do we flip isOnCall off, bind them to an open slot, and mark
+  // them accepted. Leaves the on-call row in a visibly "activating…"
+  // state in the meantime via activation_requested_at.
+  const [u] = await db.select().from(schema.users).where(eq(schema.users.id, inv.userId));
+  const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, inv.userId));
+  const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
+  const prettyDate = formatDate(event.date);
+  const timeRange = `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`;
+  const companyName = company?.name ?? "Scheduler";
+  const confirmUrl = `${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/activate`;
+  if (u) {
+    const textBody = [
+      `Hi ${profile?.firstName ?? ""},`,
+      ``,
+      `You've been ACTIVATED from on-call for the following shift. You need to confirm you can come - please tap below as soon as possible.`,
+      ``,
+      `Role:   ${pos.role}`,
+      `Date:   ${prettyDate}`,
+      `Time:   ${timeRange}`,
+      `Client: ${event.clientName}`,
+      ``,
+      `Confirm you can come: ${confirmUrl}`,
+      ``,
+      `– ${companyName}`,
+    ].join("\n");
+    const htmlBody = shellWrap([
+      greeting(profile?.firstName, "You've been activated from on-call."),
+      paragraph("You need to confirm you can still work this shift. The slot is yours as soon as you tap below."),
+      kvTable([
+        kvRow("Role", pos.role),
+        kvRow("Date", prettyDate),
+        kvRow("Time", timeRange),
+        kvRow("Client", event.clientName),
+      ]),
+      `<p style="margin:24px 0 12px;"><a href="${confirmUrl}" style="display:inline-block;background:#16a34a;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;font-weight:600;">Confirm I'll be there</a></p>`,
+      signoff(companyName),
+    ].join("\n"));
+    await sendEmail({
+      to: u.email,
+      subject: `ACTIVATED: ${event.clientName} on ${prettyDate}`,
+      body: textBody,
+      html: htmlBody,
+      companyId: session.companyId,
+      userId: inv.userId,
+      relatedInvitationId: inv.id,
+    });
   }
+  await db.update(schema.invitations)
+    .set({ activationRequestedAt: new Date() })
+    .where(eq(schema.invitations.id, invitationId));
   revalidatePath(`/manager/event/${event.id}`);
   revalidatePath(`/manager/month/${event.date.slice(0, 7)}`);
 }
@@ -412,16 +450,29 @@ async function sendPendingInvitations(formData: FormData) {
       if (position.requiresVanDriving) compLinesText.push(`Van driving:    $${vanAmount}`);
       if (travel > 0) compLinesText.push(`Travel comp:    $${travel}`);
 
+      // On-call invites explain the standby model in the email lead +
+      // compensation section so the staffer knows what they're agreeing
+      // to before they tap accept.
+      const [companyRow] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
+      const onCallFee = companyRow?.onCallFee ?? 0;
+      const leadLineText = inv.isOnCall
+        ? `You've been invited to be ON CALL for the following shift. You'll be paid a $${onCallFee} standby fee whether or not you're activated. If you're activated by the manager, you'll earn the shift rate below on top.`
+        : `You're invited to work the following shift:`;
+      const leadLineHtml = leadLineText;
+      const onCallCompNote = inv.isOnCall ? [`Standby fee:    $${onCallFee} (paid regardless)`] : [];
+
       const textBody = [
         `Hi ${profile?.firstName ?? ""},`, ``,
-        `You're invited to work the following shift:`, ``,
+        leadLineText, ``,
         `Role:        ${position.role}`,
         event.eventType ? `Event type:  ${event.eventType}` : "",
         `Date:        ${prettyDate}`,
         `Approx time: ${timeRange}`,
         `Venue:       ${venue}`,
         `Client:      ${event.clientName}`, ``,
-        `Compensation:`,
+        inv.isOnCall ? `On-call compensation:` : `Compensation:`,
+        ...onCallCompNote,
+        ...(inv.isOnCall ? [`If activated, you'd also earn:`] : []),
         ...compLinesText,
         ``,
         vanLine,
@@ -444,7 +495,7 @@ async function sendPendingInvitations(formData: FormData) {
       const htmlBody = `
 <!doctype html><html><body style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;line-height:1.5;font-size:15px;max-width:560px;margin:0 auto;padding:24px;">
   <p style="margin:0 0 12px;">Hi ${escapeHtml(profile?.firstName ?? "")},</p>
-  <p style="margin:0 0 20px;">You're invited to work the following shift:</p>
+  <p style="margin:0 0 20px;">${escapeHtml(leadLineHtml)}</p>
 
   <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 24px;">
     ${row("Role", escapeHtml(position.role))}
@@ -455,8 +506,10 @@ async function sendPendingInvitations(formData: FormData) {
     ${row("Client", escapeHtml(event.clientName))}
   </table>
 
-  <p style="margin:0 0 8px;font-weight:600;">Compensation</p>
+  <p style="margin:0 0 8px;font-weight:600;">${inv.isOnCall ? "On-call compensation" : "Compensation"}</p>
   <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 24px;">
+    ${inv.isOnCall ? row("Standby fee", `$${onCallFee} (paid regardless)`) : ""}
+    ${inv.isOnCall ? `<tr><td colspan="2" style="padding:8px 0 4px;color:#555;font-style:italic;">If activated, you'd also earn:</td></tr>` : ""}
     ${row("Base rate", escapeHtml(baseRateDisplay))}
     ${position.requiresVanDriving ? row("Van driving", `$${vanAmount}`) : ""}
     ${travel > 0 ? row("Travel comp", `$${travel}`) : ""}
@@ -799,14 +852,16 @@ export default async function EventDetailPage({ params }: { params: { id: string
                                   <span className={`italic text-sm ${inv.paidAt ? "text-green-600 font-semibold" : "text-gray-500"}`}>
                                     On call: {s.onCallLines![onCallInvs.indexOf(inv)]?.text ?? ""}
                                   </span>
-                                  {inv.status !== "accepted" && (
+                                  {inv.activationRequestedAt ? (
+                                    <span className="text-xs text-amber-700">activating — waiting on their confirm</span>
+                                  ) : inv.status === "accepted" ? (
                                     <form action={activateOnCallAction}>
                                       <input type="hidden" name="invitationId" value={inv.id} />
                                       <button type="submit" className="text-xs text-blue-600 hover:underline">
                                         Activate ▸
                                       </button>
                                     </form>
-                                  )}
+                                  ) : null}
                                 </div>
                               );
                             });
