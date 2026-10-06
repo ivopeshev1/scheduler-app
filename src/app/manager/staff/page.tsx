@@ -106,7 +106,6 @@ export default async function ManagerStaffPage() {
               <th className="text-left">Rate</th>
               <th className="text-left">City</th>
               <th className="text-left">Phone</th>
-              <th className="text-left">Van?</th>
               <th className="text-left">Status</th>
               <th className="text-left"></th>
             </tr>
@@ -162,9 +161,6 @@ export default async function ManagerStaffPage() {
                   <td className="py-3">{profile?.city ?? <span className="text-gray-300">-</span>}</td>
                   <td className="py-3 text-sm text-gray-600">{profile?.phone ?? <span className="text-gray-300">-</span>}</td>
                   <td className="py-3 text-sm">
-                    {profile?.canDriveVan ? "✓" : <span className="text-gray-300">-</span>}
-                  </td>
-                  <td className="py-3 text-sm">
                     {user.inviteAcceptedAt ? (
                       <span className="text-status-confirmed">Onboarded</span>
                     ) : inviteUrl ? (
@@ -199,7 +195,7 @@ export default async function ManagerStaffPage() {
               );
             })}
             {staffRows.length === 0 && (
-              <tr><td colSpan={8} className="py-8 text-center text-gray-400">No staff yet. Click &quot;+ Add staff&quot; to start.</td></tr>
+              <tr><td colSpan={7} className="py-8 text-center text-gray-400">No staff yet. Click &quot;+ Add staff&quot; to start.</td></tr>
             )}
           </tbody>
         </table>

@@ -44,8 +44,6 @@ async function saveStaffAction(formData: FormData) {
       return [];
     }
   })();
-  const canDriveVan = formData.get("canDriveVan") === "on";
-
   const phone = str(formData.get("phone"));
   const city = str(formData.get("city"));
   const dateOfBirth = str(formData.get("dateOfBirth"));
@@ -79,7 +77,6 @@ async function saveStaffAction(formData: FormData) {
     position: primary.role,
     defaultRate: primary.rate,
     defaultRateType: primary.rateType,
-    canDriveVan,
     phone,
     city,
     dateOfBirth,
@@ -172,10 +169,6 @@ export default async function EditStaffPage({ params }: { params: { userId: stri
               <Field label="First name" name="firstName" defaultValue={profile.firstName} required />
               <Field label="Last name" name="lastName" defaultValue={profile.lastName} required />
               <Field label="Email" name="email" type="email" defaultValue={target.email} required />
-              <div className="md:col-span-2 flex items-center gap-2">
-                <input id="canDriveVan" name="canDriveVan" type="checkbox" defaultChecked={profile.canDriveVan ?? false} className="w-4 h-4" />
-                <label htmlFor="canDriveVan" className="text-sm">Can drive the van</label>
-              </div>
             </div>
           </section>
 
