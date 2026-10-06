@@ -609,12 +609,20 @@ export default async function EventDetailPage({ params }: { params: { id: string
                   p.baseRateMode === "standard" ? "Standard rate"
                   : p.baseRateMode === "hourly" ? `$${p.baseRate ?? 0}/hr`
                   : `$${p.baseRate ?? 0}`;
-                // Only show "+ travel" when at least one invitation on this
-                // position actually has a travel comp set. Keeps the rate
-                // column clean for positions that don't involve travel pay.
-                const anyTravelOnThisPosition = (invitesByPosition[p.id] ?? []).some(
-                  (inv) => (inv.travelRate ?? 0) > 0
-                );
+                // Pull add-ons assigned to the primary invitee (sent priority,
+                // otherwise priority draft) so the rate column surfaces the
+                // extras that primary person is being paid for, e.g. "+ Van
+                // driver $100".
+                const positionInvites = invitesByPosition[p.id] ?? [];
+                const primaryInv =
+                  positionInvites.find((inv) => inv.sentAt && inv.tier === 0 && inv.status === "pending")
+                  ?? positionInvites.find((inv) => !inv.sentAt && inv.tier === 0 && inv.status === "pending");
+                const primaryAddOns = primaryInv ? (addOnsByUserForPosition[p.id]?.[primaryInv.userId] ?? []) : [];
+                const addOnNameById = new Map(companyAddOnsList.map((a) => [a.id, a.name]));
+                // Only show "+ travel" when the primary invitee actually has a
+                // travel comp set. Keeps the column clean when travel isn't
+                // in play for this shift.
+                const primaryTravel = primaryInv?.travelRate ?? 0;
                 const staffOptions = buildStaffOptions(p.role, p.id);
                 return (
                   <tr key={p.id} className="border-b align-top">
@@ -626,8 +634,12 @@ export default async function EventDetailPage({ params }: { params: { id: string
                     </td>
                     <td className="py-3 text-sm">
                       <div>{baseLabel}</div>
-                      {p.requiresVanDriving && (<div className="text-xs text-gray-500">+ van ${p.vanDrivingRate}</div>)}
-                      {anyTravelOnThisPosition && (<div className="text-xs text-gray-400">+ travel (per invitee)</div>)}
+                      {primaryAddOns.map((a) => (
+                        <div key={a.id} className="text-xs text-gray-400">
+                          + {addOnNameById.get(a.id) ?? "Add-on"}{a.amount != null ? ` $${a.amount}` : ""}
+                        </div>
+                      ))}
+                      {primaryTravel > 0 && (<div className="text-xs text-gray-400">+ travel ${primaryTravel}</div>)}
                     </td>
                     <td className="py-3">
                       <StaffPicker
