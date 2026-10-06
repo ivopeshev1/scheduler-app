@@ -105,11 +105,11 @@ async function sendBeoAction(
     const htmlBody = shellWrap([
       greeting(firstName || "there", lead),
       kvTable(kv.map(([k, v]) => kvRow(k, escapeHtml(v)))),
-      note ? paragraph(`<strong>Note from manager:</strong> ${escapeHtml(note)}`) : "",
-      paragraph(
-        `<a href="${confirmUrl}" style="display:inline-block;background:#111;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Confirm I received the BEO</a>`,
-      ),
-      paragraph(`If the button doesn't work, open this link: ${confirmUrl}`, { muted: true }),
+      note
+        ? `<p style="margin:16px 0 12px;padding:12px 14px;background:#f9fafb;border-left:3px solid #d1d5db;color:#374151;"><strong style="color:#111;">Note from manager:</strong><br>${escapeHtml(note).replace(/\n/g, "<br>")}</p>`
+        : "",
+      `<p style="margin:24px 0 12px;"><a href="${confirmUrl}" style="display:inline-block;background:#111;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;font-weight:600;">Confirm I received the BEO</a></p>`,
+      `<p style="margin:0 0 12px;color:#777;font-size:13px;">Button not working? Copy this into your browser:<br><a href="${confirmUrl}" style="color:#2563eb;word-break:break-all;">${confirmUrl}</a></p>`,
       signoff(companyName),
     ].join("\n"));
 
