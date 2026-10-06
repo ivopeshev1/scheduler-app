@@ -35,8 +35,13 @@ export function SendBeoButton({
   action: (formData: FormData) => Promise<{ ok: boolean; sentTo: number; error?: string }>;
   context: SendBeoContext;
 }) {
+  // Server (and Next.js server-action body limit) accepts up to ~10MB
+  // per BEO file. Keep this in sync with BEO_MAX_BYTES in the server
+  // action so the client-side guard matches server-side truth.
+  const MAX_BEO_BYTES = 10_000_000;
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
   // When true, show the file picker in place of the Send New File button.
   const [showUpload, setShowUpload] = useState(false);
   const defaultMode: "all" | "only-new" =
@@ -103,6 +108,7 @@ export function SendBeoButton({
 
   function reset() {
     setFile(null);
+    setFileError(null);
     if (noteRef.current) noteRef.current.innerHTML = "";
     setResult(null);
     setShowUpload(context.revisions.length === 0);
@@ -250,12 +256,28 @@ export function SendBeoButton({
                       ref={inputRef}
                       type="file"
                       accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,image/*,application/pdf"
-                      onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0] ?? null;
+                        if (f && f.size > MAX_BEO_BYTES) {
+                          const sizeMB = (f.size / 1_000_000).toFixed(1);
+                          setFile(null);
+                          setFileError(`"${f.name}" is ${sizeMB} MB — the max is 10 MB. Compress it or export at a lower resolution.`);
+                          if (inputRef.current) inputRef.current.value = "";
+                          return;
+                        }
+                        setFileError(null);
+                        setFile(f);
+                      }}
                       className="block text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded file:border file:border-gray-300 file:bg-white file:text-sm file:text-gray-700 hover:file:bg-gray-50"
                     />
                     <p className="text-xs text-gray-500 mt-1">
                       PDF, Word, Excel, or image. Max 10 MB.
                     </p>
+                    {fileError && (
+                      <div className="mt-2 text-sm rounded px-3 py-2 bg-red-50 text-red-700 border border-red-200">
+                        {fileError}
+                      </div>
+                    )}
                     <button
                       type="button"
                       onClick={() => setConfirm({ useFile: true, label: context.revisions.length === 0 ? "the BEO" : `BEO ${context.revisions.length + 1}` })}
