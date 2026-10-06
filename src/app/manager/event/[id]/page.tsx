@@ -645,23 +645,17 @@ export default async function EventDetailPage({ params }: { params: { id: string
                   p.baseRateMode === "standard" ? "Standard rate"
                   : p.baseRateMode === "hourly" ? `$${p.baseRate ?? 0}/hr`
                   : `$${p.baseRate ?? 0}`;
-                // Pull add-ons assigned to the primary invitee (sent priority,
-                // otherwise priority draft) so the rate column surfaces the
-                // extras that primary person is being paid for, e.g. "+ Van
-                // driver $100". When MULTIPLE priority invites are active
-                // (backups cascaded or multiple drafts), individual add-on
-                // amounts vary - we show nothing extra, matching the "Open to
-                // N backups" status.
+                // Build one rate row per primary invitee in the same order
+                // the status column lists their names, so columns align.
+                // Confirmed slots first, then sent priority invites, then
+                // priority drafts.
                 const positionInvites = invitesByPosition[p.id] ?? [];
                 const sentPriorityOnPos = positionInvites.filter((inv) => inv.sentAt && inv.tier === 0 && inv.status === "pending");
                 const draftPriorityOnPos = positionInvites.filter((inv) => !inv.sentAt && inv.tier === 0 && inv.status === "pending");
-                const singlePrimaryInv =
-                  sentPriorityOnPos.length === 1 ? sentPriorityOnPos[0]
-                  : draftPriorityOnPos.length === 1 && sentPriorityOnPos.length === 0 ? draftPriorityOnPos[0]
-                  : null;
-                const primaryAddOns = singlePrimaryInv ? (addOnsByUserForPosition[p.id]?.[singlePrimaryInv.userId] ?? []) : [];
+                const confirmedInvs = positionInvites.filter((inv) => inv.status === "accepted");
+                const primaryInvs = [...confirmedInvs, ...sentPriorityOnPos, ...draftPriorityOnPos];
                 const addOnNameById = new Map(companyAddOnsList.map((a) => [a.id, a.name]));
-                const primaryTravel = singlePrimaryInv?.travelRate ?? 0;
+                const openSlotsForRateCol = Math.max(0, (p.needed ?? 0) - primaryInvs.length);
                 const staffOptions = buildStaffOptions(p.role, p.id);
                 return (
                   <tr key={p.id} className="border-b align-top">
@@ -679,21 +673,35 @@ export default async function EventDetailPage({ params }: { params: { id: string
                       {s.subLabel && (<div className="text-xs text-gray-400 font-normal">{s.subLabel}</div>)}
                     </td>
                     <td className="py-3 text-sm">
-                      {singlePrimaryInv?.rateOverrideAmount != null ? (
-                        <div>
-                          ${singlePrimaryInv.rateOverrideAmount}
-                          {singlePrimaryInv.rateOverrideMode === "hourly" ? "/hr" : " flat"}
-                          <span className="text-xs text-gray-400 ml-1">(custom)</span>
-                        </div>
-                      ) : (
+                      {primaryInvs.length === 0 ? (
                         <div>{baseLabel}</div>
+                      ) : (
+                        primaryInvs.map((inv) => {
+                          const addOns = addOnsByUserForPosition[p.id]?.[inv.userId] ?? [];
+                          const travel = inv.travelRate ?? 0;
+                          const rateLine = inv.rateOverrideAmount != null
+                            ? `$${inv.rateOverrideAmount}${inv.rateOverrideMode === "hourly" ? "/hr" : " flat"}`
+                            : baseLabel;
+                          const isCustom = inv.rateOverrideAmount != null;
+                          return (
+                            <div key={inv.id} className="mb-1 last:mb-0">
+                              <div>
+                                {rateLine}
+                                {isCustom && (<span className="text-xs text-gray-400 ml-1">(custom)</span>)}
+                              </div>
+                              {addOns.map((a) => (
+                                <div key={a.id} className="text-xs text-gray-400">
+                                  + {addOnNameById.get(a.id) ?? "Add-on"}{a.amount != null ? ` $${a.amount}` : ""}
+                                </div>
+                              ))}
+                              {travel > 0 && (<div className="text-xs text-gray-400">+ travel ${travel}</div>)}
+                            </div>
+                          );
+                        })
                       )}
-                      {primaryAddOns.map((a) => (
-                        <div key={a.id} className="text-xs text-gray-400">
-                          + {addOnNameById.get(a.id) ?? "Add-on"}{a.amount != null ? ` $${a.amount}` : ""}
-                        </div>
-                      ))}
-                      {primaryTravel > 0 && (<div className="text-xs text-gray-400">+ travel ${primaryTravel}</div>)}
+                      {openSlotsForRateCol > 0 && primaryInvs.length > 0 && (
+                        <div className="text-gray-400 italic">{baseLabel}</div>
+                      )}
                     </td>
                     <td className="py-3">
                       <StaffPicker
