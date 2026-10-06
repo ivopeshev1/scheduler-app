@@ -102,7 +102,9 @@ export async function sendInvitationEmail(inv: InvitationRow, position: Position
     ...taskDescLinesText,
     event.staffNotes ? `Notes: ${event.staffNotes}` : "",
     ``,
-    `Accept or reject this shift at your staff dashboard.`, ``,
+    `Accept: ${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/accept`,
+    `Decline: ${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/decline`,
+    ``,
     `– ${companyName}`,
   ].filter(Boolean).join("\n");
 
@@ -134,7 +136,10 @@ export async function sendInvitationEmail(inv: InvitationRow, position: Position
       .filter((a) => a.description && a.description.trim())
       .map((a) => `<p style="margin:0 0 12px;"><strong>${escapeHtml(a.name)} notes:</strong> ${escapeHtml(a.description!)}</p>`),
     event.staffNotes ? `<p style="margin:0 0 12px;"><strong>Notes:</strong> ${escapeHtml(event.staffNotes)}</p>` : "",
-    `<p style="margin:24px 0 0;">Accept or reject this shift at your staff dashboard.</p>`,
+    `<p style="margin:24px 0 12px;">
+      <a href="${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/accept" style="display:inline-block;background:#16a34a;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600;margin-right:8px;">Accept shift</a>
+      <a href="${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/decline" style="display:inline-block;background:#dc2626;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600;">Decline</a>
+    </p>`,
     signoff(companyName),
   ].filter(Boolean).join("\n"));
 

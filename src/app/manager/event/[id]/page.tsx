@@ -375,7 +375,9 @@ async function sendPendingInvitations(formData: FormData) {
         vanInstructions,
         event.staffNotes ? `Notes: ${event.staffNotes}` : "",
         ``,
-        `Accept or reject this shift at your staff dashboard.`, ``,
+        `Accept: ${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/accept`,
+        `Decline: ${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/decline`,
+        ``,
         `– ${companyName}`,
       ].filter(Boolean).join("\n");
 
@@ -411,7 +413,10 @@ async function sendPendingInvitations(formData: FormData) {
   ${vanInstructions ? `<p style="margin:0 0 12px;color:#555;">${escapeHtml(vanInstructions)}</p>` : ""}
   ${event.staffNotes ? `<p style="margin:0 0 12px;"><strong>Notes:</strong> ${escapeHtml(event.staffNotes)}</p>` : ""}
 
-  <p style="margin:24px 0 0;">Accept or reject this shift at your staff dashboard.</p>
+  <p style="margin:24px 0 12px;">
+    <a href="${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/accept" style="display:inline-block;background:#16a34a;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600;margin-right:8px;">Accept shift</a>
+    <a href="${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/decline" style="display:inline-block;background:#dc2626;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600;">Decline</a>
+  </p>
   <p style="margin:24px 0 0;color:#555;">– ${escapeHtml(companyName)}</p>
 </body></html>`.trim();
 
@@ -666,6 +671,12 @@ export default async function EventDetailPage({ params }: { params: { id: string
                         ? s.lines.map((ln, idx) => (
                             <div key={idx} className={ln.state === "pending" ? "status-pending" : "status-confirmed"}>
                               {ln.text}
+                              {ln.beo === "received" && (
+                                <span className="text-xs text-green-600 font-normal ml-2">BEO received</span>
+                              )}
+                              {ln.beo === "sent" && (
+                                <span className="text-xs text-gray-400 font-normal ml-2">BEO sent</span>
+                              )}
                             </div>
                           ))
                         : (<div className={s.state === "pending" ? "status-pending" : "status-confirmed"}>{s.label}</div>)

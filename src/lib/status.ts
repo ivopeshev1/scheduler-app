@@ -13,7 +13,13 @@ export type PositionStatus = {
   // slot not yet covered. When present, the UI renders this list and
   // ignores `label`. `label` stays populated as a plain-text fallback
   // for places that don't render multi-line (e.g. the month calendar).
-  lines?: Array<{ text: string; state: "pending" | "confirmed" }>;
+  // Each line optionally carries a BEO status so the calendar can show
+  // "BEO sent" / "BEO received" next to each accepted staffer.
+  lines?: Array<{
+    text: string;
+    state: "pending" | "confirmed";
+    beo?: "sent" | "received";
+  }>;
   // Position-level invite send state, used on the calendar list view
   // to display "Invited" vs "Invitation not sent" to the right of the
   // staff names. undefined = no invites yet / all confirmed, so nothing
@@ -86,11 +92,26 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
   }
   const sendIndicator = computeSendIndicator();
 
+  // Helper: BEO status for a specific accepted invitation (by slotId).
+  function beoFor(slotId: string): "sent" | "received" | undefined {
+    const inv = invites.find((i) => i.slotId === slotId && i.status === "accepted");
+    if (!inv) return undefined;
+    if (inv.beoReceivedAt) return "received";
+    if (inv.beoSentAt) return "sent";
+    return undefined;
+  }
+
   // Single-slot: prefer showing the person's name so the manager sees at a glance who it is.
   if (total === 1) {
     if (filled === 1) {
       const acceptedSlot = slotRows.find((s) => s.acceptedUserId)!;
-      return { label: await firstNameOf(acceptedSlot.acceptedUserId!), state: "confirmed" };
+      const name = await firstNameOf(acceptedSlot.acceptedUserId!);
+      const beo = beoFor(acceptedSlot.id);
+      return {
+        label: name,
+        lines: [{ text: name, state: "confirmed", beo }],
+        state: "confirmed",
+      };
     }
     // Prefer the sent priority invite's name
     if (invited === 1) {
@@ -121,10 +142,10 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
   // Multi-slot - render one line per slot, name-first, same style as the
   // single-slot path. Order: confirmed names, then sent priority names, then
   // priority drafts (not sent yet), then "Open" placeholders for the rest.
-  const lines: Array<{ text: string; state: "pending" | "confirmed" }> = [];
+  const lines: Array<{ text: string; state: "pending" | "confirmed"; beo?: "sent" | "received" }> = [];
   for (const s of slotRows) {
     if (s.acceptedUserId) {
-      lines.push({ text: await firstNameOf(s.acceptedUserId), state: "confirmed" });
+      lines.push({ text: await firstNameOf(s.acceptedUserId), state: "confirmed", beo: beoFor(s.id) });
     }
   }
   for (const inv of sentPendingInvites) {

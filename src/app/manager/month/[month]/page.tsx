@@ -282,6 +282,12 @@ async function EventCard({ event }: { event: typeof schema.events.$inferSelect }
                     ? s.lines.map((ln, idx) => (
                         <div key={idx} className={ln.state === "pending" ? "status-pending" : "status-confirmed"}>
                           {ln.text}
+                          {ln.beo === "received" && (
+                            <span className="text-xs text-green-600 font-normal ml-2">BEO received</span>
+                          )}
+                          {ln.beo === "sent" && (
+                            <span className="text-xs text-gray-400 font-normal ml-2">BEO sent</span>
+                          )}
                         </div>
                       ))
                     : (
