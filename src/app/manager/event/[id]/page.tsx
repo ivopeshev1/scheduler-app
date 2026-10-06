@@ -609,6 +609,12 @@ export default async function EventDetailPage({ params }: { params: { id: string
                   p.baseRateMode === "standard" ? "Standard rate"
                   : p.baseRateMode === "hourly" ? `$${p.baseRate ?? 0}/hr`
                   : `$${p.baseRate ?? 0}`;
+                // Only show "+ travel" when at least one invitation on this
+                // position actually has a travel comp set. Keeps the rate
+                // column clean for positions that don't involve travel pay.
+                const anyTravelOnThisPosition = (invitesByPosition[p.id] ?? []).some(
+                  (inv) => (inv.travelRate ?? 0) > 0
+                );
                 const staffOptions = buildStaffOptions(p.role, p.id);
                 return (
                   <tr key={p.id} className="border-b align-top">
@@ -618,7 +624,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
                     <td className="py-3 text-sm">
                       <div>{baseLabel}</div>
                       {p.requiresVanDriving && (<div className="text-xs text-gray-500">+ van ${p.vanDrivingRate}</div>)}
-                      <div className="text-xs text-gray-400">+ travel (per invitee)</div>
+                      {anyTravelOnThisPosition && (<div className="text-xs text-gray-400">+ travel (per invitee)</div>)}
                     </td>
                     <td className="py-3">
                       <StaffPicker
