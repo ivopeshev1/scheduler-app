@@ -28,6 +28,9 @@ export function PayrollShiftRow({
   addOns,
   paidAt,
   save,
+  showAddOns,
+  showTravel,
+  showGratuity,
 }: {
   invitationId: string;
   date: string;
@@ -44,6 +47,9 @@ export function PayrollShiftRow({
   addOns: Array<{ name: string; amount: number }>;
   paidAt: string | null;
   save: (formData: FormData) => Promise<void>;
+  showAddOns: boolean;
+  showTravel: boolean;
+  showGratuity: boolean;
 }) {
   const router = useRouter();
   const [clockIn, setClockIn] = useState(initialClockIn ?? "");
@@ -119,23 +125,36 @@ export function PayrollShiftRow({
       <td className={flatCellClass}>
         {rateType === "flat" ? <span className="text-gray-400">-</span> : hours.toFixed(2)}
       </td>
-      <td className={flatCellClass}>${baseEarning.toFixed(2)}</td>
-      <td className={flatCellClass} title={addOns.map((a) => `${a.name} $${a.amount}`).join(", ")}>
-        {addOnLabel}
-      </td>
-      <td className={flatCellClass}>{travel > 0 ? `$${travel}` : <span className="text-gray-400">-</span>}</td>
       <td className={flatCellClass}>
-        <input
-          type="number"
-          min={0}
-          step="0.01"
-          value={gratuity}
-          onChange={(e) => setGratuity(e.target.value)}
-          onBlur={() => persist()}
-          placeholder="0"
-          className="input text-xs px-1 py-0.5 w-20"
-        />
+        <div className="flex flex-col leading-tight">
+          <span>${baseEarning.toFixed(2)}</span>
+          {rateType === "flat" && (
+            <span className="text-[10px] uppercase tracking-wide text-gray-400">day rate</span>
+          )}
+        </div>
       </td>
+      {showAddOns && (
+        <td className={flatCellClass} title={addOns.map((a) => `${a.name} $${a.amount}`).join(", ")}>
+          {addOnLabel}
+        </td>
+      )}
+      {showTravel && (
+        <td className={flatCellClass}>{travel > 0 ? `$${travel}` : <span className="text-gray-400">-</span>}</td>
+      )}
+      {showGratuity && (
+        <td className={flatCellClass}>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={gratuity}
+            onChange={(e) => setGratuity(e.target.value)}
+            onBlur={() => persist()}
+            placeholder="0"
+            className="input text-xs px-1 py-0.5 w-20"
+          />
+        </td>
+      )}
       <td className={`${flatCellClass} font-semibold`}>${total.toFixed(2)}</td>
       <td className={flatCellClass}>
         <button

@@ -246,9 +246,13 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
           </div>
         ) : (
           groups.map((g) => {
-            // Totals per staffer for the section footer.
+            // Totals per staffer + which optional columns are needed
+            // for this section.
             let staffTotal = 0;
             const idsForBulk: string[] = [];
+            let sectionHasAddOns = false;
+            let sectionHasTravel = false;
+            let sectionHasGratuity = false;
             for (const s of g.shifts) {
               const addOns = (addOnsByInv.get(s.inv.id) ?? []).map((a) => ({
                 name: addOnNameById.get(a.id) ?? "Add-on",
@@ -260,10 +264,18 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
               const addOnTotal = addOns.reduce((sum, a) => sum + (a.amount ?? 0), 0);
               const travel = s.inv.travelRate ?? 0;
               const gratuity = s.inv.gratuity ?? 0;
+              if (addOns.length > 0) sectionHasAddOns = true;
+              if (travel > 0) sectionHasTravel = true;
+              if (gratuity > 0) sectionHasGratuity = true;
               const total = baseEarning + addOnTotal + travel + gratuity;
               staffTotal += total;
               if (!s.inv.paidAt) idsForBulk.push(s.inv.id);
             }
+            // Gratuity column stays visible by default so the manager
+            // can still enter a tip even on shifts with none logged yet.
+            const showAddOns = sectionHasAddOns;
+            const showTravel = sectionHasTravel;
+            const showGratuity = true || sectionHasGratuity; // keep editable
             return (
               <section key={g.userId} className="mb-8 border rounded-lg bg-white overflow-hidden">
                 <header className="px-4 py-3 bg-gray-50 border-b flex items-center justify-between">
@@ -284,9 +296,9 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
                         <th className="px-3 py-2">Break to</th>
                         <th className="px-3 py-2">Hours</th>
                         <th className="px-3 py-2">Earning</th>
-                        <th className="px-3 py-2">Add-ons</th>
-                        <th className="px-3 py-2">Travel</th>
-                        <th className="px-3 py-2">Gratuity</th>
+                        {showAddOns && <th className="px-3 py-2">Add-ons</th>}
+                        {showTravel && <th className="px-3 py-2">Travel</th>}
+                        {showGratuity && <th className="px-3 py-2">Gratuity</th>}
                         <th className="px-3 py-2">Total</th>
                         <th className="px-3 py-2">Paid</th>
                       </tr>
@@ -316,6 +328,9 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
                             addOns={addOns}
                             paidAt={s.inv.paidAt ? s.inv.paidAt.toISOString() : null}
                             save={saveShiftPayrollAction}
+                            showAddOns={showAddOns}
+                            showTravel={showTravel}
+                            showGratuity={showGratuity}
                           />
                         );
                       })}
