@@ -149,14 +149,17 @@ export function PayrollShiftRow({
       {showGratuity && (
         <td className={flatCellClass}>
           <input
-            type="number"
-            min={0}
-            step="0.01"
+            type="text"
+            inputMode="decimal"
             value={gratuity}
-            onChange={(e) => setGratuity(e.target.value)}
+            onChange={(e) => {
+              // Allow digits + a single decimal point only
+              const v = e.target.value.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1");
+              setGratuity(v);
+            }}
             onBlur={() => persist()}
             placeholder="0"
-            className="input text-xs px-1 py-0.5 w-20"
+            className="text-xs px-1.5 py-0.5 w-14 border border-gray-300 rounded outline-none focus:border-gray-500"
           />
         </td>
       )}
