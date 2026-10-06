@@ -66,11 +66,6 @@ export function PayrollShiftRow({
   );
   const baseEarning = rateType === "flat" ? rate : rate * hours;
   const addOnTotal = addOns.reduce((s, a) => s + (a.amount ?? 0), 0);
-  const addOnLabel = addOns.length === 0
-    ? "-"
-    : addOns.length === 1
-    ? `$${addOns[0].amount}`
-    : `$${addOnTotal} (${addOns.length})`;
   const gratuityNum = Number(gratuity);
   const gratuityNumSafe = Number.isFinite(gratuityNum) ? gratuityNum : 0;
   const total = baseEarning + addOnTotal + travel + gratuityNumSafe;
@@ -134,8 +129,18 @@ export function PayrollShiftRow({
         </div>
       </td>
       {showAddOns && (
-        <td className={flatCellClass} title={addOns.map((a) => `${a.name} $${a.amount}`).join(", ")}>
-          {addOnLabel}
+        <td className={flatCellClass}>
+          {addOns.length === 0 ? (
+            <span className="text-gray-400">-</span>
+          ) : (
+            <div className="flex flex-col leading-tight">
+              {addOns.map((a, i) => (
+                <span key={i} className="whitespace-nowrap">
+                  {a.name} <span className="text-gray-500">${a.amount}</span>
+                </span>
+              ))}
+            </div>
+          )}
         </td>
       )}
       {showTravel && (
