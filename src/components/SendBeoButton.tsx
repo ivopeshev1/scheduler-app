@@ -153,6 +153,13 @@ export function SendBeoButton({
             </div>
 
             <div className="space-y-4">
+              {context.totalAccepted === 0 && (
+                <div className="rounded px-3 py-3 bg-amber-50 border border-amber-300 text-amber-900 text-sm">
+                  No one on this shift has accepted their invitation yet. The BEO can only be
+                  sent to <strong>accepted</strong> staff — wait for someone to accept before sending.
+                </div>
+              )}
+
               {/* Note first - applies to whichever Send button is clicked */}
               <div>
                 <label className="label">Optional note</label>
