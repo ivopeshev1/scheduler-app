@@ -181,6 +181,37 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
   // Shared helpers for computed columns on the client row component.
   const buildHref = (on: string, f: string) => `/manager/payroll?on=${on}&filter=${f}`;
 
+  // Resolve the effective rate + mode for a shift. Priority:
+  //   1. Per-invitee custom override on the invitation
+  //   2. Position-level flat/hourly ("the shift pays $200 flat")
+  //   3. Standard mode: this staffer's per-role rate; else their
+  //      profile defaultRate.
+  function resolveRate(
+    inv: typeof visible[number]["inv"],
+    pos: typeof visible[number]["pos"],
+    profile: typeof visible[number]["profile"],
+    userId: string,
+  ): { rate: number; rateType: "flat" | "hourly" } {
+    if (inv.rateOverrideAmount != null) {
+      return {
+        rate: inv.rateOverrideAmount,
+        rateType: inv.rateOverrideMode === "flat" ? "flat" : "hourly",
+      };
+    }
+    if (pos.baseRateMode === "flat") {
+      return { rate: pos.baseRate ?? 0, rateType: "flat" };
+    }
+    if (pos.baseRateMode === "hourly") {
+      return { rate: pos.baseRate ?? 0, rateType: "hourly" };
+    }
+    const match = rateByUserRole.get(`${userId}::${pos.role}`);
+    if (match) return { rate: match.rate, rateType: match.rateType };
+    return {
+      rate: profile.defaultRate ?? 0,
+      rateType: profile.defaultRateType === "flat" ? "flat" : "hourly",
+    };
+  }
+
   return (
     <div>
       <AppHeader companyName={company.name} userEmail={user.email} role="manager" logoUrl={company.logoUrl} isOwner={!!user.isOwner} canAccessCalendar={!!user.canAccessCalendar} canAccessStaff={!!user.canAccessStaff} canAccessLog={!!user.canAccessLog} canAccessTeam={!!user.canAccessTeam} canEditSettings={!!user.canEditSettings} />
@@ -223,9 +254,7 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
                 name: addOnNameById.get(a.id) ?? "Add-on",
                 amount: a.amount ?? 0,
               }));
-              const roleMatch = rateByUserRole.get(`${s.user.id}::${s.pos.role}`);
-              const rate = s.inv.rateOverrideAmount ?? (roleMatch ? roleMatch.rate : (s.profile.defaultRate ?? 0));
-              const rateType = s.inv.rateOverrideMode ?? (roleMatch ? roleMatch.rateType : (s.profile.defaultRateType === "flat" ? "flat" : "hourly"));
+              const { rate, rateType } = resolveRate(s.inv, s.pos, s.profile, s.user.id);
               const hours = computeTotalHours(s.inv.clockIn, s.inv.clockOut, s.inv.breakFrom, s.inv.breakTo);
               const baseEarning = rateType === "flat" ? rate : rate * hours;
               const addOnTotal = addOns.reduce((sum, a) => sum + (a.amount ?? 0), 0);
@@ -264,9 +293,7 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
                     </thead>
                     <tbody>
                       {g.shifts.map((s) => {
-                        const roleMatch = rateByUserRole.get(`${s.user.id}::${s.pos.role}`);
-                        const rate = s.inv.rateOverrideAmount ?? (roleMatch ? roleMatch.rate : (s.profile.defaultRate ?? 0));
-                        const rateType = (s.inv.rateOverrideMode ?? (roleMatch ? roleMatch.rateType : (s.profile.defaultRateType === "flat" ? "flat" : "hourly"))) as "flat" | "hourly";
+                        const { rate, rateType } = resolveRate(s.inv, s.pos, s.profile, s.user.id);
                         const addOns = (addOnsByInv.get(s.inv.id) ?? []).map((a) => ({
                           name: addOnNameById.get(a.id) ?? "Add-on",
                           amount: a.amount ?? 0,
