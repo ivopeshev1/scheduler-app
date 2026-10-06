@@ -111,14 +111,19 @@ export default async function ManagerStaffPage() {
               return (
                 <tr key={user.id} className="border-b">
                   <td className="py-3">
-                    {profile ? (
-                      <>
-                        <div className="font-medium">{profile.firstName} {profile.lastName}</div>
-                        <div className="text-xs text-gray-500">{user.email}</div>
-                      </>
-                    ) : (
-                      <em className="text-gray-400">{user.email}</em>
-                    )}
+                    <div className="flex items-center gap-3">
+                      <StaffAvatar firstName={profile?.firstName} lastName={profile?.lastName} email={user.email} />
+                      <div>
+                        {profile ? (
+                          <>
+                            <div className="font-medium">{profile.firstName} {profile.lastName}</div>
+                            <div className="text-xs text-gray-500">{user.email}</div>
+                          </>
+                        ) : (
+                          <em className="text-gray-400">{user.email}</em>
+                        )}
+                      </div>
+                    </div>
                   </td>
                   <td className="py-3">{profile?.position ?? "-"}</td>
                   <td className="py-3">
@@ -171,6 +176,39 @@ export default async function ManagerStaffPage() {
           </tbody>
         </table>
       </main>
+    </div>
+  );
+}
+
+/**
+ * Circular avatar for a staff row. For now shows the staffer's initials
+ * on a soft colored background derived from their name - gives each
+ * person a stable, distinct look at a glance. When upload-your-photo
+ * ships during onboarding, swap in <img src={profile.photoUrl}>.
+ */
+function StaffAvatar({ firstName, lastName, email }: { firstName?: string | null; lastName?: string | null; email: string }) {
+  const first = (firstName ?? "").trim();
+  const last = (lastName ?? "").trim();
+  const initials = (
+    (first[0] ?? "") + (last[0] ?? "")
+  ).toUpperCase() || email[0]?.toUpperCase() || "?";
+  // Pick a consistent hue per person so the same user always gets the
+  // same color across page loads.
+  const seed = (first + last + email).toLowerCase();
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  const hue = hash % 360;
+  const style: React.CSSProperties = {
+    background: `hsl(${hue}, 55%, 85%)`,
+    color: `hsl(${hue}, 45%, 25%)`,
+  };
+  return (
+    <div
+      className="w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm shrink-0"
+      style={style}
+      aria-hidden
+    >
+      {initials}
     </div>
   );
 }
