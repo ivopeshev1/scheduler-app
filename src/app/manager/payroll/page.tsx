@@ -9,6 +9,7 @@ import { computePayPeriod, movePayPeriod, computeTotalHours, type Cadence } from
 import { formatMDY } from "@/lib/format-mdy";
 import { PayrollShiftRow } from "@/components/PayrollShiftRow";
 import { PayrollMarkAllButton } from "@/components/PayrollMarkAllButton";
+import { PayrollReportView, type ReportStaff } from "@/components/PayrollReportView";
 
 /**
  * Server action: save all editable payroll fields for a single shift
@@ -92,7 +93,7 @@ async function markAllPaidAction(formData: FormData) {
   for (const m of monthsToRevalidate) revalidatePath(`/manager/month/${m}`);
 }
 
-export default async function PayrollPage({ searchParams }: { searchParams: { on?: string; filter?: string } }) {
+export default async function PayrollPage({ searchParams }: { searchParams: { on?: string; filter?: string; view?: string } }) {
   const session = await getSession();
   if (!session) redirect("/login");
   if (session.role !== "manager") redirect("/staff");
@@ -183,7 +184,50 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
     .sort((a, b) => a.name.localeCompare(b.name));
 
   // Shared helpers for computed columns on the client row component.
-  const buildHref = (on: string, f: string) => `/manager/payroll?on=${on}&filter=${f}`;
+  const view = searchParams.view === "report" ? "report" : "edit";
+  const buildHref = (on: string, f: string) => `/manager/payroll?on=${on}&filter=${f}&view=${view}`;
+  const buildViewHref = (v: "edit" | "report") => `/manager/payroll?on=${period.start}&filter=${filter}&view=${v}`;
+
+  // Pre-build the report payload for the printable / copyable view.
+  // Mirrors the editable table's calculations exactly.
+  const monthShortNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const reportStaff: ReportStaff[] = groups.map((g) => {
+    let staffTotal = 0;
+    let allPaid = g.shifts.length > 0;
+    const shifts = g.shifts.map((s) => {
+      const { rate, rateType } = resolveRate(s.inv, s.pos, s.profile, s.user.id);
+      const hours = computeTotalHours(s.inv.clockIn, s.inv.clockOut, s.inv.breakFrom, s.inv.breakTo);
+      const baseEarning = rateType === "flat" ? rate : rate * hours;
+      const addOns = (addOnsByInv.get(s.inv.id) ?? []).map((a) => ({
+        name: addOnNameById.get(a.id) ?? "Add-on",
+        amount: a.amount ?? 0,
+      }));
+      const addOnTotal = addOns.reduce((sum, a) => sum + (a.amount ?? 0), 0);
+      const travel = s.inv.travelRate ?? 0;
+      const gratuity = s.inv.gratuity ?? 0;
+      const total = baseEarning + addOnTotal + travel + gratuity;
+      staffTotal += total;
+      if (!s.inv.paidAt) allPaid = false;
+      const [y, mo, d] = s.ev.date.split("-").map(Number);
+      const shortDate = `${monthShortNames[(mo ?? 1) - 1]} ${d ?? 1}`;
+      return {
+        date: formatMDY(s.ev.date),
+        shortDate,
+        event: s.ev.clientName,
+        role: s.pos.role,
+        rate,
+        rateType,
+        hours,
+        earning: baseEarning,
+        addOns,
+        travel,
+        gratuity,
+        total,
+        paid: !!s.inv.paidAt,
+      };
+    });
+    return { name: g.name, shifts, staffTotal, allPaid };
+  });
 
   // Resolve the effective rate + mode for a shift. Priority:
   //   1. Per-invitee custom override on the invitation
@@ -231,20 +275,42 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
           </div>
         </div>
 
-        <div className="flex items-center gap-3 mb-4 text-sm">
-          <span className="text-gray-500">Filter:</span>
-          {(["all", "unpaid", "paid"] as const).map((f) => (
+        <div className="flex items-center justify-between gap-3 mb-4 text-sm print:hidden">
+          <div className="flex items-center gap-3">
+            <span className="text-gray-500">Filter:</span>
+            {(["all", "unpaid", "paid"] as const).map((f) => (
+              <Link
+                key={f}
+                href={buildHref(period.start, f)}
+                className={`px-2 py-1 rounded ${filter === f ? "bg-black text-white" : "text-gray-700 hover:bg-gray-100"}`}
+              >
+                {f[0].toUpperCase() + f.slice(1)}
+              </Link>
+            ))}
+          </div>
+          <div className="inline-flex border rounded overflow-hidden">
             <Link
-              key={f}
-              href={buildHref(period.start, f)}
-              className={`px-2 py-1 rounded ${filter === f ? "bg-black text-white" : "text-gray-700 hover:bg-gray-100"}`}
+              href={buildViewHref("edit")}
+              className={`px-3 py-1 ${view === "edit" ? "bg-black text-white" : "text-gray-700 hover:bg-gray-100"}`}
             >
-              {f[0].toUpperCase() + f.slice(1)}
+              Edit
             </Link>
-          ))}
+            <Link
+              href={buildViewHref("report")}
+              className={`px-3 py-1 border-l ${view === "report" ? "bg-black text-white" : "text-gray-700 hover:bg-gray-100"}`}
+            >
+              Report
+            </Link>
+          </div>
         </div>
 
-        {groups.length === 0 ? (
+        {view === "report" ? (
+          <PayrollReportView
+            periodLabel={`${formatMDY(period.start)} — ${formatMDY(period.end)}`}
+            filterLabel={filter}
+            staff={reportStaff}
+          />
+        ) : groups.length === 0 ? (
           <div className="border rounded-lg p-8 text-center text-gray-500">
             No {filter === "all" ? "" : filter + " "}shifts in this pay period.
           </div>
