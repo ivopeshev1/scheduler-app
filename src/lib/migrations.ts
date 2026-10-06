@@ -148,6 +148,29 @@ export async function runMigrations(): Promise<void> {
     note_html TEXT,
     sent_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`;
+  // Migrate event_beos from one-row-per-event to one-row-per-revision so
+  // the manager can keep a browseable history of every BEO sent on an
+  // event. 'id' becomes the primary key; 'event_id' demotes to a foreign
+  // key with an index. Existing rows get backfilled with id = event_id.
+  await sql`ALTER TABLE event_beos ADD COLUMN IF NOT EXISTS id TEXT`;
+  await sql`UPDATE event_beos SET id = event_id WHERE id IS NULL`;
+  await sql`DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'event_beos_pkey') THEN
+      IF (SELECT array_agg(a.attname::text ORDER BY array_position(c.conkey, a.attnum))
+          FROM pg_constraint c
+          JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+          WHERE c.conname = 'event_beos_pkey') = ARRAY['event_id'] THEN
+        ALTER TABLE event_beos DROP CONSTRAINT event_beos_pkey;
+      END IF;
+    END IF;
+  END $$`;
+  await sql`ALTER TABLE event_beos ALTER COLUMN id SET NOT NULL`;
+  await sql`DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'event_beos_pkey') THEN
+      ALTER TABLE event_beos ADD PRIMARY KEY (id);
+    END IF;
+  END $$`;
+  await sql`CREATE INDEX IF NOT EXISTS event_beos_event_idx ON event_beos(event_id, version)`;
   await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS priority_expire_days INTEGER`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_owner BOOLEAN NOT NULL DEFAULT false`;

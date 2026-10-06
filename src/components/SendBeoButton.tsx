@@ -3,28 +3,29 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
+export type BeoRevision = {
+  id: string;
+  version: number;
+  filename: string;
+  sentAt: string;
+};
+
 export type SendBeoContext = {
-  // Was a BEO already emailed for this event?
-  hasPrevious: boolean;
-  // Filename of the previously-sent BEO (null when hasPrevious is false)
-  lastFilename: string | null;
-  // ISO timestamp of the last send (null when hasPrevious is false)
-  lastSentAt: string | null;
-  // Count of accepted staff on the event
+  // Full revision history for the event, oldest first.
+  revisions: BeoRevision[];
+  // Count of accepted staff on the event.
   totalAccepted: number;
-  // Count of accepted staff who've never been emailed the BEO (new joiners)
+  // Count of accepted staff who've never been emailed a BEO.
   newStaffCount: number;
 };
 
 /**
- * "Send BEO" button for an event card. First time it's clicked the modal
- * asks for a file + optional note and emails every accepted staffer. On
- * subsequent clicks the modal uses the context prop to pick smart
- * defaults:
- *   - Reuse the previously-sent file (checkbox default on) or upload a
- *     new version
- *   - "Who gets this": default to Only new staff when reusing the file,
- *     Everyone (and reset confirmations) when uploading a new file
+ * "Send BEO" button + modal for an event card. Lists every BEO revision
+ * uploaded for the event with per-revision Send and View actions, lets
+ * the manager upload a new revision, and picks recipient mode:
+ *   - Everyone (resets confirmations) - the default for a new upload
+ *   - Only new staff - the default when re-sending an existing revision
+ *     to new joiners
  */
 export function SendBeoButton({
   eventId,
@@ -37,11 +38,18 @@ export function SendBeoButton({
 }) {
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
-  const [reuseLast, setReuseLast] = useState<boolean>(context.hasPrevious);
-  const defaultMode: "all" | "only-new" =
-    context.hasPrevious && context.newStaffCount > 0 && context.newStaffCount < context.totalAccepted
-      ? "only-new"
-      : "all";
+  // Which existing revision is selected (if any). null = uploading new.
+  const [selectedBeoId, setSelectedBeoId] = useState<string | null>(
+    context.revisions[context.revisions.length - 1]?.id ?? null
+  );
+  const defaultMode = (): "all" | "only-new" => {
+    // If there are new joiners to catch up and we're not uploading a new
+    // file, default to only-new. Otherwise everyone.
+    if (!file && selectedBeoId && context.newStaffCount > 0 && context.newStaffCount < context.totalAccepted) {
+      return "only-new";
+    }
+    return "all";
+  };
   const [mode, setMode] = useState<"all" | "only-new">(defaultMode);
   const [result, setResult] = useState<{ ok: boolean; sentTo: number; error?: string } | null>(null);
   const [, startTransition] = useTransition();
@@ -51,26 +59,32 @@ export function SendBeoButton({
   const router = useRouter();
 
   useEffect(() => {
-    if (open && noteRef.current) {
-      noteRef.current.innerHTML = "";
-    }
-    if (open) {
-      // Re-sync defaults each time the modal opens so a fresh accept
-      // between opens flips the recipient radio accordingly.
-      setFile(null);
-      setResult(null);
-      setReuseLast(context.hasPrevious);
-      setMode(defaultMode);
-      if (inputRef.current) inputRef.current.value = "";
-    }
-  }, [open, context.hasPrevious, defaultMode]);
+    if (!open) return;
+    if (noteRef.current) noteRef.current.innerHTML = "";
+    setFile(null);
+    setResult(null);
+    setSelectedBeoId(context.revisions[context.revisions.length - 1]?.id ?? null);
+    setMode(
+      context.revisions.length > 0 && context.newStaffCount > 0 && context.newStaffCount < context.totalAccepted
+        ? "only-new"
+        : "all"
+    );
+    if (inputRef.current) inputRef.current.value = "";
+  }, [open, context]);
 
-  // Picking a new file forces a revision - the previous file is being
-  // superseded, so defaults flip to Everyone + stop reusing.
-  function onFilePicked(f: File | null) {
+  function pickExisting(id: string) {
+    setSelectedBeoId(id);
+    setFile(null);
+    if (inputRef.current) inputRef.current.value = "";
+    // Re-sending an existing one: assume "only new staff" when there are any.
+    setMode(context.newStaffCount > 0 && context.newStaffCount < context.totalAccepted ? "only-new" : "all");
+  }
+
+  function pickNewFile(f: File | null) {
     setFile(f);
     if (f) {
-      setReuseLast(false);
+      setSelectedBeoId(null);
+      // New upload = treat as revision; everyone gets it.
       setMode("all");
     }
   }
@@ -79,28 +93,29 @@ export function SendBeoButton({
     setFile(null);
     if (noteRef.current) noteRef.current.innerHTML = "";
     setResult(null);
-    setReuseLast(context.hasPrevious);
+    setSelectedBeoId(context.revisions[context.revisions.length - 1]?.id ?? null);
     setMode(defaultMode);
     if (inputRef.current) inputRef.current.value = "";
   }
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!file && !reuseLast) return;
+    if (!file && !selectedBeoId) return;
     setPending(true);
     const fd = new FormData();
     fd.set("eventId", eventId);
     fd.set("noteHtml", noteRef.current?.innerHTML ?? "");
     fd.set("mode", mode);
-    fd.set("reuseLast", reuseLast && !file ? "1" : "0");
-    if (file) fd.set("file", file);
+    if (file) {
+      fd.set("file", file);
+    } else if (selectedBeoId) {
+      fd.set("beoId", selectedBeoId);
+    }
     try {
       const r = await action(fd);
       setResult(r);
       if (r.ok) {
-        startTransition(() => {
-          router.refresh();
-        });
+        startTransition(() => router.refresh());
       }
     } catch (err) {
       setResult({ ok: false, sentTo: 0, error: String(err) });
@@ -109,11 +124,7 @@ export function SendBeoButton({
     }
   }
 
-  const lastSentLabel = context.lastSentAt
-    ? new Date(context.lastSentAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })
-    : null;
-
-  const everyoneRadioLabel = `Everyone (${context.totalAccepted}) - resets confirmations`;
+  const everyoneRadioLabel = `Everyone (${context.totalAccepted})${context.revisions.length > 0 ? " - resets confirmations" : ""}`;
   const newStaffRadioLabel = `Only new staff (${context.newStaffCount})`;
   const sendButtonLabel = (() => {
     if (pending) return "Sending…";
@@ -141,9 +152,9 @@ export function SendBeoButton({
               <div>
                 <h3 className="font-semibold text-lg">Send BEO</h3>
                 <p className="text-xs text-gray-500">
-                  {context.hasPrevious
-                    ? `Last BEO sent ${lastSentLabel}. Pick what to send below.`
-                    : "Emailed to every accepted staffer on this event."}
+                  {context.revisions.length === 0
+                    ? "Emailed to every accepted staffer on this event."
+                    : `${context.revisions.length} revision${context.revisions.length === 1 ? "" : "s"} on file. Pick one to re-send or upload a new one.`}
                 </p>
               </div>
               <button
@@ -157,45 +168,60 @@ export function SendBeoButton({
             </div>
 
             <form onSubmit={onSubmit} className="space-y-4">
-              {/* File row: reuse-last toggle (when applicable) + new file picker */}
+              {context.revisions.length > 0 && (
+                <div>
+                  <label className="label">Which BEO to send</label>
+                  <div className="border rounded divide-y">
+                    {context.revisions.map((r) => {
+                      const date = new Date(r.sentAt).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+                      const selected = selectedBeoId === r.id && !file;
+                      return (
+                        <div key={r.id} className={`flex items-center gap-2 px-3 py-2 text-sm ${selected ? "bg-blue-50" : ""}`}>
+                          <label className="flex items-center gap-2 flex-1 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="revision"
+                              checked={selected}
+                              onChange={() => pickExisting(r.id)}
+                              className="w-4 h-4"
+                            />
+                            <span className="font-medium">BEO {r.version}</span>
+                            <span className="text-gray-500 truncate">· {r.filename}</span>
+                            <span className="text-xs text-gray-400 ml-auto">{date}</span>
+                          </label>
+                          <a
+                            href={`/api/beo/${r.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-xs text-blue-600 hover:underline shrink-0"
+                          >
+                            View
+                          </a>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div>
-                <label className="label">BEO file</label>
-                {context.hasPrevious && context.lastFilename && (
-                  <label className="flex items-center gap-2 text-sm mb-2">
-                    <input
-                      type="checkbox"
-                      checked={reuseLast && !file}
-                      onChange={(e) => {
-                        setReuseLast(e.target.checked);
-                        if (e.target.checked) {
-                          setFile(null);
-                          if (inputRef.current) inputRef.current.value = "";
-                        }
-                      }}
-                      className="w-4 h-4"
-                    />
-                    <span>
-                      Reuse last file:{" "}
-                      <span className="font-medium">{context.lastFilename}</span>
-                    </span>
-                  </label>
-                )}
+                <label className="label">
+                  {context.revisions.length === 0 ? "BEO file" : "Or upload a new revision"}
+                </label>
                 <input
                   ref={inputRef}
                   type="file"
                   accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,image/*,application/pdf"
-                  onChange={(e) => onFilePicked(e.target.files?.[0] ?? null)}
+                  onChange={(e) => pickNewFile(e.target.files?.[0] ?? null)}
                   className="block text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded file:border file:border-gray-300 file:bg-white file:text-sm file:text-gray-700 hover:file:bg-gray-50"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  {context.hasPrevious
-                    ? "Upload a new version to send it as a revision, or leave empty to reuse the last file."
-                    : "PDF, Word, Excel, or image. Max 10 MB."}
+                  PDF, Word, Excel, or image. Max 10 MB.
                 </p>
               </div>
 
-              {/* Recipient picker (only meaningful after a first send) */}
-              {context.hasPrevious && (
+              {context.revisions.length > 0 && (
                 <div>
                   <label className="label">Who gets this</label>
                   <div className="space-y-1 text-sm">
@@ -224,7 +250,6 @@ export function SendBeoButton({
                 </div>
               )}
 
-              {/* Rich-text note */}
               <div>
                 <label className="label">Optional note</label>
                 <div
@@ -257,7 +282,7 @@ export function SendBeoButton({
                 </button>
                 <button
                   type="submit"
-                  disabled={(!file && !reuseLast) || pending}
+                  disabled={(!file && !selectedBeoId) || pending}
                   className="btn btn-primary"
                 >
                   {sendButtonLabel}

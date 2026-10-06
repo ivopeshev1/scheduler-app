@@ -205,15 +205,20 @@ export const eventAttachments = pgTable("event_attachments", {
  * every new file upload so invitations.beo_version_sent can tell whether
  * someone was last emailed the current BEO or an older one.
  */
+/**
+ * BEO revisions per event. Each file the manager uploads becomes a new
+ * row with an incremented `version`. The modal lets them re-send any
+ * previous version or view it in a new tab.
+ */
 export const eventBeos = pgTable("event_beos", {
-  eventId: text("event_id").primaryKey().references(() => events.id, { onDelete: "cascade" }),
+  id: text("id").primaryKey(),
+  eventId: text("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
   version: integer("version").notNull().default(1),
   filename: text("filename").notNull(),
   fileSize: integer("file_size").notNull(),
   // Raw base64 payload (no data: prefix). Sent to Resend as the attachment.
   fileData: text("file_data").notNull(),
-  // Sanitized rich-text note from the last send. Prefilled into the modal
-  // the next time the manager opens Send BEO.
+  // Sanitized rich-text note from the send that created this version.
   noteHtml: text("note_html"),
   sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
 });

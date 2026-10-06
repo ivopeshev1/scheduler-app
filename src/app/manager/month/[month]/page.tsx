@@ -46,7 +46,9 @@ async function sendBeoAction(
   // staff whose beo_sent_at is null (new joiners).
   const modeRaw = String(formData.get("mode") ?? "").toLowerCase();
   const mode: "all" | "only-new" = modeRaw === "only-new" ? "only-new" : "all";
-  const reuseLastFile = String(formData.get("reuseLast") ?? "") === "1";
+  // When the manager picks an existing revision to re-send, the modal
+  // passes its id here. Empty = they're uploading a new file (new version).
+  const existingBeoId = String(formData.get("beoId") ?? "").trim();
 
   const [event] = await db.select().from(schema.events).where(eq(schema.events.id, eventId));
   if (!event || event.companyId !== session.companyId) return { ok: false, sentTo: 0, error: "Event not found" };
@@ -55,9 +57,8 @@ async function sendBeoAction(
   const companyName = company?.name ?? "Scheduler";
   const prettyDate = formatDate(event.date);
 
-  const [lastBeo] = await db.select().from(schema.eventBeos).where(eq(schema.eventBeos.eventId, eventId));
-
   // Figure out which file to send and whether it's a new revision.
+  let beoId: string;
   let filename: string;
   let fileSize: number;
   let contentBase64: string;
@@ -67,18 +68,21 @@ async function sendBeoAction(
   const file = formData.get("file");
   const hasNewFile = file instanceof File && file.size > 0;
 
-  if (reuseLastFile && lastBeo && !hasNewFile) {
-    filename = lastBeo.filename;
-    fileSize = lastBeo.fileSize;
-    contentBase64 = lastBeo.fileData;
-    currentVersion = lastBeo.version;
+  if (existingBeoId && !hasNewFile) {
+    const [existing] = await db.select().from(schema.eventBeos).where(eq(schema.eventBeos.id, existingBeoId));
+    if (!existing || existing.eventId !== eventId) {
+      return { ok: false, sentTo: 0, error: "BEO revision not found" };
+    }
+    beoId = existing.id;
+    filename = existing.filename;
+    fileSize = existing.fileSize;
+    contentBase64 = existing.fileData;
+    currentVersion = existing.version;
     isRevision = false;
-    // Overwrite the stored note so re-sends can carry a fresh note
-    // without bumping the file version.
-    if (noteHtml !== (lastBeo.noteHtml ?? "")) {
+    if (noteHtml && noteHtml !== (existing.noteHtml ?? "")) {
       await db.update(schema.eventBeos)
-        .set({ noteHtml: noteHtml || null })
-        .where(eq(schema.eventBeos.eventId, eventId));
+        .set({ noteHtml })
+        .where(eq(schema.eventBeos.id, existing.id));
     }
   } else if (hasNewFile) {
     if ((file as File).size > BEO_MAX_BYTES) return { ok: false, sentTo: 0, error: "File too large (max 10 MB)" };
@@ -88,19 +92,13 @@ async function sendBeoAction(
     contentBase64 = Buffer.from(binary, "binary").toString("base64");
     filename = (file as File).name || "BEO.pdf";
     fileSize = (file as File).size;
-    currentVersion = (lastBeo?.version ?? 0) + 1;
-    isRevision = true;
-    // Upsert the stored BEO. Postgres ON CONFLICT would be nicer but Drizzle's
-    // flow here is simple: delete + insert when the row already exists.
-    if (lastBeo) {
-      await db.update(schema.eventBeos)
-        .set({ version: currentVersion, filename, fileSize, fileData: contentBase64, noteHtml: noteHtml || null, sentAt: new Date() })
-        .where(eq(schema.eventBeos.eventId, eventId));
-    } else {
-      await db.insert(schema.eventBeos).values({
-        eventId, version: currentVersion, filename, fileSize, fileData: contentBase64, noteHtml: noteHtml || null,
-      });
-    }
+    const existingRevs = await db.select().from(schema.eventBeos).where(eq(schema.eventBeos.eventId, eventId));
+    currentVersion = (existingRevs.reduce((m, r) => Math.max(m, r.version), 0)) + 1;
+    isRevision = currentVersion > 1;
+    beoId = nanoid();
+    await db.insert(schema.eventBeos).values({
+      id: beoId, eventId, version: currentVersion, filename, fileSize, fileData: contentBase64, noteHtml: noteHtml || null,
+    });
   } else {
     return { ok: false, sentTo: 0, error: "No BEO file selected" };
   }
@@ -308,10 +306,11 @@ async function EventCard({ event }: { event: typeof schema.events.$inferSelect }
   const positionsList = await db.select().from(schema.positions).where(eq(schema.positions.eventId, event.id));
   const statuses = await Promise.all(positionsList.map((p) => summarizePosition(p.id)));
 
-  // Pre-compute BEO context for the Send BEO modal: has there been a BEO
-  // sent? What's the previous filename? How many staff have never gotten
-  // one? Lets the UI pick smart defaults.
-  const [lastBeo] = await db.select().from(schema.eventBeos).where(eq(schema.eventBeos.eventId, event.id));
+  // Pre-compute BEO context for the Send BEO modal: full revision history
+  // for this event + accepted-staff counts so the UI can show per-revision
+  // Send/View actions and recipient defaults.
+  const beoRevisions = await db.select().from(schema.eventBeos).where(eq(schema.eventBeos.eventId, event.id));
+  beoRevisions.sort((a, b) => a.version - b.version);
   const acceptedInvsForBeo = await db
     .select({ inv: schema.invitations })
     .from(schema.invitations)
@@ -323,9 +322,12 @@ async function EventCard({ event }: { event: typeof schema.events.$inferSelect }
   const totalAccepted = acceptedInvsForBeo.length;
   const newStaffCount = acceptedInvsForBeo.filter((r) => !r.inv.beoSentAt).length;
   const beoContext = {
-    hasPrevious: !!lastBeo,
-    lastFilename: lastBeo?.filename ?? null,
-    lastSentAt: lastBeo?.sentAt ? lastBeo.sentAt.toISOString() : null,
+    revisions: beoRevisions.map((r) => ({
+      id: r.id,
+      version: r.version,
+      filename: r.filename,
+      sentAt: r.sentAt.toISOString(),
+    })),
     totalAccepted,
     newStaffCount,
   };
