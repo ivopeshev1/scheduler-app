@@ -8,7 +8,6 @@ import { StaffRolesEditor } from "@/components/StaffRolesEditor";
 import { revalidatePath } from "next/cache";
 import { nanoid } from "nanoid";
 
-const UNIFORM_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"] as const;
 
 async function saveStaffAction(formData: FormData) {
   "use server";
@@ -44,13 +43,6 @@ async function saveStaffAction(formData: FormData) {
       return [];
     }
   })();
-  const phone = str(formData.get("phone"));
-  const city = str(formData.get("city"));
-  const dateOfBirth = str(formData.get("dateOfBirth"));
-  const uniformSize = str(formData.get("uniformSize"));
-  const emergencyContactName = str(formData.get("emergencyContactName"));
-  const emergencyContactPhone = str(formData.get("emergencyContactPhone"));
-
   if (!firstName || !lastName || !email || roleRows.length === 0) {
     throw new Error("First name, last name, email, and at least one role are required");
   }
@@ -77,12 +69,6 @@ async function saveStaffAction(formData: FormData) {
     position: primary.role,
     defaultRate: primary.rate,
     defaultRateType: primary.rateType,
-    phone,
-    city,
-    dateOfBirth,
-    uniformSize,
-    emergencyContactName,
-    emergencyContactPhone,
   }).where(eq(schema.staffProfiles.userId, userId));
 
   // Replace-style sync of staff_roles. Simplest + safest for a small
@@ -107,7 +93,6 @@ async function saveStaffAction(formData: FormData) {
   redirect("/manager/staff");
 }
 
-function str(v: FormDataEntryValue | null): string | null { const s = (v?.toString() ?? "").trim(); return s || null; }
 function num(v: FormDataEntryValue | null): number | null { const s = v?.toString().trim(); if (!s) return null; const n = Number(s); return Number.isFinite(n) ? n : null; }
 
 export default async function EditStaffPage({ params }: { params: { userId: string } }) {
@@ -181,30 +166,23 @@ export default async function EditStaffPage({ params }: { params: { userId: stri
             <StaffRolesEditor roleOptions={roleOptions} initial={initialRoleRows} />
           </section>
 
-          <section className="pt-6 border-t">
-            <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-3">Personal details</h2>
-            <div className="grid md:grid-cols-2 gap-4">
-              <Field label="Cell phone" name="phone" type="tel" defaultValue={profile.phone ?? ""} />
-              <Field label="City" name="city" defaultValue={profile.city ?? ""} />
-              <div>
-                <label className="label" htmlFor="dateOfBirth">Date of birth</label>
-                <input id="dateOfBirth" name="dateOfBirth" type="date" className="input" defaultValue={profile.dateOfBirth ?? ""} />
-              </div>
-              <div>
-                <label className="label" htmlFor="uniformSize">Uniform size</label>
-                <select id="uniformSize" name="uniformSize" className="input" defaultValue={profile.uniformSize ?? ""}>
-                  <option value="">-</option>
-                  {UNIFORM_SIZES.map((s) => (<option key={s} value={s}>{s}</option>))}
-                  {/* If staff entered a non-standard size in the past, preserve it as an option */}
-                  {profile.uniformSize && !UNIFORM_SIZES.includes(profile.uniformSize as typeof UNIFORM_SIZES[number]) && (
-                    <option value={profile.uniformSize}>{profile.uniformSize}</option>
-                  )}
-                </select>
-              </div>
-              <Field label="Emergency contact name" name="emergencyContactName" defaultValue={profile.emergencyContactName ?? ""} />
-              <Field label="Emergency contact phone" name="emergencyContactPhone" type="tel" defaultValue={profile.emergencyContactPhone ?? ""} />
-            </div>
-          </section>
+          {(profile.phone || profile.city || profile.dateOfBirth || profile.uniformSize || profile.emergencyContactName || profile.emergencyContactPhone) && (
+            <section className="pt-6 border-t">
+              <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-3">Staffer-provided details</h2>
+              <p className="text-sm text-gray-500 mb-3">
+                These were filled in by the staffer during onboarding. Managers can view them but
+                not edit here - the staffer updates them from their own account.
+              </p>
+              <dl className="grid md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                {profile.phone && (<><dt className="text-gray-500">Cell phone</dt><dd>{profile.phone}</dd></>)}
+                {profile.city && (<><dt className="text-gray-500">Current city</dt><dd>{profile.city}</dd></>)}
+                {profile.dateOfBirth && (<><dt className="text-gray-500">Date of birth</dt><dd>{profile.dateOfBirth}</dd></>)}
+                {profile.uniformSize && (<><dt className="text-gray-500">Shirt size</dt><dd>{profile.uniformSize}</dd></>)}
+                {profile.emergencyContactName && (<><dt className="text-gray-500">Emergency contact</dt><dd>{profile.emergencyContactName}</dd></>)}
+                {profile.emergencyContactPhone && (<><dt className="text-gray-500">Emergency phone</dt><dd>{profile.emergencyContactPhone}</dd></>)}
+              </dl>
+            </section>
+          )}
 
           <div className="flex gap-3 pt-6 border-t">
             <button type="submit" className="btn btn-primary">Save changes</button>

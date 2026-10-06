@@ -7,8 +7,6 @@ import { AppHeader } from "@/components/AppHeader";
 import { StaffRolesEditor } from "@/components/StaffRolesEditor";
 import { nanoid } from "nanoid";
 
-const UNIFORM_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"] as const;
-
 async function addStaffAction(formData: FormData) {
   "use server";
   const session = await getSession();
@@ -40,15 +38,6 @@ async function addStaffAction(formData: FormData) {
     }
   })();
 
-  // Optional profile fields - manager can prefill if they already know them,
-  // otherwise staff fills via the invite link.
-  const phone = str(formData.get("phone"));
-  const city = str(formData.get("city"));
-  const dateOfBirth = str(formData.get("dateOfBirth"));
-  const uniformSize = str(formData.get("uniformSize"));
-  const emergencyContactName = str(formData.get("emergencyContactName"));
-  const emergencyContactPhone = str(formData.get("emergencyContactPhone"));
-
   if (!firstName || !lastName || !email || roleRows.length === 0) {
     throw new Error("First name, last name, email, and at least one role are required");
   }
@@ -71,6 +60,10 @@ async function addStaffAction(formData: FormData) {
     inviteToken,
   });
 
+  // Manager-side onboarding only captures what's needed to send the
+  // invite email. Phone, DOB, shirt size, emergency contact, and the
+  // rest of the personal details are filled in by the staffer when
+  // they accept their invite - we leave those columns null.
   await db.insert(schema.staffProfiles).values({
     userId,
     firstName,
@@ -78,12 +71,6 @@ async function addStaffAction(formData: FormData) {
     position: primary.role,
     defaultRate: primary.rate,
     defaultRateType: primary.rateType,
-    phone,
-    city,
-    dateOfBirth,
-    uniformSize,
-    emergencyContactName,
-    emergencyContactPhone,
   });
 
   // Dedupe + persist every role the manager configured. Primary already
@@ -103,8 +90,6 @@ async function addStaffAction(formData: FormData) {
 
   redirect("/manager/staff");
 }
-
-function str(v: FormDataEntryValue | null): string | null { const s = (v?.toString() ?? "").trim(); return s || null; }
 
 export default async function AddStaffPage() {
   const session = await getSession();
@@ -132,13 +117,13 @@ export default async function AddStaffPage() {
         <Link href="/manager/staff" className="text-sm text-gray-500 hover:underline">← Back to staff</Link>
         <h1 className="text-2xl font-semibold mt-2 mb-2">Add staff member</h1>
         <p className="text-sm text-gray-600 mb-6">
-          Fields below the divider are optional - fill in what you already know; anything left blank
-          the staff member can complete themselves via the invite link.
+          Just the basics to send the invite. Phone, address, emergency contact, shirt size and the
+          rest will be filled in by the staffer when they accept their invite.
         </p>
 
         <form action={addStaffAction} className="space-y-4">
           <section>
-            <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-3">Required</h2>
+            <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-3">Basics</h2>
             <div className="grid md:grid-cols-2 gap-4">
               <Field label="First name (as on tax docs)" name="firstName" required />
               <Field label="Last name (as on tax docs)" name="lastName" required />
@@ -153,27 +138,6 @@ export default async function AddStaffPage() {
               a given position, the system uses the matching role&apos;s rate automatically.
             </p>
             <StaffRolesEditor roleOptions={roleOptions} initial={[]} />
-          </section>
-
-          <section className="pt-6 border-t">
-            <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-3">Personal details (optional)</h2>
-            <div className="grid md:grid-cols-2 gap-4">
-              <Field label="Cell phone" name="phone" type="tel" />
-              <Field label="City" name="city" />
-              <div>
-                <label className="label" htmlFor="dateOfBirth">Date of birth</label>
-                <input id="dateOfBirth" name="dateOfBirth" type="date" className="input" />
-              </div>
-              <div>
-                <label className="label" htmlFor="uniformSize">Uniform size</label>
-                <select id="uniformSize" name="uniformSize" className="input" defaultValue="">
-                  <option value="">-</option>
-                  {UNIFORM_SIZES.map((s) => (<option key={s} value={s}>{s}</option>))}
-                </select>
-              </div>
-              <Field label="Emergency contact name" name="emergencyContactName" />
-              <Field label="Emergency contact phone" name="emergencyContactPhone" type="tel" />
-            </div>
           </section>
 
           <div className="flex gap-3 pt-4 border-t">
