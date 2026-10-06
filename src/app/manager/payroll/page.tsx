@@ -6,6 +6,7 @@ import { eq, and } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { revalidatePath } from "next/cache";
 import { computePayPeriod, movePayPeriod, computeTotalHours, type Cadence } from "@/lib/pay-period";
+import { formatMDY } from "@/lib/format-mdy";
 import { PayrollShiftRow } from "@/components/PayrollShiftRow";
 
 /**
@@ -126,7 +127,7 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
     .innerJoin(schema.users, eq(schema.invitations.userId, schema.users.id))
     .innerJoin(schema.staffProfiles, eq(schema.users.id, schema.staffProfiles.userId));
 
-  const filter = searchParams.filter === "paid" ? "paid" : searchParams.filter === "all" ? "all" : "unpaid";
+  const filter = searchParams.filter === "unpaid" ? "unpaid" : searchParams.filter === "paid" ? "paid" : "all";
   const inPeriod = rows.filter((r) => {
     if (r.ev.companyId !== session.companyId) return false;
     if (r.inv.status !== "accepted") return false;
@@ -189,7 +190,7 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
           <div className="flex items-center gap-2">
             <Link href={buildHref(prevPeriod.start, filter)} className="btn btn-secondary text-sm">← Prev</Link>
             <div className="text-sm font-medium px-3">
-              {period.start} — {period.end}
+              {formatMDY(period.start)} — {formatMDY(period.end)}
             </div>
             <Link href={buildHref(nextPeriod.start, filter)} className="btn btn-secondary text-sm">Next →</Link>
           </div>
@@ -197,7 +198,7 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
 
         <div className="flex items-center gap-3 mb-4 text-sm">
           <span className="text-gray-500">Filter:</span>
-          {(["unpaid", "paid", "all"] as const).map((f) => (
+          {(["all", "unpaid", "paid"] as const).map((f) => (
             <Link
               key={f}
               href={buildHref(period.start, f)}
@@ -247,9 +248,7 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
                     <thead className="bg-white border-b">
                       <tr className="text-left text-gray-500 uppercase">
                         <th className="px-3 py-2">Date</th>
-                        <th className="px-3 py-2">Event</th>
-                        <th className="px-3 py-2">Role</th>
-                        <th className="px-3 py-2">Rate</th>
+                        <th className="px-3 py-2">Shift</th>
                         <th className="px-3 py-2">Clock in</th>
                         <th className="px-3 py-2">Clock out</th>
                         <th className="px-3 py-2">Break from</th>

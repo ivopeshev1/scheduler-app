@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { computeTotalHours } from "@/lib/pay-period";
+import { formatMDY } from "@/lib/format-mdy";
 
 /**
  * One editable row on the Payroll tab. Lets the manager type clock
@@ -103,11 +104,13 @@ export function PayrollShiftRow({
 
   return (
     <tr className={savedPaidAt ? "bg-green-50/60" : ""}>
-      <td className={flatCellClass}>{date}</td>
-      <td className={flatCellClass}>{eventName}</td>
-      <td className={flatCellClass}>{role}</td>
+      <td className={flatCellClass}>{formatMDY(date)}</td>
       <td className={flatCellClass}>
-        ${rate}{rateType === "hourly" ? "/hr" : " flat"}
+        <div className="flex flex-col leading-tight">
+          <span className="font-medium">{eventName}</span>
+          <span className="text-gray-600">{role}</span>
+          <span className="text-gray-500">${rate}{rateType === "hourly" ? "/hr" : " flat"}</span>
+        </div>
       </td>
       <td className={flatCellClass}>{timeInput(clockIn, setClockIn, rateType === "flat")}</td>
       <td className={flatCellClass}>{timeInput(clockOut, setClockOut, rateType === "flat")}</td>
@@ -135,18 +138,30 @@ export function PayrollShiftRow({
       </td>
       <td className={`${flatCellClass} font-semibold`}>${total.toFixed(2)}</td>
       <td className={flatCellClass}>
-        <label className="inline-flex items-center gap-1 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={!!savedPaidAt}
-            onChange={togglePaid}
-            disabled={pending}
-            className="w-4 h-4"
-          />
+        <button
+          type="button"
+          onClick={togglePaid}
+          disabled={pending}
+          role="switch"
+          aria-checked={!!savedPaidAt}
+          className={`inline-flex items-center gap-2 group`}
+          title={savedPaidAt ? "Click to mark unpaid" : "Click to mark paid"}
+        >
+          <span
+            className={`relative inline-block w-9 h-5 rounded-full transition-colors ${
+              savedPaidAt ? "bg-green-500" : "bg-gray-300"
+            } ${pending ? "opacity-60" : ""}`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                savedPaidAt ? "translate-x-4" : ""
+              }`}
+            />
+          </span>
           <span className={savedPaidAt ? "text-green-700 text-xs font-semibold" : "text-gray-500 text-xs"}>
             {savedPaidAt ? "Paid" : "Unpaid"}
           </span>
-        </label>
+        </button>
       </td>
     </tr>
   );
