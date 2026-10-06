@@ -15,6 +15,10 @@ export const companies = pgTable("companies", {
   // these two together to compute Prev/Next period boundaries.
   payPeriodCadence: text("pay_period_cadence", { enum: ["weekly", "biweekly", "monthly"] }).default("weekly"),
   payPeriodAnchor: text("pay_period_anchor"),
+  // Flat fee a company pays for every on-call standby slot, regardless
+  // of whether the staffer actually gets activated. Covers "thanks for
+  // keeping Saturday night free" pay. NULL = no on-call support set up.
+  onCallFee: real("on_call_fee"),
   // Blob of opt-in channel + frequency settings for every notification type
   // that can be sent to staff or to the manager. Shape is defined by
   // NotificationSettings in src/lib/notification-settings.ts. NULL means
@@ -335,6 +339,12 @@ export const invitations = pgTable(
     // When set, this shift has been marked paid. Null = unpaid. Turns the
     // staffer's name green on the calendar + marks the row Paid in Payroll.
     paidAt: timestamp("paid_at", { withTimezone: true }),
+    // Standby invitation. When true this invitee is on-call for the
+    // shift: they're paid the company on-call fee no matter what, and
+    // the manager can click Activate on the event page to promote them
+    // into a real slot if someone else bails. Tier is irrelevant when
+    // isOnCall is true - they skip the backup cascade.
+    isOnCall: boolean("is_on_call").notNull().default(false),
   },
   (t) => ({
     positionTierIdx: index("invitations_position_tier_idx").on(t.positionId, t.tier),

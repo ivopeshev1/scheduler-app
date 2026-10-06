@@ -22,6 +22,9 @@ export type StaffOption = {
   // Per-invitee rate override already stored on THIS invitation, if any
   currentRateOverrideAmount: number | null;
   currentRateOverrideMode: "flat" | "hourly" | null;
+  // True when this staffer is currently invited as an on-call standby
+  // rather than a tier-based priority / backup.
+  currentIsOnCall: boolean;
   // If set, this staff member is already invited/accepted elsewhere - show but make un-selectable
   busyWith: { eventDate: string; clientName: string; role: string } | null;
 };
@@ -54,15 +57,21 @@ type Props = {
 };
 
 const TIER_LABELS = ["Priority", "Backup 1", "Backup 2", "Backup 3"] as const;
+// Sentinel value used for the "On call" option in the tier dropdown.
+// Stored on the invitation as isOnCall=true instead of a tier number.
+const ON_CALL_SENTINEL = -1;
 
 export function StaffPicker({ positionId, eventId, role, needed, mode, staff, onSave, companyAddOns, currentAddOnsByUserId }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [cityFilter, setCityFilter] = useState<string>("all");
+  // Selection value per staffer: null = not invited, 0-3 = tier, -1 (ON_CALL_SENTINEL) = on call.
   const [selections, setSelections] = useState<Record<string, number | null>>(() => {
     const init: Record<string, number | null> = {};
-    for (const s of staff) init[s.userId] = s.currentTier;
+    for (const s of staff) {
+      init[s.userId] = s.currentIsOnCall ? ON_CALL_SENTINEL : s.currentTier;
+    }
     return init;
   });
   // Per-invitee travel rate, keyed by userId. "" or undefined = no travel.
@@ -126,7 +135,7 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
     const nextRateOverrides: Record<string, { amount: string; mode: "flat" | "hourly" }> = {};
     const nextRateOverrideChecked: Record<string, boolean> = {};
     for (const s of staff) {
-      nextSel[s.userId] = s.currentTier;
+      nextSel[s.userId] = s.currentIsOnCall ? ON_CALL_SENTINEL : s.currentTier;
       nextTravel[s.userId] = s.currentTravelRate != null ? String(s.currentTravelRate) : "";
       nextTravelChecked[s.userId] = s.currentTravelRate != null;
       const m = new Map<string, string>();
@@ -179,6 +188,7 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
 
   const invitedCount = Object.values(selections).filter((t) => t !== null && t !== undefined).length;
   const priorityCount = Object.values(selections).filter((t) => t === 0).length;
+  const onCallCount = Object.values(selections).filter((t) => t === ON_CALL_SENTINEL).length;
 
   return (
     <div className="relative inline-block" ref={containerRef}>
@@ -187,7 +197,7 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
         onClick={() => setOpen((v) => !v)}
         className="input text-left flex items-center justify-between gap-2 min-w-[220px]"
       >
-        <span>{invitedCount === 0 ? "Invite staff…" : `${invitedCount} invited (${priorityCount} priority)`}</span>
+        <span>{invitedCount === 0 ? "Invite staff…" : `${invitedCount} invited (${priorityCount} priority${onCallCount > 0 ? `, ${onCallCount} on call` : ""})`}</span>
         <span className="text-gray-400">▾</span>
       </button>
 
@@ -397,6 +407,7 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                         {TIER_LABELS.map((label, i) => (
                           <option key={i} value={i}>{label}</option>
                         ))}
+                        <option value={ON_CALL_SENTINEL}>On call</option>
                       </select>
                     </div>
                   </label>

@@ -133,13 +133,17 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
     .innerJoin(schema.staffProfiles, eq(schema.users.id, schema.staffProfiles.userId));
 
   const filter = searchParams.filter === "unpaid" ? "unpaid" : searchParams.filter === "paid" ? "paid" : "all";
+  // Include accepted shifts AND on-call standby invitations - both
+  // generate payroll owed to the staffer within the pay period.
   const inPeriod = rows.filter((r) => {
     if (r.ev.companyId !== session.companyId) return false;
-    if (r.inv.status !== "accepted") return false;
+    const eligible = r.inv.status === "accepted" || r.inv.isOnCall;
+    if (!eligible) return false;
     if (r.ev.cancelledAt) return false;
     const d = r.ev.date;
     return d >= period.start && d <= period.end;
   });
+  const onCallFee = company.onCallFee ?? 0;
   const visible = inPeriod.filter((r) => {
     if (filter === "unpaid") return !r.inv.paidAt;
     if (filter === "paid") return !!r.inv.paidAt;
@@ -330,7 +334,11 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
               }));
               const { rate, rateType } = resolveRate(s.inv, s.pos, s.profile, s.user.id);
               const hours = computeTotalHours(s.inv.clockIn, s.inv.clockOut, s.inv.breakFrom, s.inv.breakTo);
-              const baseEarning = rateType === "flat" ? rate : rate * hours;
+              // On-call shifts pay the standby fee no matter what; if
+              // the person was activated into a real slot their regular
+              // earning stacks on top of the fee.
+              const standby = s.inv.isOnCall ? onCallFee : 0;
+              const baseEarning = s.inv.isOnCall ? standby : (rateType === "flat" ? rate : rate * hours);
               const addOnTotal = addOns.reduce((sum, a) => sum + (a.amount ?? 0), 0);
               const travel = s.inv.travelRate ?? 0;
               const gratuity = s.inv.gratuity ?? 0;

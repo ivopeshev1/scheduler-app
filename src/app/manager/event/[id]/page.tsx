@@ -77,8 +77,12 @@ async function saveInvitations(formData: FormData) {
     );
   }
 
+  // StaffPicker encodes "On call" as the sentinel value -1 in selections.
+  const ON_CALL_SENTINEL = -1;
   for (const [userId, tierRaw] of Object.entries(selections)) {
-    const tier = tierRaw === null || tierRaw === undefined ? null : Number(tierRaw);
+    const raw = tierRaw === null || tierRaw === undefined ? null : Number(tierRaw);
+    const isOnCall = raw === ON_CALL_SENTINEL;
+    const tier = isOnCall ? 0 : raw; // store tier=0 for on-call rows; isOnCall carries the real meaning
     const current = existing.find((e) => e.userId === userId);
 
     if (tier === null) {
@@ -156,7 +160,8 @@ async function saveInvitations(formData: FormData) {
         // Can still change tier on unsent drafts
         await db.update(schema.invitations)
           .set({
-            tier,
+            tier: tier ?? 0,
+            isOnCall,
             travelRate: newTravel,
             rateOverrideAmount: nextOverrideAmount,
             rateOverrideMode: nextOverrideMode,
@@ -179,7 +184,8 @@ async function saveInvitations(formData: FormData) {
         id: nanoid(),
         positionId,
         userId,
-        tier,
+        tier: tier ?? 0,
+        isOnCall,
         status: "pending",
         sentAt: null,
         token: nanoid(32),
@@ -216,6 +222,42 @@ async function saveInvitations(formData: FormData) {
  * Fire all pending PRIORITY (tier 0) invitations that haven't been sent yet.
  * Backup tiers stay unsent until cascaded.
  */
+/**
+ * Promote an on-call standby invitation into an accepted slot. Binds
+ * the on-call invitee to the first open slot on their position, flips
+ * their status to accepted, and clears isOnCall. Called from the
+ * "Activate" button on the event roster.
+ */
+async function activateOnCallAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "manager") throw new Error("Unauthorized");
+  const invitationId = String(formData.get("invitationId"));
+  const [inv] = await db.select().from(schema.invitations).where(eq(schema.invitations.id, invitationId));
+  if (!inv || !inv.isOnCall) throw new Error("Not an on-call invitation");
+  const [pos] = await db.select().from(schema.positions).where(eq(schema.positions.id, inv.positionId));
+  if (!pos) throw new Error("Position not found");
+  const [event] = await db.select().from(schema.events).where(eq(schema.events.id, pos.eventId));
+  if (!event || event.companyId !== session.companyId) throw new Error("Not found");
+
+  // Find the first open slot on this position.
+  const slots = await db.select().from(schema.slots).where(eq(schema.slots.positionId, pos.id)).orderBy(schema.slots.index);
+  const openSlot = slots.find((s) => !s.acceptedUserId);
+  if (!openSlot) {
+    // No slot available - just flip isOnCall off; manager will handle manually.
+    await db.update(schema.invitations).set({ isOnCall: false }).where(eq(schema.invitations.id, invitationId));
+  } else {
+    await db.update(schema.slots)
+      .set({ acceptedUserId: inv.userId, acceptedAt: new Date() })
+      .where(eq(schema.slots.id, openSlot.id));
+    await db.update(schema.invitations)
+      .set({ status: "accepted", respondedAt: new Date(), slotId: openSlot.id, isOnCall: false })
+      .where(eq(schema.invitations.id, invitationId));
+  }
+  revalidatePath(`/manager/event/${event.id}`);
+  revalidatePath(`/manager/month/${event.date.slice(0, 7)}`);
+}
+
 async function cancelEventAction(formData: FormData) {
   "use server";
   const session = await getSession();
@@ -619,6 +661,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
         currentTravelRate: inv ? inv.travelRate ?? null : null,
         currentRateOverrideAmount: inv ? inv.rateOverrideAmount ?? null : null,
         currentRateOverrideMode: inv ? inv.rateOverrideMode ?? null : null,
+        currentIsOnCall: inv ? !!inv.isOnCall : false,
         busyWith,
       };
     });
@@ -745,6 +788,31 @@ export default async function EventDetailPage({ params }: { params: { id: string
                         : (<div className={s.state === "pending" ? "status-pending" : "status-confirmed"}>{s.label}</div>)
                       }
                       {s.subLabel && (<div className="text-xs text-gray-400 font-normal">{s.subLabel}</div>)}
+                      {s.onCallLines && s.onCallLines.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-dashed border-gray-200">
+                          {(() => {
+                            const onCallInvs = (invitesByPosition[p.id] ?? []).filter((inv) => inv.isOnCall && inv.status !== "rejected" && inv.status !== "expired");
+                            return onCallInvs.map((inv) => {
+                              const line = s.onCallLines!.find((l) => l.text === "" ) ?? null; // placeholder; real lookup below
+                              return (
+                                <div key={inv.id} className="flex items-center gap-2">
+                                  <span className={`italic text-sm ${inv.paidAt ? "text-green-600 font-semibold" : "text-gray-500"}`}>
+                                    On call: {s.onCallLines![onCallInvs.indexOf(inv)]?.text ?? ""}
+                                  </span>
+                                  {inv.status !== "accepted" && (
+                                    <form action={activateOnCallAction}>
+                                      <input type="hidden" name="invitationId" value={inv.id} />
+                                      <button type="submit" className="text-xs text-blue-600 hover:underline">
+                                        Activate ▸
+                                      </button>
+                                    </form>
+                                  )}
+                                </div>
+                              );
+                            });
+                          })()}
+                        </div>
+                      )}
                     </td>
                     <td className="py-3 text-sm">
                       {primaryInvs.length === 0 ? (

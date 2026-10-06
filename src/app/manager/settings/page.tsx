@@ -111,6 +111,24 @@ async function saveNotificationSettingsAction(payload: {
  * that into a canonical YYYY-MM-DD anchor so the pay-period math
  * stays simple.
  */
+/**
+ * Save the company-wide on-call standby fee. Flat dollar amount paid
+ * to any on-call staffer for keeping a shift free, whether or not
+ * they're ultimately activated.
+ */
+async function saveOnCallFeeAction(formData: FormData) {
+  "use server";
+  const { session } = await requireSettingsAccess();
+  const raw = String(formData.get("onCallFee") ?? "").trim();
+  const n = Number(raw);
+  const fee = raw === "" ? null : (Number.isFinite(n) && n >= 0 ? n : null);
+  await db.update(schema.companies)
+    .set({ onCallFee: fee })
+    .where(eq(schema.companies.id, session.companyId));
+  revalidatePath("/manager/settings");
+  redirect("/manager/settings?saved=on-call-fee");
+}
+
 async function savePayPeriodAction(formData: FormData) {
   "use server";
   const { session } = await requireSettingsAccess();
@@ -620,6 +638,31 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
               {rolesErrorMsg}
             </div>
           )}
+        </section>
+
+        {/* -------------------- On-call standby fee -------------------- */}
+        <section className="border rounded-lg bg-white p-6">
+          <h2 className="text-lg font-semibold mb-1">On-call standby fee</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Flat $ amount paid to any on-call staffer for keeping their calendar open, regardless
+            of whether they&apos;re activated into the shift. Leave blank to disable on-call.
+          </p>
+          <form action={saveOnCallFeeAction} className="flex items-end gap-3 max-w-xs">
+            <div className="flex-1">
+              <label className="label" htmlFor="onCallFee">Standby fee ($)</label>
+              <input
+                id="onCallFee"
+                name="onCallFee"
+                type="number"
+                min={0}
+                step="0.01"
+                defaultValue={company.onCallFee ?? ""}
+                className="input"
+                placeholder="e.g. 50"
+              />
+            </div>
+            <button type="submit" className="btn btn-secondary">Save</button>
+          </form>
         </section>
 
         {/* -------------------- Pay period -------------------- */}

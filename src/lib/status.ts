@@ -29,6 +29,13 @@ export type PositionStatus = {
   // staff names. undefined = no invites yet / all confirmed, so nothing
   // extra is shown.
   sendIndicator?: "Invited" | "Invitation not sent";
+  // Separate list of on-call standby invitees for this position.
+  // Rendered beneath the main roster in italic gray.
+  onCallLines?: Array<{
+    text: string;
+    state: "pending" | "confirmed";
+    paid?: boolean;
+  }>;
 };
 
 /**
@@ -51,8 +58,13 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
 
   const total = slotRows.length;
   const filled = slotRows.filter((s) => s.acceptedUserId).length;
-  const sentPendingInvites = invites.filter((i) => i.status === "pending" && i.sentAt);
-  const draftInvites = invites.filter((i) => i.status === "pending" && !i.sentAt);
+  // On-call invites live outside the tier/slot system - split them out
+  // so they don't contaminate the "Invited" counts and the picker /
+  // calendar can render them separately.
+  const regularInvites = invites.filter((i) => !i.isOnCall);
+  const onCallInvites = invites.filter((i) => i.isOnCall && i.status !== "rejected" && i.status !== "expired");
+  const sentPendingInvites = regularInvites.filter((i) => i.status === "pending" && i.sentAt);
+  const draftInvites = regularInvites.filter((i) => i.status === "pending" && !i.sentAt);
   const invited = sentPendingInvites.length;
   const drafted = draftInvites.length;
   // Split drafts into priority (tier 0) and backups (tier > 0) so the manager
@@ -71,6 +83,17 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
     const full = `${p.firstName ?? ""} ${p.lastName ?? ""}`.trim();
     return full || "?";
   }
+
+  // Precompute on-call lines once - every return path spreads them in.
+  const onCallLines: Array<{ text: string; state: "pending" | "confirmed"; paid?: boolean }> = [];
+  for (const inv of onCallInvites) {
+    onCallLines.push({
+      text: await firstNameOf(inv.userId),
+      state: inv.status === "accepted" ? "confirmed" : "pending",
+      paid: !!inv.paidAt,
+    });
+  }
+  const onCallField = onCallLines.length > 0 ? onCallLines : undefined;
 
   // "+N backups invited" rendered on its own line beneath the primary name
   // so the roster emphasizes who's on the invite, not the backup count.
@@ -123,32 +146,33 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
         label: name,
         lines: [{ text: name, state: "confirmed", beo, paid }],
         state: "confirmed",
+        onCallLines: onCallField,
       };
     }
     // Prefer the sent priority invite's name
     if (invited === 1) {
-      return { label: await firstNameOf(sentPendingInvites[0].userId), subLabel: backupSubLabel(), state: "pending", sendIndicator };
+      return { label: await firstNameOf(sentPendingInvites[0].userId), subLabel: backupSubLabel(), state: "pending", sendIndicator, onCallLines: onCallField };
     }
     // Multiple priority invites competing (e.g. backups auto-promoted after
     // a rejection) - don't pick one name, call it what it is.
     if (invited > 1) {
-      return { label: `Open to ${invited} backups`, state: "pending", sendIndicator };
+      return { label: `Open to ${invited} backups`, state: "pending", sendIndicator, onCallLines: onCallField };
     }
     // Nothing sent yet - a priority draft still shows as the primary name
     if (priorityDrafts.length === 1) {
-      return { label: await firstNameOf(priorityDrafts[0].userId), subLabel: backupSubLabel(), state: "pending", sendIndicator };
+      return { label: await firstNameOf(priorityDrafts[0].userId), subLabel: backupSubLabel(), state: "pending", sendIndicator, onCallLines: onCallField };
     }
     if (priorityDrafts.length > 1) {
-      return { label: `Open to ${priorityDrafts.length} backups`, state: "pending", sendIndicator };
+      return { label: `Open to ${priorityDrafts.length} backups`, state: "pending", sendIndicator, onCallLines: onCallField };
     }
     // No priority at all, only backups queued
     if (backupDrafts.length === 1) {
-      return { label: `${await firstNameOf(backupDrafts[0].userId)} (backup)`, state: "pending" };
+      return { label: `${await firstNameOf(backupDrafts[0].userId)} (backup)`, state: "pending", onCallLines: onCallField };
     }
     if (backupDrafts.length > 1) {
-      return { label: `${backupDrafts.length} Backups`, state: "pending" };
+      return { label: `${backupDrafts.length} Backups`, state: "pending", onCallLines: onCallField };
     }
-    return { label: "Open", state: "pending" };
+    return { label: "Open", state: "pending", onCallLines: onCallField };
   }
 
   // Multi-slot - render one line per slot, name-first, same style as the
@@ -178,5 +202,6 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
     subLabel: backupSubLabel(),
     state: allConfirmed ? "confirmed" : "pending",
     sendIndicator,
+    onCallLines: onCallField,
   };
 }

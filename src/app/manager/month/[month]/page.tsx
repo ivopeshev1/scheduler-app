@@ -416,6 +416,15 @@ async function EventCard({ event }: { event: typeof schema.events.$inferSelect }
                     )
                   }
                   {s.subLabel && (<div className="text-xs text-gray-400 font-normal">{s.subLabel}</div>)}
+                  {s.onCallLines && s.onCallLines.length > 0 && (
+                    <div className="mt-1 pt-1 border-t border-dashed border-gray-200">
+                      {s.onCallLines.map((ln, idx) => (
+                        <div key={idx} className={`italic text-xs ${ln.paid ? "text-green-600 font-semibold" : "text-gray-500"}`}>
+                          On call: {ln.text}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </td>
               </tr>
             );
