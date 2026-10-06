@@ -38,7 +38,7 @@ export function SendBeoButton({
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   // When true, show the file picker in place of the Send New File button.
-  const [showUpload, setShowUpload] = useState(context.revisions.length === 0);
+  const [showUpload, setShowUpload] = useState(false);
   const defaultMode: "all" | "only-new" =
     context.revisions.length > 0 && context.newStaffCount > 0 && context.newStaffCount < context.totalAccepted
       ? "only-new"
@@ -47,6 +47,8 @@ export function SendBeoButton({
   const [result, setResult] = useState<{ ok: boolean; sentTo: number; error?: string } | null>(null);
   const [, startTransition] = useTransition();
   const [pending, setPending] = useState<string | "new" | null>(null);
+  // Which action is pending user confirmation (null = none in-flight)
+  const [confirm, setConfirm] = useState<{ beoId?: string; useFile?: boolean; label: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const noteRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -56,7 +58,8 @@ export function SendBeoButton({
     if (noteRef.current) noteRef.current.innerHTML = "";
     setFile(null);
     setResult(null);
-    setShowUpload(context.revisions.length === 0);
+    setShowUpload(false);
+    setConfirm(null);
     setMode(defaultMode);
     if (inputRef.current) inputRef.current.value = "";
   }, [open, context, defaultMode]);
@@ -64,6 +67,7 @@ export function SendBeoButton({
   async function send(opts: { beoId?: string; useFile?: boolean }) {
     if (opts.useFile && !file) return;
     setPending(opts.useFile ? "new" : opts.beoId ?? null);
+    setConfirm(null);
     setResult(null);
     const fd = new FormData();
     fd.set("eventId", eventId);
@@ -83,6 +87,18 @@ export function SendBeoButton({
     } finally {
       setPending(null);
     }
+  }
+
+  // Build the confirmation sentence shown before any send actually fires.
+  function confirmLine(opts: { label: string; recipientCount: number; isNewFile: boolean }): string {
+    if (opts.recipientCount === 0) return "No recipients.";
+    if (opts.isNewFile) {
+      return `This will send the new BEO to ALL ${opts.recipientCount} accepted staff. Previous confirmations will reset to 'BEO sent' until each person confirms again.`;
+    }
+    if (mode === "only-new") {
+      return `This will send ${opts.label} to the ${opts.recipientCount} staff who haven't received it yet. Confirmations from others stay as 'BEO received'.`;
+    }
+    return `This will re-send ${opts.label} to ALL ${opts.recipientCount} accepted staff and reset their confirmations.`;
   }
 
   function reset() {
@@ -188,7 +204,7 @@ export function SendBeoButton({
                         <div key={r.id} className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => send({ beoId: r.id })}
+                            onClick={() => setConfirm({ beoId: r.id, label: `BEO ${r.version}` })}
                             disabled={pending !== null || recipientCount === 0}
                             className="btn btn-primary flex-1 justify-between text-left text-sm"
                           >
@@ -214,7 +230,7 @@ export function SendBeoButton({
                 </div>
               )}
 
-              {/* New file flow - button on first click reveals the picker */}
+              {/* New file flow - button reveals the picker on first click */}
               <div>
                 {!showUpload ? (
                   <button
@@ -223,7 +239,7 @@ export function SendBeoButton({
                     className="btn btn-secondary w-full"
                     disabled={pending !== null}
                   >
-                    Send New File (BEO {context.revisions.length + 1})
+                    {context.revisions.length === 0 ? "Send BEO (choose file)" : `Send New File (BEO ${context.revisions.length + 1})`}
                   </button>
                 ) : (
                   <>
@@ -242,8 +258,8 @@ export function SendBeoButton({
                     </p>
                     <button
                       type="button"
-                      onClick={() => send({ useFile: true })}
-                      disabled={!file || pending !== null || recipientCount === 0}
+                      onClick={() => setConfirm({ useFile: true, label: context.revisions.length === 0 ? "the BEO" : `BEO ${context.revisions.length + 1}` })}
+                      disabled={!file || pending !== null || context.totalAccepted === 0}
                       className="btn btn-primary w-full mt-2 justify-between text-left text-sm"
                     >
                       <span className="font-semibold">
@@ -251,11 +267,34 @@ export function SendBeoButton({
                           ? "Sending…"
                           : `Send New File${context.revisions.length > 0 ? ` (BEO ${context.revisions.length + 1})` : ""}`}
                       </span>
-                      <span className="opacity-70 text-xs">→ {recipientCount}</span>
+                      <span className="opacity-70 text-xs">→ {context.totalAccepted}</span>
                     </button>
                   </>
                 )}
               </div>
+
+              {confirm && (() => {
+                const rc = confirm.useFile ? context.totalAccepted : recipientCount;
+                const line = confirmLine({ label: confirm.label, recipientCount: rc, isNewFile: !!confirm.useFile });
+                return (
+                  <div className="rounded border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                    <p className="mb-2">{line}</p>
+                    <div className="flex items-center justify-end gap-2">
+                      <button type="button" onClick={() => setConfirm(null)} className="btn btn-secondary">
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => send({ beoId: confirm.beoId, useFile: confirm.useFile })}
+                        disabled={pending !== null || rc === 0}
+                        className="btn btn-primary"
+                      >
+                        Yes, send
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {result && (
                 <div className={`text-sm rounded px-3 py-2 ${result.ok ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
