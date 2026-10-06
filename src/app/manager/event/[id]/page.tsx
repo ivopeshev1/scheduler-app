@@ -682,19 +682,19 @@ export default async function EventDetailPage({ params }: { params: { id: string
                           const rateLine = inv.rateOverrideAmount != null
                             ? `$${inv.rateOverrideAmount}${inv.rateOverrideMode === "hourly" ? "/hr" : " flat"}`
                             : baseLabel;
-                          const isCustom = inv.rateOverrideAmount != null;
+                          const extras: string[] = [];
+                          for (const a of addOns) {
+                            extras.push(
+                              `${addOnNameById.get(a.id) ?? "Add-on"}${a.amount != null ? ` $${a.amount}` : ""}`
+                            );
+                          }
+                          if (travel > 0) extras.push(`travel $${travel}`);
                           return (
                             <div key={inv.id} className="mb-1 last:mb-0">
-                              <div>
-                                {rateLine}
-                                {isCustom && (<span className="text-xs text-gray-400 ml-1">(custom)</span>)}
-                              </div>
-                              {addOns.map((a) => (
-                                <div key={a.id} className="text-xs text-gray-400">
-                                  + {addOnNameById.get(a.id) ?? "Add-on"}{a.amount != null ? ` $${a.amount}` : ""}
-                                </div>
-                              ))}
-                              {travel > 0 && (<div className="text-xs text-gray-400">+ travel ${travel}</div>)}
+                              <div>{rateLine}</div>
+                              {extras.length > 0 && (
+                                <div className="text-xs text-gray-400">+ {extras.join(", ")}</div>
+                              )}
                             </div>
                           );
                         })
