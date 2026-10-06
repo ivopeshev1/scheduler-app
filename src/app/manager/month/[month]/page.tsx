@@ -143,11 +143,26 @@ async function EventCard({ event }: { event: typeof schema.events.$inferSelect }
               <tr key={p.id} className="border-t">
                 <td className="py-1">{p.needed}</td>
                 <td className="py-1 font-medium">{p.role}</td>
-                <td className={`py-1 ${s.state === "pending" ? "status-pending" : "status-confirmed"}`}>
-                  <span>{s.label}</span>
-                  {s.sendIndicator && (
-                    <span className="text-xs text-gray-400 font-normal ml-2">{s.sendIndicator}</span>
-                  )}
+                <td className="py-1">
+                  {s.lines
+                    ? s.lines.map((ln, idx) => (
+                        <div key={idx} className={ln.state === "pending" ? "status-pending" : "status-confirmed"}>
+                          {ln.text}
+                          {idx === 0 && s.sendIndicator && (
+                            <span className="text-xs text-gray-400 font-normal ml-2">{s.sendIndicator}</span>
+                          )}
+                        </div>
+                      ))
+                    : (
+                      <div className={s.state === "pending" ? "status-pending" : "status-confirmed"}>
+                        {s.label}
+                        {s.sendIndicator && (
+                          <span className="text-xs text-gray-400 font-normal ml-2">{s.sendIndicator}</span>
+                        )}
+                      </div>
+                    )
+                  }
+                  {s.subLabel && (<div className="text-xs text-gray-400 font-normal">{s.subLabel}</div>)}
                 </td>
               </tr>
             );
