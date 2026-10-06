@@ -107,8 +107,16 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
   const anchor = company.payPeriodAnchor ?? null;
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-  const refDate = searchParams.on && /^\d{4}-\d{2}-\d{2}$/.test(searchParams.on) ? searchParams.on : todayStr;
-  const period = computePayPeriod(refDate, cadence, anchor);
+  // Default landing is the pay period JUST BEFORE today's - payroll is
+  // typically processed after a period closes. User can jump to the
+  // current (or any) period with the Prev / Next links.
+  let period;
+  if (searchParams.on && /^\d{4}-\d{2}-\d{2}$/.test(searchParams.on)) {
+    period = computePayPeriod(searchParams.on, cadence, anchor);
+  } else {
+    const thisPeriod = computePayPeriod(todayStr, cadence, anchor);
+    period = movePayPeriod(thisPeriod, -1, anchor);
+  }
 
   // Prev / Next date for navigation
   const prevPeriod = movePayPeriod(period, -1, anchor);
