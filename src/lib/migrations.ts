@@ -146,6 +146,10 @@ export async function runMigrations(): Promise<void> {
     rate_type TEXT NOT NULL CHECK (rate_type IN ('flat','hourly'))
   )`;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS staff_roles_user_role_idx ON staff_roles(user_id, role)`;
+  // Drop the legacy CHECK that pinned staff_profiles.position to the old
+  // 5-role enum. The column is now free-text so it can hold any role
+  // from the company's custom catalog.
+  await sql`ALTER TABLE staff_profiles DROP CONSTRAINT IF EXISTS staff_profiles_position_check`;
   // Backfill one staff_roles row per onboarded staffer that still has a
   // primary position + rate on their profile but no staff_roles yet.
   // 'both' maps to hourly for the backfill since the new table doesn't
