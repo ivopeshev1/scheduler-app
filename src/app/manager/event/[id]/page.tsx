@@ -690,10 +690,10 @@ export default async function EventDetailPage({ params }: { params: { id: string
                           }
                           if (travel > 0) extras.push(`travel $${travel}`);
                           return (
-                            <div key={inv.id} className="mb-1 last:mb-0">
-                              <div>{rateLine}</div>
+                            <div key={inv.id}>
+                              {rateLine}
                               {extras.length > 0 && (
-                                <div className="text-xs text-gray-400">+ {extras.join(", ")}</div>
+                                <span className="text-xs text-gray-400 ml-2">+ {extras.join(", ")}</span>
                               )}
                             </div>
                           );
