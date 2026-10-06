@@ -63,7 +63,9 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
 
   async function firstNameOf(userId: string): Promise<string> {
     const [p] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, userId));
-    return p?.firstName ?? "?";
+    if (!p) return "?";
+    const full = `${p.firstName ?? ""} ${p.lastName ?? ""}`.trim();
+    return full || "?";
   }
 
   // "+N backups invited" rendered on its own line beneath the primary name
