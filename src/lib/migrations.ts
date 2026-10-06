@@ -131,6 +131,8 @@ export async function runMigrations(): Promise<void> {
   await sql`ALTER TABLE positions ADD COLUMN IF NOT EXISTS base_rate_mode TEXT NOT NULL DEFAULT 'flat'`;
   await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS logo_url TEXT`;
   await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS travel_rate REAL`;
+  await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS nudge_sent_at TIMESTAMPTZ`;
+  await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS last_call_sent_at TIMESTAMPTZ`;
   await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS priority_expire_days INTEGER`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_owner BOOLEAN NOT NULL DEFAULT false`;

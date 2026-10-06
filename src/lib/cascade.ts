@@ -193,6 +193,139 @@ async function notifyManagerNoBackup(event: EventRow, position: PositionRow, exp
 }
 
 /**
+ * Build and send a short "friendly nudge" email to a priority invitee who
+ * hasn't responded yet. Variant decides the tone:
+ *   - "nudge"     fires at 50% of the auto-expire window
+ *   - "last-call" fires ~3 hours before the invite expires
+ */
+async function sendPriorityNudgeEmail(
+  inv: InvitationRow,
+  position: PositionRow,
+  event: EventRow,
+  companyId: string,
+  variant: "nudge" | "last-call",
+  hoursRemaining: number,
+) {
+  const [u] = await db.select().from(schema.users).where(eq(schema.users.id, inv.userId));
+  if (!u) return;
+  const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, inv.userId));
+  const firstName = profile?.firstName ?? "";
+  const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, companyId));
+  const companyName = company?.name ?? "Scheduler";
+  const prettyDate = formatDate(event.date);
+  const timeRange = `${formatTime(event.checkInTime)} - ${formatTime(event.endTime)}`;
+  const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
+  const inviteUrl = `${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}`;
+
+  const subject =
+    variant === "nudge"
+      ? `Reminder: shift invite for ${event.clientName} on ${prettyDate}`
+      : `Last call: shift invite for ${event.clientName} on ${prettyDate} expires soon`;
+
+  const leadText =
+    variant === "nudge"
+      ? `Just a quick nudge - you have a pending shift invite that still needs a response.`
+      : `Heads up: this shift invite will expire in about ${Math.max(1, Math.round(hoursRemaining))} hour(s). After that it opens up to other staff.`;
+
+  const kv: Array<[string, string]> = [
+    ["Client", event.clientName],
+    ["Date", prettyDate],
+    ["Time", timeRange],
+    ["Role", position.role],
+  ];
+  if (venue) kv.push(["Venue", venue]);
+
+  const textBody = [
+    `Hi ${firstName || "there"},`,
+    "",
+    leadText,
+    "",
+    ...kv.map(([k, v]) => `${k}: ${v}`),
+    "",
+    `Respond here: ${inviteUrl}`,
+    "",
+    `- ${companyName}`,
+  ].join("\n");
+
+  const htmlBody = shellWrap([
+    greeting(firstName || "there", leadText),
+    kvTable(kv.map(([k, v]) => kvRow(k, escapeHtml(v)))),
+    paragraph(`<a href="${inviteUrl}" style="color:#2563eb">Respond to this invite</a>`),
+    signoff(companyName),
+  ].join("\n"));
+
+  await sendEmail({
+    to: u.email,
+    subject,
+    body: textBody,
+    html: htmlBody,
+    companyId,
+    userId: u.id,
+  });
+}
+
+/**
+ * Mid-window + last-call nudge pass. Runs on the same cron as the expiry
+ * sweep. For each pending priority invite that's been sent but not responded:
+ *   - At 50% of the auto-expire window, send a "nudge" email (once).
+ *   - At <= 3h before expiry, send a "last call" email (once).
+ * Writes nudge_sent_at / last_call_sent_at so we never double-fire.
+ */
+export async function runPriorityNudges() {
+  const now = new Date();
+  const results: Array<{ action: string; invId: string }> = [];
+  const LAST_CALL_HOURS = 3;
+
+  const companies = await db.select().from(schema.companies);
+  for (const company of companies) {
+    if (!company.priorityExpireDays || company.priorityExpireDays < 1) continue;
+    const windowMs = company.priorityExpireDays * 24 * 60 * 60 * 1000;
+    const halfMs = windowMs / 2;
+    const lastCallMs = windowMs - LAST_CALL_HOURS * 60 * 60 * 1000;
+
+    const rows = await db
+      .select({ inv: schema.invitations, pos: schema.positions, ev: schema.events })
+      .from(schema.invitations)
+      .innerJoin(schema.positions, eq(schema.invitations.positionId, schema.positions.id))
+      .innerJoin(schema.events, eq(schema.positions.eventId, schema.events.id))
+      .where(eq(schema.events.companyId, company.id));
+
+    for (const { inv, pos, ev } of rows) {
+      if (inv.status !== "pending") continue;
+      if (inv.tier !== 0) continue;
+      if (!inv.sentAt) continue;
+      if (ev.cancelledAt) continue;
+
+      const age = now.getTime() - new Date(inv.sentAt).getTime();
+      const hoursToExpiry = (windowMs - age) / (60 * 60 * 1000);
+
+      // Last-call: must fire BEFORE the invite is expired by the cascade pass,
+      // so check this one first.
+      if (!inv.lastCallSentAt && age >= lastCallMs && age < windowMs) {
+        await sendPriorityNudgeEmail(inv, pos, ev, company.id, "last-call", hoursToExpiry);
+        await db.update(schema.invitations)
+          .set({ lastCallSentAt: now })
+          .where(eq(schema.invitations.id, inv.id));
+        results.push({ action: "last-call-sent", invId: inv.id });
+        continue;
+      }
+
+      // Mid-window nudge. Skip if we're already past the last-call window - no
+      // point in a nudge an hour before the final warning.
+      if (!inv.nudgeSentAt && age >= halfMs && age < lastCallMs) {
+        await sendPriorityNudgeEmail(inv, pos, ev, company.id, "nudge", hoursToExpiry);
+        await db.update(schema.invitations)
+          .set({ nudgeSentAt: now })
+          .where(eq(schema.invitations.id, inv.id));
+        results.push({ action: "nudge-sent", invId: inv.id });
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
  * The main auto-expiry + cascade pass. For each pending+sent priority invite
  * older than its company's priorityExpireDays threshold:
  *   1. Mark it expired

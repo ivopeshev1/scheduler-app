@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runExpiryAndCascade } from "@/lib/cascade";
+import { runExpiryAndCascade, runPriorityNudges } from "@/lib/cascade";
 
 /**
  * Daily cron entrypoint. Vercel Cron hits this once a day (see vercel.json).
@@ -21,8 +21,11 @@ export async function GET(req: Request) {
   }
 
   try {
-    const results = await runExpiryAndCascade();
-    return NextResponse.json({ ok: true, results });
+    // Nudges first so a 3h-before-expiry warning goes out before the same
+    // cron tick marks the invite expired.
+    const nudges = await runPriorityNudges();
+    const expiry = await runExpiryAndCascade();
+    return NextResponse.json({ ok: true, nudges, results: expiry });
   } catch (err) {
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }

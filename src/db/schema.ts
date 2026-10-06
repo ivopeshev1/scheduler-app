@@ -246,6 +246,11 @@ export const invitations = pgTable(
     // the invite, because travel cost depends on where the individual is coming
     // from - it's not a property of the position.
     travelRate: real("travel_rate"),
+    // Priority-invite nudge timestamps. The cron fires a mid-window nudge at
+    // 50% of the auto-expire window, then a "last call" ~3h before expiry.
+    // Each column is set to now() when its nudge goes out so we never double-send.
+    nudgeSentAt: timestamp("nudge_sent_at", { withTimezone: true }),
+    lastCallSentAt: timestamp("last_call_sent_at", { withTimezone: true }),
   },
   (t) => ({
     positionTierIdx: index("invitations_position_tier_idx").on(t.positionId, t.tier),
