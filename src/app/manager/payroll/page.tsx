@@ -410,6 +410,8 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
                             showAddOns={showAddOns}
                             showTravel={showTravel}
                             showGratuity={showGratuity}
+                            isOnCall={!!s.inv.isOnCall}
+                            standbyFee={onCallFee}
                           />
                         );
                       })}

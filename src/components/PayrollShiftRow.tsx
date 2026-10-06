@@ -31,6 +31,8 @@ export function PayrollShiftRow({
   showAddOns,
   showTravel,
   showGratuity,
+  isOnCall,
+  standbyFee,
 }: {
   invitationId: string;
   date: string;
@@ -50,6 +52,9 @@ export function PayrollShiftRow({
   showAddOns: boolean;
   showTravel: boolean;
   showGratuity: boolean;
+  // On-call standby row: no hours entry, earning = standby fee only.
+  isOnCall: boolean;
+  standbyFee: number;
 }) {
   const router = useRouter();
   const [clockIn, setClockIn] = useState(initialClockIn ?? "");
@@ -67,10 +72,11 @@ export function PayrollShiftRow({
   const [pending, startTransition] = useTransition();
 
   const hours = useMemo(
-    () => (rateType === "flat" ? 0 : computeTotalHours(clockIn, clockOut, breakFrom, breakTo)),
-    [clockIn, clockOut, breakFrom, breakTo, rateType],
+    () => (isOnCall || rateType === "flat" ? 0 : computeTotalHours(clockIn, clockOut, breakFrom, breakTo)),
+    [clockIn, clockOut, breakFrom, breakTo, rateType, isOnCall],
   );
-  const baseEarning = rateType === "flat" ? rate : rate * hours;
+  // On-call standby overrides every other earning path: just the fee.
+  const baseEarning = isOnCall ? standbyFee : (rateType === "flat" ? rate : rate * hours);
   const addOnTotal = addOns.reduce((s, a) => s + (a.amount ?? 0), 0);
   const gratuityNum = Number(gratuity);
   const gratuityNumSafe = Number.isFinite(gratuityNum) ? gratuityNum : 0;
@@ -98,11 +104,15 @@ export function PayrollShiftRow({
   }
 
   const flatCellClass = "px-3 py-2 border-b";
-  const timeInput = (val: string, setter: (v: string) => void, disabled = false) => (
+  // Clock + break fields are disabled for flat-rate shifts (always
+  // used the position's flat $) and for on-call standby (no hours
+  // owed - they're paid the standby fee for being available).
+  const timeDisabled = isOnCall || rateType === "flat";
+  const timeInput = (val: string, setter: (v: string) => void) => (
     <input
       type="time"
       value={val}
-      disabled={disabled}
+      disabled={timeDisabled}
       onChange={(e) => setter(e.target.value)}
       onBlur={() => persist()}
       className="input text-xs px-1 py-0.5 w-24 disabled:bg-gray-100 disabled:text-gray-400"
@@ -114,22 +124,34 @@ export function PayrollShiftRow({
       <td className={flatCellClass}>{formatMDY(date)}</td>
       <td className={flatCellClass}>
         <div className="flex flex-col leading-tight">
-          <span className="font-medium">{eventName}</span>
+          <span className="font-medium">
+            {eventName}
+            {isOnCall && (
+              <span className="ml-2 inline-block text-[10px] uppercase tracking-wide bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">
+                On call
+              </span>
+            )}
+          </span>
           <span className="text-gray-600">{role}</span>
-          <span className="text-gray-500">${rate}{rateType === "hourly" ? "/hr" : " flat"}</span>
+          <span className="text-gray-500">
+            {isOnCall ? `$${standbyFee} standby` : `$${rate}${rateType === "hourly" ? "/hr" : " flat"}`}
+          </span>
         </div>
       </td>
-      <td className={flatCellClass}>{timeInput(clockIn, setClockIn, rateType === "flat")}</td>
-      <td className={flatCellClass}>{timeInput(clockOut, setClockOut, rateType === "flat")}</td>
-      <td className={flatCellClass}>{timeInput(breakFrom, setBreakFrom, rateType === "flat")}</td>
-      <td className={flatCellClass}>{timeInput(breakTo, setBreakTo, rateType === "flat")}</td>
+      <td className={flatCellClass}>{timeInput(clockIn, setClockIn)}</td>
+      <td className={flatCellClass}>{timeInput(clockOut, setClockOut)}</td>
+      <td className={flatCellClass}>{timeInput(breakFrom, setBreakFrom)}</td>
+      <td className={flatCellClass}>{timeInput(breakTo, setBreakTo)}</td>
       <td className={flatCellClass}>
-        {rateType === "flat" ? <span className="text-gray-400">-</span> : hours.toFixed(2)}
+        {isOnCall || rateType === "flat" ? <span className="text-gray-400">-</span> : hours.toFixed(2)}
       </td>
       <td className={flatCellClass}>
         <div className="flex flex-col leading-tight">
           <span>${baseEarning.toFixed(2)}</span>
-          {rateType === "flat" && (
+          {isOnCall && (
+            <span className="text-[10px] uppercase tracking-wide text-amber-700">standby</span>
+          )}
+          {!isOnCall && rateType === "flat" && (
             <span className="text-[10px] uppercase tracking-wide text-gray-400">day rate</span>
           )}
         </div>
