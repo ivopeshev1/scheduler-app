@@ -208,10 +208,7 @@ export function SendBeoButton({
                             disabled={pending !== null || recipientCount === 0}
                             className="btn btn-primary flex-1 justify-between text-left text-sm"
                           >
-                            <span>
-                              <span className="font-semibold">Send BEO {r.version}</span>
-                              <span className="opacity-80"> · {r.filename}</span>
-                            </span>
+                            <span className="font-semibold">Send BEO {r.version}</span>
                             <span className="opacity-70 text-xs">{isPending ? "Sending…" : `→ ${recipientCount}`}</span>
                           </button>
                           <a
