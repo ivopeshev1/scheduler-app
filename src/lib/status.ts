@@ -67,15 +67,17 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
     if (invited === 1) {
       return { label: await firstNameOf(sentPendingInvites[0].userId), subLabel: backupSubLabel(), state: "pending" };
     }
+    // Multiple priority invites competing (e.g. backups auto-promoted after
+    // a rejection) - don't pick one name, call it what it is.
     if (invited > 1) {
-      return { label: `${invited} Invited`, subLabel: backupSubLabel(), state: "pending" };
+      return { label: `Open to ${invited} backups`, state: "pending" };
     }
     // Nothing sent yet - a priority draft still shows as the primary name
     if (priorityDrafts.length === 1) {
       return { label: await firstNameOf(priorityDrafts[0].userId), subLabel: backupSubLabel(), state: "pending" };
     }
     if (priorityDrafts.length > 1) {
-      return { label: `${priorityDrafts.length} Invited`, subLabel: backupSubLabel(), state: "pending" };
+      return { label: `Open to ${priorityDrafts.length} backups`, state: "pending" };
     }
     // No priority at all, only backups queued
     if (backupDrafts.length === 1) {

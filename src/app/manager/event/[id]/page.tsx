@@ -612,17 +612,20 @@ export default async function EventDetailPage({ params }: { params: { id: string
                 // Pull add-ons assigned to the primary invitee (sent priority,
                 // otherwise priority draft) so the rate column surfaces the
                 // extras that primary person is being paid for, e.g. "+ Van
-                // driver $100".
+                // driver $100". When MULTIPLE priority invites are active
+                // (backups cascaded or multiple drafts), individual add-on
+                // amounts vary - we show nothing extra, matching the "Open to
+                // N backups" status.
                 const positionInvites = invitesByPosition[p.id] ?? [];
-                const primaryInv =
-                  positionInvites.find((inv) => inv.sentAt && inv.tier === 0 && inv.status === "pending")
-                  ?? positionInvites.find((inv) => !inv.sentAt && inv.tier === 0 && inv.status === "pending");
-                const primaryAddOns = primaryInv ? (addOnsByUserForPosition[p.id]?.[primaryInv.userId] ?? []) : [];
+                const sentPriorityOnPos = positionInvites.filter((inv) => inv.sentAt && inv.tier === 0 && inv.status === "pending");
+                const draftPriorityOnPos = positionInvites.filter((inv) => !inv.sentAt && inv.tier === 0 && inv.status === "pending");
+                const singlePrimaryInv =
+                  sentPriorityOnPos.length === 1 ? sentPriorityOnPos[0]
+                  : draftPriorityOnPos.length === 1 && sentPriorityOnPos.length === 0 ? draftPriorityOnPos[0]
+                  : null;
+                const primaryAddOns = singlePrimaryInv ? (addOnsByUserForPosition[p.id]?.[singlePrimaryInv.userId] ?? []) : [];
                 const addOnNameById = new Map(companyAddOnsList.map((a) => [a.id, a.name]));
-                // Only show "+ travel" when the primary invitee actually has a
-                // travel comp set. Keeps the column clean when travel isn't
-                // in play for this shift.
-                const primaryTravel = primaryInv?.travelRate ?? 0;
+                const primaryTravel = singlePrimaryInv?.travelRate ?? 0;
                 const staffOptions = buildStaffOptions(p.role, p.id);
                 return (
                   <tr key={p.id} className="border-b align-top">
