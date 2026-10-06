@@ -8,6 +8,7 @@ import { summarizePosition } from "@/lib/status";
 import { formatTime, formatDate } from "@/lib/format";
 import { sendEmail, escapeHtml } from "@/lib/notifications";
 import { shellWrap, kvRow, kvTable, greeting, paragraph, signoff } from "@/lib/email-html";
+import { sanitizePastedHtml } from "@/lib/html-sanitize";
 import { nanoid } from "nanoid";
 import { revalidatePath } from "next/cache";
 import { SendBeoButton } from "@/components/SendBeoButton";
@@ -29,7 +30,16 @@ async function sendBeoAction(
   if (!session || session.role !== "manager") return { ok: false, sentTo: 0, error: "Unauthorized" };
 
   const eventId = String(formData.get("eventId") ?? "");
-  const note = String(formData.get("note") ?? "").trim();
+  // Note comes in two flavors: a legacy plain-text 'note' field and the new
+  // rich-text 'noteHtml' from the contentEditable paste area. Prefer the
+  // HTML version when present; sanitize before injecting into the email.
+  const noteHtmlRaw = String(formData.get("noteHtml") ?? "").trim();
+  const noteTextRaw = String(formData.get("note") ?? "").trim();
+  const noteHtml = noteHtmlRaw ? sanitizePastedHtml(noteHtmlRaw) : "";
+  // Plain-text fallback for the text/plain email part. Strip tags.
+  const notePlain = noteHtml
+    ? noteHtmlRaw.replace(/<[^>]+>/g, "").replace(/\s+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim()
+    : noteTextRaw;
   const file = formData.get("file");
   if (!(file instanceof File)) return { ok: false, sentTo: 0, error: "Missing file" };
   if (file.size === 0) return { ok: false, sentTo: 0, error: "Empty file" };
@@ -95,7 +105,7 @@ async function sendBeoAction(
       lead,
       "",
       ...kv.map(([k, v]) => `${k}: ${v}`),
-      ...(note ? ["", `Note from manager: ${note}`] : []),
+      ...(notePlain ? ["", `Note from manager:`, notePlain] : []),
       "",
       `Confirm you received it: ${confirmUrl}`,
       "",
@@ -105,8 +115,8 @@ async function sendBeoAction(
     const htmlBody = shellWrap([
       greeting(firstName || "there", lead),
       kvTable(kv.map(([k, v]) => kvRow(k, escapeHtml(v)))),
-      note
-        ? `<p style="margin:16px 0 12px;padding:12px 14px;background:#f9fafb;border-left:3px solid #d1d5db;color:#374151;"><strong style="color:#111;">Note from manager:</strong><br>${escapeHtml(note).replace(/\n/g, "<br>")}</p>`
+      noteHtml
+        ? `<div style="margin:16px 0 12px;padding:14px 16px;background:#f9fafb;border-left:3px solid #d1d5db;color:#374151;"><div style="font-weight:600;color:#111;margin-bottom:6px;">Note from manager</div><div style="line-height:1.5;">${noteHtml}</div></div>`
         : "",
       `<p style="margin:24px 0 12px;"><a href="${confirmUrl}" style="display:inline-block;background:#111;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;font-weight:600;">Confirm I received the BEO</a></p>`,
       `<p style="margin:0 0 12px;color:#777;font-size:13px;">Button not working? Copy this into your browser:<br><a href="${confirmUrl}" style="color:#2563eb;word-break:break-all;">${confirmUrl}</a></p>`,
