@@ -78,6 +78,9 @@ export function AppHeader({
               {showLog && (
                 <Link href="/manager/log" className="text-gray-700 hover:text-black">Log</Link>
               )}
+              {showCalendar && (
+                <Link href="/manager/payroll" className="text-gray-700 hover:text-black">Payroll</Link>
+              )}
               {showTeam && (
                 <Link href="/manager/team" className="text-gray-700 hover:text-black">Team</Link>
               )}

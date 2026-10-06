@@ -153,6 +153,16 @@ export async function runMigrations(): Promise<void> {
   // Age-gate flag per role. Picker filters out under-21 (and
   // unknown-DOB) staff from roles that have this on.
   await sql`ALTER TABLE roles ADD COLUMN IF NOT EXISTS requires_21_plus BOOLEAN NOT NULL DEFAULT false`;
+  // Payroll input + paid flag per invitation.
+  await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS clock_in TEXT`;
+  await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS clock_out TEXT`;
+  await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS break_from TEXT`;
+  await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS break_to TEXT`;
+  await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS gratuity REAL`;
+  await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ`;
+  // Pay period config per company.
+  await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS pay_period_cadence TEXT CHECK (pay_period_cadence IN ('weekly','biweekly','monthly'))`;
+  await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS pay_period_anchor TEXT`;
   // Backfill one staff_roles row per onboarded staffer that still has a
   // primary position + rate on their profile but no staff_roles yet.
   // 'both' maps to hourly for the backfill since the new table doesn't

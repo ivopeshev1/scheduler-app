@@ -9,6 +9,12 @@ export const companies = pgTable("companies", {
   // Auto-expire priority invites after this many days if no response. NULL means
   // never auto-expire (manager handles manually). Set per-company via Settings.
   priorityExpireDays: integer("priority_expire_days"),
+  // Payroll pay-period config. Cadence picks the window length; anchor
+  // is the YYYY-MM-DD a pay period starts on (any week when weekly or
+  // bi-weekly; the day-of-month when monthly). The Payroll tab uses
+  // these two together to compute Prev/Next period boundaries.
+  payPeriodCadence: text("pay_period_cadence", { enum: ["weekly", "biweekly", "monthly"] }).default("weekly"),
+  payPeriodAnchor: text("pay_period_anchor"),
   // Blob of opt-in channel + frequency settings for every notification type
   // that can be sent to staff or to the manager. Shape is defined by
   // NotificationSettings in src/lib/notification-settings.ts. NULL means
@@ -316,6 +322,19 @@ export const invitations = pgTable(
     // 'new staff who've never gotten the BEO' from 'everyone' when the
     // manager clicks Send BEO on an event that already had one go out.
     beoVersionSent: integer("beo_version_sent"),
+    // Payroll input per accepted shift. Managers enter actual hours worked
+    // on the Payroll tab after the event is over; the calc columns are
+    // derived from these. All stored as HH:MM strings (24h) so the UI can
+    // bind to <input type="time"> directly.
+    clockIn: text("clock_in"),
+    clockOut: text("clock_out"),
+    breakFrom: text("break_from"),
+    breakTo: text("break_to"),
+    // Flat $ amount of tip for this shift (optional).
+    gratuity: real("gratuity"),
+    // When set, this shift has been marked paid. Null = unpaid. Turns the
+    // staffer's name green on the calendar + marks the row Paid in Payroll.
+    paidAt: timestamp("paid_at", { withTimezone: true }),
   },
   (t) => ({
     positionTierIdx: index("invitations_position_tier_idx").on(t.positionId, t.tier),

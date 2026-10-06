@@ -104,6 +104,24 @@ async function saveNotificationSettingsAction(payload: {
   revalidatePath("/manager/settings");
 }
 
+/**
+ * Save pay-period config: cadence + anchor. Anchor is a YYYY-MM-DD
+ * date the recurring periods line up with.
+ */
+async function savePayPeriodAction(formData: FormData) {
+  "use server";
+  const { session } = await requireSettingsAccess();
+  const cadenceRaw = String(formData.get("payPeriodCadence") ?? "weekly");
+  const cadence = (cadenceRaw === "biweekly" || cadenceRaw === "monthly" ? cadenceRaw : "weekly") as "weekly" | "biweekly" | "monthly";
+  const anchorRaw = String(formData.get("payPeriodAnchor") ?? "").trim();
+  const anchor = /^\d{4}-\d{2}-\d{2}$/.test(anchorRaw) ? anchorRaw : null;
+  await db.update(schema.companies)
+    .set({ payPeriodCadence: cadence, payPeriodAnchor: anchor })
+    .where(eq(schema.companies.id, session.companyId));
+  revalidatePath("/manager/settings");
+  redirect("/manager/settings?saved=pay-period");
+}
+
 async function addRoleAction(formData: FormData) {
   "use server";
   const { session } = await requireSettingsAccess();
@@ -579,6 +597,46 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
               {rolesErrorMsg}
             </div>
           )}
+        </section>
+
+        {/* -------------------- Pay period -------------------- */}
+        <section className="border rounded-lg bg-white p-6">
+          <h2 className="text-lg font-semibold mb-1">Pay period</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            How often you cut checks. Used by the Payroll tab to group shifts into the right period
+            and let you flip Prev / Next between periods.
+          </p>
+          <form action={savePayPeriodAction} className="grid md:grid-cols-2 gap-4 max-w-xl">
+            <div>
+              <label className="label" htmlFor="payPeriodCadence">Cadence</label>
+              <select
+                id="payPeriodCadence"
+                name="payPeriodCadence"
+                className="input"
+                defaultValue={company.payPeriodCadence ?? "weekly"}
+              >
+                <option value="weekly">Weekly</option>
+                <option value="biweekly">Bi-weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+            <div>
+              <label className="label" htmlFor="payPeriodAnchor">Anchor date</label>
+              <input
+                id="payPeriodAnchor"
+                name="payPeriodAnchor"
+                type="date"
+                defaultValue={company.payPeriodAnchor ?? ""}
+                className="input"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Any date a pay period starts on. Weeks / bi-weeks line up with this day.
+              </p>
+            </div>
+            <div className="md:col-span-2">
+              <button type="submit" className="btn btn-secondary">Save pay period</button>
+            </div>
+          </form>
         </section>
 
         {/* -------------------- Event fields -------------------- */}

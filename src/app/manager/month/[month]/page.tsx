@@ -390,7 +390,16 @@ async function EventCard({ event }: { event: typeof schema.events.$inferSelect }
                 <td className="py-1">
                   {s.lines
                     ? s.lines.map((ln, idx) => (
-                        <div key={idx} className={ln.state === "pending" ? "status-pending" : "status-confirmed"}>
+                        <div
+                          key={idx}
+                          className={
+                            ln.paid
+                              ? "text-green-600 font-semibold"
+                              : ln.state === "pending"
+                              ? "status-pending"
+                              : "status-confirmed"
+                          }
+                        >
                           {ln.text}
                           {ln.beo === "received" && (
                             <span className="text-xs text-green-600 font-normal ml-2">BEO received</span>

@@ -19,6 +19,10 @@ export type PositionStatus = {
     text: string;
     state: "pending" | "confirmed";
     beo?: "sent" | "received";
+    // True when this staffer has been marked paid for this shift on
+    // the Payroll tab. The calendar list view renders their name in
+    // green when this flips on.
+    paid?: boolean;
   }>;
   // Position-level invite send state, used on the calendar list view
   // to display "Invited" vs "Invitation not sent" to the right of the
@@ -102,6 +106,11 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
     if (inv.beoSentAt) return "sent";
     return undefined;
   }
+  // Helper: has this accepted invitation been marked paid?
+  function paidFor(slotId: string): boolean {
+    const inv = invites.find((i) => i.slotId === slotId && i.status === "accepted");
+    return !!inv?.paidAt;
+  }
 
   // Single-slot: prefer showing the person's name so the manager sees at a glance who it is.
   if (total === 1) {
@@ -109,9 +118,10 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
       const acceptedSlot = slotRows.find((s) => s.acceptedUserId)!;
       const name = await firstNameOf(acceptedSlot.acceptedUserId!);
       const beo = beoFor(acceptedSlot.id);
+      const paid = paidFor(acceptedSlot.id);
       return {
         label: name,
-        lines: [{ text: name, state: "confirmed", beo }],
+        lines: [{ text: name, state: "confirmed", beo, paid }],
         state: "confirmed",
       };
     }
@@ -144,10 +154,10 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
   // Multi-slot - render one line per slot, name-first, same style as the
   // single-slot path. Order: confirmed names, then sent priority names, then
   // priority drafts (not sent yet), then "Open" placeholders for the rest.
-  const lines: Array<{ text: string; state: "pending" | "confirmed"; beo?: "sent" | "received" }> = [];
+  const lines: Array<{ text: string; state: "pending" | "confirmed"; beo?: "sent" | "received"; paid?: boolean }> = [];
   for (const s of slotRows) {
     if (s.acceptedUserId) {
-      lines.push({ text: await firstNameOf(s.acceptedUserId), state: "confirmed", beo: beoFor(s.id) });
+      lines.push({ text: await firstNameOf(s.acceptedUserId), state: "confirmed", beo: beoFor(s.id), paid: paidFor(s.id) });
     }
   }
   for (const inv of sentPendingInvites) {
