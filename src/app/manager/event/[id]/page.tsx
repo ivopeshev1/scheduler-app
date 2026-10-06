@@ -620,7 +620,10 @@ export default async function EventDetailPage({ params }: { params: { id: string
                   <tr key={p.id} className="border-b align-top">
                     <td className="py-3">{p.needed}</td>
                     <td className="py-3 font-medium">{p.role}</td>
-                    <td className={`py-3 ${s.state === "pending" ? "status-pending" : "status-confirmed"}`}>{s.label}</td>
+                    <td className={`py-3 ${s.state === "pending" ? "status-pending" : "status-confirmed"}`}>
+                      <div>{s.label}</div>
+                      {s.subLabel && (<div className="text-xs text-gray-400 font-normal">{s.subLabel}</div>)}
+                    </td>
                     <td className="py-3 text-sm">
                       <div>{baseLabel}</div>
                       {p.requiresVanDriving && (<div className="text-xs text-gray-500">+ van ${p.vanDrivingRate}</div>)}

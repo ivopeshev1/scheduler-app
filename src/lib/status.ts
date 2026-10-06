@@ -3,6 +3,10 @@ import { eq } from "drizzle-orm";
 
 export type PositionStatus = {
   label: string;
+  // Optional second line rendered beneath the main label in a smaller,
+  // grayer font. Used for e.g. "+2 backups invited" under the priority
+  // invitee's name.
+  subLabel?: string;
   state: "pending" | "confirmed";
 };
 
@@ -45,12 +49,12 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
     return p?.firstName ?? "?";
   }
 
-  // Append a "+N backups" suffix when there are extra backup invites waiting
-  // in the wings. Keeps the primary label about the primary invitee.
-  function backupSuffix(): string {
+  // "+N backups invited" rendered on its own line beneath the primary name
+  // so the roster emphasizes who's on the invite, not the backup count.
+  function backupSubLabel(): string | undefined {
     const n = backupDrafts.length;
-    if (n === 0) return "";
-    return ` · +${n} backup${n === 1 ? "" : "s"}`;
+    if (n === 0) return undefined;
+    return `+${n} backup${n === 1 ? "" : "s"} invited`;
   }
 
   // Single-slot: prefer showing the person's name so the manager sees at a glance who it is.
@@ -61,17 +65,17 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
     }
     // Prefer the sent priority invite's name
     if (invited === 1) {
-      return { label: `${await firstNameOf(sentPendingInvites[0].userId)}${backupSuffix()}`, state: "pending" };
+      return { label: await firstNameOf(sentPendingInvites[0].userId), subLabel: backupSubLabel(), state: "pending" };
     }
     if (invited > 1) {
-      return { label: `${invited} Invited${backupSuffix()}`, state: "pending" };
+      return { label: `${invited} Invited`, subLabel: backupSubLabel(), state: "pending" };
     }
     // Nothing sent yet - a priority draft still shows as the primary name
     if (priorityDrafts.length === 1) {
-      return { label: `${await firstNameOf(priorityDrafts[0].userId)}${backupSuffix()}`, state: "pending" };
+      return { label: await firstNameOf(priorityDrafts[0].userId), subLabel: backupSubLabel(), state: "pending" };
     }
     if (priorityDrafts.length > 1) {
-      return { label: `${priorityDrafts.length} Invited${backupSuffix()}`, state: "pending" };
+      return { label: `${priorityDrafts.length} Invited`, subLabel: backupSubLabel(), state: "pending" };
     }
     // No priority at all, only backups queued
     if (backupDrafts.length === 1) {
