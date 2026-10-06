@@ -805,9 +805,15 @@ export default async function EventDetailPage({ params }: { params: { id: string
                 // Confirmed slots first, then sent priority invites, then
                 // priority drafts.
                 const positionInvites = invitesByPosition[p.id] ?? [];
-                const sentPriorityOnPos = positionInvites.filter((inv) => inv.sentAt && inv.tier === 0 && inv.status === "pending");
-                const draftPriorityOnPos = positionInvites.filter((inv) => !inv.sentAt && inv.tier === 0 && inv.status === "pending");
-                const confirmedInvs = positionInvites.filter((inv) => inv.status === "accepted");
+                // On-call invitees have their own row below the main
+                // roster; they shouldn't show up in the Rate column's
+                // shift-rate list even when they've accepted (they're
+                // on the standby fee, not the shift rate, until
+                // activated).
+                const nonOnCall = positionInvites.filter((inv) => !inv.isOnCall);
+                const sentPriorityOnPos = nonOnCall.filter((inv) => inv.sentAt && inv.tier === 0 && inv.status === "pending");
+                const draftPriorityOnPos = nonOnCall.filter((inv) => !inv.sentAt && inv.tier === 0 && inv.status === "pending");
+                const confirmedInvs = nonOnCall.filter((inv) => inv.status === "accepted");
                 const primaryInvs = [...confirmedInvs, ...sentPriorityOnPos, ...draftPriorityOnPos];
                 const addOnNameById = new Map(companyAddOnsList.map((a) => [a.id, a.name]));
                 const openSlotsForRateCol = Math.max(0, (p.needed ?? 0) - primaryInvs.length);
