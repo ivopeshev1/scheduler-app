@@ -23,7 +23,7 @@ export function StaffRolesEditor({
   initial: StaffRoleRow[];
 }) {
   const [rows, setRows] = useState<StaffRoleRow[]>(() =>
-    initial.length > 0 ? initial : [{ role: roleOptions[0] ?? "", rate: "", rateType: "hourly" }]
+    initial.length > 0 ? initial : [{ role: "", rate: "", rateType: "hourly" }]
   );
 
   function update(idx: number, patch: Partial<StaffRoleRow>) {
@@ -35,9 +35,7 @@ export function StaffRolesEditor({
   function add() {
     // Pick the first role not already used; fall back to the first option
     // in the catalog so duplicate rows are still editable to a new value.
-    const used = new Set(rows.map((r) => r.role));
-    const next = roleOptions.find((r) => !used.has(r)) ?? roleOptions[0] ?? "";
-    setRows((prev) => [...prev, { role: next, rate: "", rateType: "hourly" }]);
+    setRows((prev) => [...prev, { role: "", rate: "", rateType: "hourly" }]);
   }
 
   return (
@@ -54,11 +52,12 @@ export function StaffRolesEditor({
                 className="input w-full"
                 required
               >
+                <option value="" disabled>Select here</option>
                 {roleOptions.map((opt) => (<option key={opt} value={opt}>{opt}</option>))}
               </select>
             </div>
-            {/* Rate: label on top, modest width */}
-            <div className="shrink-0 w-28">
+            {/* Rate: label on top */}
+            <div className="shrink-0 w-24">
               {idx === 0 && <label className="label">Rate</label>}
               <div className="flex items-center gap-1">
                 <span className="text-gray-500 text-sm">$</span>
@@ -74,13 +73,13 @@ export function StaffRolesEditor({
                 />
               </div>
             </div>
-            {/* Unit picker: half the rate column's width, no label */}
-            <div className="shrink-0 w-14">
+            {/* Unit picker: matches rate column width */}
+            <div className="shrink-0 w-24">
               {idx === 0 && <div className="label invisible">unit</div>}
               <select
                 value={r.rateType}
                 onChange={(e) => update(idx, { rateType: e.target.value as "hourly" | "flat" })}
-                className="input w-full text-sm px-1"
+                className="input w-full text-sm"
               >
                 <option value="hourly">/hr</option>
                 <option value="flat">flat</option>
