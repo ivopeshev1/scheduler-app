@@ -8,6 +8,12 @@ export type PositionStatus = {
   // invitee's name.
   subLabel?: string;
   state: "pending" | "confirmed";
+  // Multi-slot positions render one line per slot: a confirmed name
+  // (black), a pending priority name (red), or "Open" (red) for any
+  // slot not yet covered. When present, the UI renders this list and
+  // ignores `label`. `label` stays populated as a plain-text fallback
+  // for places that don't render multi-line (e.g. the month calendar).
+  lines?: Array<{ text: string; state: "pending" | "confirmed" }>;
 };
 
 /**
@@ -89,15 +95,31 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
     return { label: "Open", state: "pending" };
   }
 
-  // Multi-slot
-  if (filled === total) return { label: `${filled} Confirmed`, state: "confirmed" };
-  const parts: string[] = [];
-  if (filled > 0) parts.push(`${filled} Confirmed`);
-  if (invited > 0) parts.push(`${invited} Invited`);
-  // Priority drafts not yet sent read as "pending send" but visually count the
-  // same as "Invited" for the manager - they're the next tier to go out.
-  if (priorityDrafts.length > 0) parts.push(`${priorityDrafts.length} Pending`);
-  if (backupDrafts.length > 0) parts.push(`${backupDrafts.length} ${backupDrafts.length === 1 ? "Backup" : "Backups"}`);
-  if (open > 0) parts.push(`${open} Open`);
-  return { label: parts.join(" / "), state: "pending" };
+  // Multi-slot - render one line per slot, name-first, same style as the
+  // single-slot path. Order: confirmed names, then sent priority names, then
+  // priority drafts (not sent yet), then "Open" placeholders for the rest.
+  const lines: Array<{ text: string; state: "pending" | "confirmed" }> = [];
+  for (const s of slotRows) {
+    if (s.acceptedUserId) {
+      lines.push({ text: await firstNameOf(s.acceptedUserId), state: "confirmed" });
+    }
+  }
+  for (const inv of sentPendingInvites) {
+    lines.push({ text: await firstNameOf(inv.userId), state: "pending" });
+  }
+  for (const inv of priorityDrafts) {
+    lines.push({ text: await firstNameOf(inv.userId), state: "pending" });
+  }
+  while (lines.length < total) {
+    lines.push({ text: "Open", state: "pending" });
+  }
+
+  const allConfirmed = lines.every((l) => l.state === "confirmed");
+  const plainLabel = allConfirmed ? `${total} Confirmed` : lines.map((l) => l.text).join(", ");
+  return {
+    label: plainLabel,
+    lines,
+    subLabel: backupSubLabel(),
+    state: allConfirmed ? "confirmed" : "pending",
+  };
 }

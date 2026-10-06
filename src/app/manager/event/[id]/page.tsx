@@ -631,8 +631,15 @@ export default async function EventDetailPage({ params }: { params: { id: string
                   <tr key={p.id} className="border-b align-top">
                     <td className="py-3">{p.needed}</td>
                     <td className="py-3 font-medium">{p.role}</td>
-                    <td className={`py-3 ${s.state === "pending" ? "status-pending" : "status-confirmed"}`}>
-                      <div>{s.label}</div>
+                    <td className="py-3">
+                      {s.lines
+                        ? s.lines.map((ln, idx) => (
+                            <div key={idx} className={ln.state === "pending" ? "status-pending" : "status-confirmed"}>
+                              {ln.text}
+                            </div>
+                          ))
+                        : (<div className={s.state === "pending" ? "status-pending" : "status-confirmed"}>{s.label}</div>)
+                      }
                       {s.subLabel && (<div className="text-xs text-gray-400 font-normal">{s.subLabel}</div>)}
                     </td>
                     <td className="py-3 text-sm">
