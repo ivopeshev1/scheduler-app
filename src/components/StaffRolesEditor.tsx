@@ -45,15 +45,17 @@ export function StaffRolesEditor({
       <div className="space-y-2">
         {rows.map((r, idx) => (
           <div key={idx} className="flex items-center gap-2">
+            {/* Role: widest, grows to fill */}
             <select
               value={r.role}
               onChange={(e) => update(idx, { role: e.target.value })}
-              className="input flex-1"
+              className="input flex-1 min-w-[180px]"
               required
             >
               {roleOptions.map((opt) => (<option key={opt} value={opt}>{opt}</option>))}
             </select>
-            <div className="flex items-center gap-1">
+            {/* $ rate: fixed modest width */}
+            <div className="flex items-center gap-1 shrink-0">
               <span className="text-gray-500 text-sm">$</span>
               <input
                 type="number"
@@ -61,15 +63,16 @@ export function StaffRolesEditor({
                 step="0.01"
                 value={r.rate}
                 onChange={(e) => update(idx, { rate: e.target.value })}
-                className="input w-24"
+                className="input w-20"
                 placeholder="0"
                 required
               />
             </div>
+            {/* /hr vs flat: compact unit picker */}
             <select
               value={r.rateType}
               onChange={(e) => update(idx, { rateType: e.target.value as "hourly" | "flat" })}
-              className="input w-24"
+              className="input w-20 shrink-0 text-sm"
             >
               <option value="hourly">/hr</option>
               <option value="flat">flat</option>
