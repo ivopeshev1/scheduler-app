@@ -140,7 +140,7 @@ async function EventCard({ event }: { event: typeof schema.events.$inferSelect }
           {positionsList.map((p, i) => {
             const s = statuses[i];
             return (
-              <tr key={p.id} className="border-t">
+              <tr key={p.id} className="border-t align-top">
                 <td className="py-1">{p.needed}</td>
                 <td className="py-1 font-medium">{p.role}</td>
                 <td className="py-1">
