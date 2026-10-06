@@ -1,6 +1,12 @@
 import { db, schema } from "@/db/client";
 import { nanoid } from "nanoid";
 
+type SendEmailAttachment = {
+  filename: string;
+  // Raw file bytes as base64 (no data: prefix). Resend will decode and attach.
+  contentBase64: string;
+};
+
 type SendEmailInput = {
   to: string;
   subject: string;
@@ -9,6 +15,8 @@ type SendEmailInput = {
   companyId: string;
   userId?: string;
   relatedInvitationId?: string;
+  // Optional file attachments (BEO PDFs, Word docs, images, etc).
+  attachments?: SendEmailAttachment[];
 };
 
 export async function sendEmail(input: SendEmailInput) {
@@ -37,6 +45,14 @@ export async function sendEmail(input: SendEmailInput) {
       text: input.body,
     };
     if (input.html) payload.html = input.html;
+    if (input.attachments && input.attachments.length > 0) {
+      // Resend accepts attachments as {filename, content} where content is
+      // base64 of the raw file bytes.
+      payload.attachments = input.attachments.map((a) => ({
+        filename: a.filename,
+        content: a.contentBase64,
+      }));
+    }
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {

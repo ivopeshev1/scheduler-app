@@ -5,15 +5,135 @@ import { db, schema } from "@/db/client";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { summarizePosition } from "@/lib/status";
-import { formatTime } from "@/lib/format";
+import { formatTime, formatDate } from "@/lib/format";
+import { sendEmail, escapeHtml } from "@/lib/notifications";
+import { shellWrap, kvRow, kvTable, greeting, paragraph, signoff } from "@/lib/email-html";
+import { nanoid } from "nanoid";
+import { revalidatePath } from "next/cache";
+import { SendBeoButton } from "@/components/SendBeoButton";
 
-// Stub server action for the Send BEO button. Full flow (email + confirmation
-// tracking + reminder cron) will be wired next; for now the click is a no-op
-// so the button renders in place without a 404.
-async function sendBeoAction(formData: FormData) {
+// Max BEO file size - keep it under the Resend attachment limit (40MB total
+// per message) with a lot of headroom for the HTML body.
+const BEO_MAX_BYTES = 10_000_000;
+
+/**
+ * Server action: send the BEO file to every accepted staffer on an event.
+ * Called from <SendBeoButton>. Returns {ok, sentTo, error?} so the client
+ * can render a success/error banner inline.
+ */
+async function sendBeoAction(
+  formData: FormData,
+): Promise<{ ok: boolean; sentTo: number; error?: string }> {
   "use server";
-  const _eventId = String(formData.get("eventId") ?? "");
-  // TODO: implement BEO send + attach + confirmation flow
+  const session = await getSession();
+  if (!session || session.role !== "manager") return { ok: false, sentTo: 0, error: "Unauthorized" };
+
+  const eventId = String(formData.get("eventId") ?? "");
+  const note = String(formData.get("note") ?? "").trim();
+  const file = formData.get("file");
+  if (!(file instanceof File)) return { ok: false, sentTo: 0, error: "Missing file" };
+  if (file.size === 0) return { ok: false, sentTo: 0, error: "Empty file" };
+  if (file.size > BEO_MAX_BYTES) return { ok: false, sentTo: 0, error: "File too large (max 10 MB)" };
+
+  const [event] = await db.select().from(schema.events).where(eq(schema.events.id, eventId));
+  if (!event || event.companyId !== session.companyId) return { ok: false, sentTo: 0, error: "Event not found" };
+
+  const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
+  const companyName = company?.name ?? "Scheduler";
+  const prettyDate = formatDate(event.date);
+
+  // Only email staff who've already accepted a slot. Pending / backup
+  // invitees get the BEO as part of their own invite flow later.
+  const accepted = await db
+    .select({ inv: schema.invitations, pos: schema.positions })
+    .from(schema.invitations)
+    .innerJoin(schema.positions, eq(schema.invitations.positionId, schema.positions.id))
+    .where(and(
+      eq(schema.positions.eventId, eventId),
+      eq(schema.invitations.status, "accepted"),
+    ));
+  if (accepted.length === 0) {
+    return { ok: false, sentTo: 0, error: "No accepted staff on this event yet" };
+  }
+
+  // Pre-encode the file once; reuse the base64 for every recipient.
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  const contentBase64 = Buffer.from(binary, "binary").toString("base64");
+  const filename = file.name || "BEO.pdf";
+  const publicBase = process.env.PUBLIC_APP_URL ?? "";
+
+  const now = new Date();
+  let sentTo = 0;
+  for (const { inv, pos } of accepted) {
+    const [u] = await db.select().from(schema.users).where(eq(schema.users.id, inv.userId));
+    if (!u) continue;
+    const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, inv.userId));
+    const firstName = profile?.firstName ?? "";
+
+    // One-way confirmation URL. Clicking it marks beoReceivedAt. Each invite
+    // gets its own token so we can tell which staff member clicked.
+    let token = inv.beoToken;
+    if (!token) {
+      token = nanoid(32);
+      await db.update(schema.invitations).set({ beoToken: token }).where(eq(schema.invitations.id, inv.id));
+    }
+    const confirmUrl = `${publicBase}/beo/confirm/${token}`;
+
+    const lead = `The BEO (Banquet Event Order) for your upcoming shift is attached. Please review it and confirm receipt below.`;
+    const kv: Array<[string, string]> = [
+      ["Client", event.clientName],
+      ["Date", prettyDate],
+      ["Role", pos.role],
+    ];
+    if (event.venue) kv.push(["Venue", event.venue]);
+
+    const textBody = [
+      `Hi ${firstName || "there"},`,
+      "",
+      lead,
+      "",
+      ...kv.map(([k, v]) => `${k}: ${v}`),
+      ...(note ? ["", `Note from manager: ${note}`] : []),
+      "",
+      `Confirm you received it: ${confirmUrl}`,
+      "",
+      `- ${companyName}`,
+    ].join("\n");
+
+    const htmlBody = shellWrap([
+      greeting(firstName || "there", lead),
+      kvTable(kv.map(([k, v]) => kvRow(k, escapeHtml(v)))),
+      note ? paragraph(`<strong>Note from manager:</strong> ${escapeHtml(note)}`) : "",
+      paragraph(
+        `<a href="${confirmUrl}" style="display:inline-block;background:#111;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Confirm I received the BEO</a>`,
+      ),
+      paragraph(`If the button doesn't work, open this link: ${confirmUrl}`, { muted: true }),
+      signoff(companyName),
+    ].join("\n"));
+
+    const sendResult = await sendEmail({
+      to: u.email,
+      subject: `BEO: ${event.clientName} on ${prettyDate}`,
+      body: textBody,
+      html: htmlBody,
+      companyId: session.companyId,
+      userId: inv.userId,
+      relatedInvitationId: inv.id,
+      attachments: [{ filename, contentBase64 }],
+    });
+    if (sendResult.ok) {
+      await db.update(schema.invitations)
+        .set({ beoSentAt: now, beoReceivedAt: null })
+        .where(eq(schema.invitations.id, inv.id));
+      sentTo += 1;
+    }
+  }
+
+  revalidatePath(`/manager/month/${event.date.slice(0, 7)}`);
+  revalidatePath(`/manager/event/${eventId}`);
+  return { ok: sentTo > 0, sentTo };
 }
 
 function parseMonth(m: string) {
@@ -181,10 +301,7 @@ async function EventCard({ event }: { event: typeof schema.events.$inferSelect }
       </Link>
       {!event.cancelledAt && (
         <div className="mt-3 flex justify-center">
-          <form action={sendBeoAction}>
-            <input type="hidden" name="eventId" value={event.id} />
-            <button type="submit" className="btn btn-secondary text-sm">Send BEO</button>
-          </form>
+          <SendBeoButton eventId={event.id} action={sendBeoAction} />
         </div>
       )}
     </div>

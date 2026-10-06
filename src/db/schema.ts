@@ -257,6 +257,12 @@ export const invitations = pgTable(
     // Each column is set to now() when its nudge goes out so we never double-send.
     nudgeSentAt: timestamp("nudge_sent_at", { withTimezone: true }),
     lastCallSentAt: timestamp("last_call_sent_at", { withTimezone: true }),
+    // BEO (Banquet Event Order) send + staff receipt tracking. Set when the
+    // manager hits "Send BEO" on the calendar; cleared/updated when they
+    // re-send. beoToken is a secret URL slug the confirmation link uses.
+    beoSentAt: timestamp("beo_sent_at", { withTimezone: true }),
+    beoReceivedAt: timestamp("beo_received_at", { withTimezone: true }),
+    beoToken: text("beo_token").unique(),
   },
   (t) => ({
     positionTierIdx: index("invitations_position_tier_idx").on(t.positionId, t.tier),
