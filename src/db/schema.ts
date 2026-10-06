@@ -60,7 +60,10 @@ export const staffProfiles = pgTable("staff_profiles", {
   lastName: text("last_name").notNull(),
   phone: text("phone"),
   city: text("city"),
-  position: text("position", { enum: ["Lead", "Bartender", "Bar Back", "Server", "Cashier"] }).notNull(),
+  // Primary role for this staffer. Kept as free text so it can match any
+  // role in the company's custom catalog (staff_roles carries the full
+  // multi-role list with per-role rates).
+  position: text("position").notNull(),
   defaultRate: real("default_rate"),
   defaultRateType: text("default_rate_type", { enum: ["hourly", "flat", "both"] }),
   canDriveVan: boolean("can_drive_van").default(false),
@@ -210,6 +213,23 @@ export const eventAttachments = pgTable("event_attachments", {
  * row with an incremented `version`. The modal lets them re-send any
  * previous version or view it in a new tab.
  */
+/**
+ * Per-staff role catalog with per-role rates. Lets Deena earn $35/hr as
+ * a Bartender and $30/hr as a Server; the roster + invite-email code
+ * picks the rate that matches the position she was invited for and
+ * falls back to staff_profiles.default_rate when there's no match.
+ * Unique on (user_id, role) so no duplicate role rows per person.
+ */
+export const staffRoles = pgTable("staff_roles", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: text("role").notNull(),
+  rate: real("rate").notNull(),
+  rateType: text("rate_type", { enum: ["flat", "hourly"] }).notNull(),
+}, (t) => ({
+  userRoleIdx: uniqueIndex("staff_roles_user_role_idx").on(t.userId, t.role),
+}));
+
 export const eventBeos = pgTable("event_beos", {
   id: text("id").primaryKey(),
   eventId: text("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),

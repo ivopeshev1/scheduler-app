@@ -135,6 +135,29 @@ export async function runMigrations(): Promise<void> {
   await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS last_call_sent_at TIMESTAMPTZ`;
   await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS rate_override_amount REAL`;
   await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS rate_override_mode TEXT CHECK (rate_override_mode IN ('flat','hourly'))`;
+  // Per-staff role catalog: one row per {user, role} with that staffer's
+  // rate for that specific role. Backfilled below from the single
+  // position + default_rate pair that lived on staff_profiles.
+  await sql`CREATE TABLE IF NOT EXISTS staff_roles (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL,
+    rate REAL NOT NULL,
+    rate_type TEXT NOT NULL CHECK (rate_type IN ('flat','hourly'))
+  )`;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS staff_roles_user_role_idx ON staff_roles(user_id, role)`;
+  // Backfill one staff_roles row per onboarded staffer that still has a
+  // primary position + rate on their profile but no staff_roles yet.
+  // 'both' maps to hourly for the backfill since the new table doesn't
+  // carry that mode - manager can add a flat variant later if needed.
+  await sql`INSERT INTO staff_roles (id, user_id, role, rate, rate_type)
+    SELECT user_id || '-primary', user_id, position, default_rate,
+           CASE WHEN default_rate_type = 'flat' THEN 'flat' ELSE 'hourly' END
+    FROM staff_profiles
+    WHERE position IS NOT NULL
+      AND default_rate IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM staff_roles sr WHERE sr.user_id = staff_profiles.user_id)
+    ON CONFLICT (user_id, role) DO NOTHING`;
   await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS beo_sent_at TIMESTAMPTZ`;
   await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS beo_received_at TIMESTAMPTZ`;
   await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS beo_token TEXT UNIQUE`;

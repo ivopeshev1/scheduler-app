@@ -8,7 +8,8 @@ export type StaffOption = {
   firstName: string;
   lastName: string;
   city: string | null;
-  position: "Lead" | "Bartender" | "Bar Back" | "Server" | "Cashier";
+  // Free-text role matching the company's custom catalog.
+  position: string;
   defaultRate: number | null;
   defaultRateType: "hourly" | "flat" | "both" | null;
   currentTier: number | null;

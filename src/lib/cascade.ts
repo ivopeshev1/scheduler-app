@@ -1,5 +1,6 @@
 import { db, schema } from "@/db/client";
 import { and, eq, isNull } from "drizzle-orm";
+// (and + eq imported above; staff_roles lookup added later uses them)
 import { sendEmail, escapeHtml } from "@/lib/notifications";
 import { formatTime, formatDate } from "@/lib/format";
 import { shellWrap, kvRow, kvTable, greeting, paragraph, banner, signoff } from "@/lib/email-html";
@@ -47,6 +48,17 @@ export async function sendInvitationEmail(inv: InvitationRow, position: Position
     return `$${a.amount}`;
   }
 
+  // Prefer the staffer's per-role rate from staff_roles. Falls back to
+  // the single default rate on their profile when there's no per-role
+  // entry.
+  const [staffRoleForPosition] = await db
+    .select()
+    .from(schema.staffRoles)
+    .where(and(eq(schema.staffRoles.userId, inv.userId), eq(schema.staffRoles.role, position.role)));
+  const standardRate = staffRoleForPosition ? staffRoleForPosition.rate : profile?.defaultRate ?? null;
+  const standardRateType = staffRoleForPosition
+    ? (staffRoleForPosition.rateType as "hourly" | "flat")
+    : (profile?.defaultRateType ?? null);
   const baseRateDisplay = (() => {
     // Per-invitee override wins over the position default.
     if (inv.rateOverrideAmount != null) {
@@ -54,8 +66,8 @@ export async function sendInvitationEmail(inv: InvitationRow, position: Position
       return `$${inv.rateOverrideAmount}${unit} (custom for this shift)`;
     }
     if (position.baseRateMode === "standard") {
-      const rate = profile?.defaultRate;
-      const type = profile?.defaultRateType;
+      const rate = standardRate;
+      const type = standardRateType;
       if (rate == null) return "Your standard rate (to be confirmed with manager)";
       if (type === "hourly") return `Your standard rate ($${rate}/hr, as on file)`;
       if (type === "flat") return `Your standard rate ($${rate} flat, as on file)`;

@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { summarizePosition } from "@/lib/status";
 import { sendEmail, escapeHtml } from "@/lib/notifications";
@@ -329,6 +329,17 @@ async function sendPendingInvitations(formData: FormData) {
       //   "standard" - show the staff's onboarded rate (varies per invitee)
       //   "flat"     - fixed $ for the whole shift
       //   "hourly"   - $ per hour, overriding the staff's onboarded rate
+      // Prefer the staffer's per-role rate from staff_roles. Falls back
+      // to the single default rate on their profile when there's no
+      // per-role entry yet.
+      const [staffRoleForPosition] = await db
+        .select()
+        .from(schema.staffRoles)
+        .where(and(eq(schema.staffRoles.userId, inv.userId), eq(schema.staffRoles.role, position.role)));
+      const standardRate = staffRoleForPosition ? staffRoleForPosition.rate : profile?.defaultRate ?? null;
+      const standardRateType = staffRoleForPosition
+        ? (staffRoleForPosition.rateType as "hourly" | "flat")
+        : (profile?.defaultRateType ?? null);
       const baseRateDisplay = (() => {
         // Per-invitee override wins over anything the position says - the
         // manager explicitly set a custom rate for this person.
@@ -337,8 +348,8 @@ async function sendPendingInvitations(formData: FormData) {
           return `$${inv.rateOverrideAmount}${unit} (custom for this shift)`;
         }
         if (position.baseRateMode === "standard") {
-          const rate = profile?.defaultRate;
-          const type = profile?.defaultRateType;
+          const rate = standardRate;
+          const type = standardRateType;
           if (rate == null) return "Your standard rate (to be confirmed with manager)";
           if (type === "hourly") return `Your standard rate ($${rate}/hr, as on file)`;
           if (type === "flat") return `Your standard rate ($${rate} flat, as on file)`;
@@ -462,6 +473,18 @@ export default async function EventDetailPage({ params }: { params: { id: string
   // / remove that invite explicitly.
   const staffOnly = allStaff.filter((r) => r.user.role === "staff" && !r.user.archivedAt);
 
+  // Per-staff multi-role rate catalog. Keyed by `${userId}::${role}` so
+  // buildStaffOptions can swap in the right rate when a position matches
+  // one of a staffer's configured roles.
+  const allStaffRoles = await db.select().from(schema.staffRoles);
+  const staffRolesByUserRole = new Map<string, { rate: number; rateType: "hourly" | "flat" }>();
+  for (const sr of allStaffRoles) {
+    staffRolesByUserRole.set(
+      `${sr.userId}::${sr.role}`,
+      { rate: sr.rate, rateType: sr.rateType as "hourly" | "flat" },
+    );
+  }
+
   const invitesByPosition: Record<string, typeof schema.invitations.$inferSelect[]> = {};
   for (const p of positionsList) {
     invitesByPosition[p.id] = await db.select().from(schema.invitations).where(eq(schema.invitations.positionId, p.id));
@@ -552,14 +575,21 @@ export default async function EventDetailPage({ params }: { params: { id: string
         busy && busy.positionId !== positionId
           ? { eventDate: busy.eventDate, clientName: busy.clientName, role: busy.role }
           : null;
+      // When this staffer has a dedicated rate for the position's role,
+      // use it. Otherwise fall back to the single default rate on their
+      // profile (backward compatible with staff that haven't filled in
+      // the Roles & rates table yet).
+      const roleMatch = staffRolesByUserRole.get(`${r.user.id}::${positionRole}`);
+      const effectiveRate = roleMatch ? roleMatch.rate : r.profile.defaultRate;
+      const effectiveRateType = roleMatch ? roleMatch.rateType : r.profile.defaultRateType;
       return {
         userId: r.user.id,
         firstName: r.profile.firstName,
         lastName: r.profile.lastName,
         city: r.profile.city,
         position: r.profile.position,
-        defaultRate: r.profile.defaultRate,
-        defaultRateType: r.profile.defaultRateType,
+        defaultRate: effectiveRate,
+        defaultRateType: effectiveRateType,
         currentTier: inv ? inv.tier : null,
         currentStatus: inv ? inv.status : null,
         currentTravelRate: inv ? inv.travelRate ?? null : null,

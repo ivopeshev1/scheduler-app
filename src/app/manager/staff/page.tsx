@@ -69,6 +69,14 @@ export default async function ManagerStaffPage() {
     .leftJoin(schema.staffProfiles, eq(schema.users.id, schema.staffProfiles.userId))
     .where(and(eq(schema.users.companyId, session.companyId), isNull(schema.users.archivedAt)));
   const staffRows = rows.filter((r) => r.user.role === "staff");
+  // Per-staff role list for the Position / Rate columns.
+  const allRoles = await db.select().from(schema.staffRoles);
+  const rolesByUser = new Map<string, Array<{ role: string; rate: number; rateType: "hourly" | "flat" }>>();
+  for (const r of allRoles) {
+    const list = rolesByUser.get(r.userId) ?? [];
+    list.push({ role: r.role, rate: r.rate, rateType: r.rateType as "hourly" | "flat" });
+    rolesByUser.set(r.userId, list);
+  }
   staffRows.sort((a, b) => {
     const aName = a.profile?.firstName ?? a.user.email;
     const bName = b.profile?.firstName ?? b.user.email;
@@ -125,11 +133,31 @@ export default async function ManagerStaffPage() {
                       </div>
                     </div>
                   </td>
-                  <td className="py-3">{profile?.position ?? "-"}</td>
                   <td className="py-3">
-                    {profile?.defaultRate
-                      ? `$${profile.defaultRate}${profile.defaultRateType === "hourly" ? "/hr" : profile.defaultRateType === "flat" ? " flat" : ""}`
-                      : "-"}
+                    {(rolesByUser.get(user.id) ?? []).length > 0 ? (
+                      <div className="flex flex-col gap-0.5">
+                        {rolesByUser.get(user.id)!.map((r) => (
+                          <div key={r.role} className="text-sm">{r.role}</div>
+                        ))}
+                      </div>
+                    ) : (
+                      profile?.position ?? "-"
+                    )}
+                  </td>
+                  <td className="py-3">
+                    {(rolesByUser.get(user.id) ?? []).length > 0 ? (
+                      <div className="flex flex-col gap-0.5">
+                        {rolesByUser.get(user.id)!.map((r) => (
+                          <div key={r.role} className="text-sm">
+                            ${r.rate}{r.rateType === "hourly" ? "/hr" : " flat"}
+                          </div>
+                        ))}
+                      </div>
+                    ) : profile?.defaultRate ? (
+                      `$${profile.defaultRate}${profile.defaultRateType === "hourly" ? "/hr" : profile.defaultRateType === "flat" ? " flat" : ""}`
+                    ) : (
+                      "-"
+                    )}
                   </td>
                   <td className="py-3">{profile?.city ?? <span className="text-gray-300">-</span>}</td>
                   <td className="py-3 text-sm text-gray-600">{profile?.phone ?? <span className="text-gray-300">-</span>}</td>

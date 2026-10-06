@@ -4,9 +4,10 @@ import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
 import { eq, and } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
+import { StaffRolesEditor } from "@/components/StaffRolesEditor";
 import { revalidatePath } from "next/cache";
+import { nanoid } from "nanoid";
 
-const POSITION_ROLES = ["Lead", "Bartender", "Bar Back", "Server", "Cashier"] as const;
 const UNIFORM_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"] as const;
 
 async function saveStaffAction(formData: FormData) {
@@ -21,9 +22,28 @@ async function saveStaffAction(formData: FormData) {
   const firstName = String(formData.get("firstName") ?? "").trim();
   const lastName = String(formData.get("lastName") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
-  const position = String(formData.get("position") ?? "").trim() as typeof POSITION_ROLES[number];
-  const rate = num(formData.get("defaultRate"));
-  const rateType = (str(formData.get("defaultRateType")) ?? "hourly") as "hourly" | "flat" | "both";
+  // Multi-role list from the StaffRolesEditor component.
+  type ParsedRoleRow = { role: string; rate: number; rateType: "hourly" | "flat" };
+  const roleRows: ParsedRoleRow[] = (() => {
+    try {
+      const raw = JSON.parse(String(formData.get("staffRoles") ?? "[]"));
+      if (!Array.isArray(raw)) return [];
+      return raw
+        .map((r: unknown): ParsedRoleRow | null => {
+          if (!r || typeof r !== "object") return null;
+          const o = r as Record<string, unknown>;
+          const role = typeof o.role === "string" ? o.role.trim() : "";
+          const rateStr = typeof o.rate === "string" ? o.rate : typeof o.rate === "number" ? String(o.rate) : "";
+          const rateNum = Number(rateStr);
+          const rateType = o.rateType === "flat" ? "flat" : "hourly";
+          if (!role || !Number.isFinite(rateNum) || rateNum < 0) return null;
+          return { role, rate: rateNum, rateType };
+        })
+        .filter((r: ParsedRoleRow | null): r is ParsedRoleRow => r !== null);
+    } catch {
+      return [];
+    }
+  })();
   const canDriveVan = formData.get("canDriveVan") === "on";
 
   const phone = str(formData.get("phone"));
@@ -33,9 +53,13 @@ async function saveStaffAction(formData: FormData) {
   const emergencyContactName = str(formData.get("emergencyContactName"));
   const emergencyContactPhone = str(formData.get("emergencyContactPhone"));
 
-  if (!firstName || !lastName || !email || !position || rate === null) {
-    throw new Error("First name, last name, email, position, and rate are required");
+  if (!firstName || !lastName || !email || roleRows.length === 0) {
+    throw new Error("First name, last name, email, and at least one role are required");
   }
+
+  // Primary role for the single-position fallback fields on
+  // staff_profiles. The first row is treated as primary.
+  const primary = roleRows[0];
 
   // If email changed, check for duplicates
   if (email !== user.email) {
@@ -52,9 +76,9 @@ async function saveStaffAction(formData: FormData) {
   await db.update(schema.staffProfiles).set({
     firstName,
     lastName,
-    position,
-    defaultRate: rate,
-    defaultRateType: rateType,
+    position: primary.role,
+    defaultRate: primary.rate,
+    defaultRateType: primary.rateType,
     canDriveVan,
     phone,
     city,
@@ -63,6 +87,24 @@ async function saveStaffAction(formData: FormData) {
     emergencyContactName,
     emergencyContactPhone,
   }).where(eq(schema.staffProfiles.userId, userId));
+
+  // Replace-style sync of staff_roles. Simplest + safest for a small
+  // list: delete every existing row then insert what the form sent.
+  await db.delete(schema.staffRoles).where(eq(schema.staffRoles.userId, userId));
+  // Dedupe by role (first occurrence wins) so a double-entry doesn't
+  // trip the unique index.
+  const seen = new Set<string>();
+  for (const r of roleRows) {
+    if (seen.has(r.role)) continue;
+    seen.add(r.role);
+    await db.insert(schema.staffRoles).values({
+      id: nanoid(),
+      userId,
+      role: r.role,
+      rate: r.rate,
+      rateType: r.rateType,
+    });
+  }
 
   revalidatePath("/manager/staff");
   redirect("/manager/staff");
@@ -86,6 +128,30 @@ export default async function EditStaffPage({ params }: { params: { userId: stri
   if (!me) redirect("/login");
   if (!me.isOwner && !me.canAccessStaff) redirect("/manager?denied=staff");
 
+  // Role catalog for the company drives both the per-role dropdown and
+  // the staff-profile position fallback. Fall back to a hardcoded set
+  // when no company roles are configured yet.
+  const companyRoles = await db.select().from(schema.roles).where(eq(schema.roles.companyId, session.companyId));
+  companyRoles.sort((a, b) => a.sortOrder - b.sortOrder);
+  const roleOptions = companyRoles.length > 0
+    ? companyRoles.map((r) => r.name)
+    : ["Lead", "Bartender", "Bar Back", "Server", "Cashier"];
+
+  // Existing per-role rates for this staffer (seeded by the migration
+  // backfill from their old position+defaultRate pair when present).
+  const existingRoles = await db.select().from(schema.staffRoles).where(eq(schema.staffRoles.userId, params.userId));
+  const initialRoleRows = existingRoles.length > 0
+    ? existingRoles.map((r) => ({
+        role: r.role,
+        rate: String(r.rate),
+        rateType: r.rateType as "hourly" | "flat",
+      }))
+    : [{
+        role: profile.position ?? roleOptions[0] ?? "",
+        rate: profile.defaultRate != null ? String(profile.defaultRate) : "",
+        rateType: (profile.defaultRateType === "flat" ? "flat" : "hourly") as "hourly" | "flat",
+      }];
+
   return (
     <div>
       <AppHeader companyName={company.name} userEmail={me.email} role="manager" logoUrl={company.logoUrl} isOwner={!!me.isOwner} canAccessCalendar={!!me.canAccessCalendar} canAccessStaff={!!me.canAccessStaff} canAccessLog={!!me.canAccessLog} canAccessTeam={!!me.canAccessTeam} canEditSettings={!!me.canEditSettings} />
@@ -106,29 +172,20 @@ export default async function EditStaffPage({ params }: { params: { userId: stri
               <Field label="First name" name="firstName" defaultValue={profile.firstName} required />
               <Field label="Last name" name="lastName" defaultValue={profile.lastName} required />
               <Field label="Email" name="email" type="email" defaultValue={target.email} required />
-              <div>
-                <label className="label" htmlFor="position">Position</label>
-                <select id="position" name="position" className="input" required defaultValue={profile.position}>
-                  {POSITION_ROLES.map((r) => (<option key={r} value={r}>{r}</option>))}
-                </select>
-              </div>
-              <div>
-                <label className="label" htmlFor="defaultRate">Default rate ($)</label>
-                <input id="defaultRate" name="defaultRate" type="number" min={0} step="0.01" className="input" defaultValue={profile.defaultRate ?? ""} required />
-              </div>
-              <div>
-                <label className="label" htmlFor="defaultRateType">Rate type</label>
-                <select id="defaultRateType" name="defaultRateType" className="input" defaultValue={profile.defaultRateType ?? "hourly"}>
-                  <option value="hourly">Hourly</option>
-                  <option value="flat">Flat</option>
-                  <option value="both">Both (depends on event)</option>
-                </select>
-              </div>
               <div className="md:col-span-2 flex items-center gap-2">
                 <input id="canDriveVan" name="canDriveVan" type="checkbox" defaultChecked={profile.canDriveVan ?? false} className="w-4 h-4" />
                 <label htmlFor="canDriveVan" className="text-sm">Can drive the van</label>
               </div>
             </div>
+          </section>
+
+          <section className="pt-6 border-t">
+            <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-1">Roles &amp; rates</h2>
+            <p className="text-sm text-gray-600 mb-3">
+              Each role this staffer can work and what they earn in that role. When a shift is set
+              up for a given position, the system uses the matching role&apos;s rate automatically.
+            </p>
+            <StaffRolesEditor roleOptions={roleOptions} initial={initialRoleRows} />
           </section>
 
           <section className="pt-6 border-t">
