@@ -141,7 +141,7 @@ async function sendBeoAction(
     const confirmUrl = `${publicBase}/beo/confirm/${token}`;
 
     const lead = inv.isOnCall
-      ? `You're on-call for this shift and we're sharing the BEO (Banquet Event Order) with you so you're ready in case we need you. Please review it and confirm receipt. You'll be contacted directly if you need to come in.`
+      ? `You're on-call for this shift and we're sharing the BEO (Banquet Event Order) with you so you're ready in case we need you. Please review it and confirm receipt. You'll be contacted directly if you need to come in. Heads up: we could reach out up to 3 hours before the event's check-in time, so please keep that window clear and don't over-book yourself.`
       : isRevision && inv.beoSentAt
       ? `An updated BEO for your upcoming shift is attached. Please review the latest version and confirm receipt below.`
       : `The BEO (Banquet Event Order) for your upcoming shift is attached. Please review it and confirm receipt below.`;
@@ -165,8 +165,17 @@ async function sendBeoAction(
       `- ${companyName}`,
     ].join("\n");
 
+    // On-call recipients get a bold heads-up sentence in the lead.
+    // Everyone else gets the plain lead through the greeting helper.
+    const onCallHeadsUp = `Heads up: we could reach out up to 3 hours before the event's check-in time, so please keep that window clear and don't over-book yourself.`;
+    const leadHtml = inv.isOnCall
+      ? `<p style="margin:0 0 12px;">Hi ${escapeHtml(firstName || "there")},</p>` +
+        `<p style="margin:0 0 20px;">` +
+        escapeHtml(`You're on-call for this shift and we're sharing the BEO (Banquet Event Order) with you so you're ready in case we need you. Please review it and confirm receipt. You'll be contacted directly if you need to come in. `) +
+        `<strong>${escapeHtml(onCallHeadsUp)}</strong></p>`
+      : greeting(firstName || "there", lead);
     const htmlBody = shellWrap([
-      greeting(firstName || "there", lead),
+      leadHtml,
       kvTable(kv.map(([k, v]) => kvRow(k, escapeHtml(v)))),
       noteHtml
         ? `<div style="margin:16px 0 12px;padding:14px 16px;background:#f9fafb;border-left:3px solid #d1d5db;color:#374151;"><div style="font-weight:600;color:#111;margin-bottom:6px;">Note from manager</div><div style="line-height:1.5;">${noteHtml}</div></div>`
