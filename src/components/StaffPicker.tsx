@@ -85,7 +85,7 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
     for (const s of staff) {
       init[s.userId] = {
         amount: s.currentRateOverrideAmount != null ? String(s.currentRateOverrideAmount) : "",
-        mode: s.currentRateOverrideMode ?? "flat",
+        mode: s.currentRateOverrideMode ?? "hourly",
       };
     }
     return init;
@@ -133,7 +133,7 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
       nextAddOns[s.userId] = m;
       nextRateOverrides[s.userId] = {
         amount: s.currentRateOverrideAmount != null ? String(s.currentRateOverrideAmount) : "",
-        mode: s.currentRateOverrideMode ?? "flat",
+        mode: s.currentRateOverrideMode ?? "hourly",
       };
       nextRateOverrideChecked[s.userId] = s.currentRateOverrideAmount != null;
     }
@@ -468,8 +468,8 @@ function RateChip({
             onClick={(e) => e.stopPropagation()}
             className="border border-gray-300 rounded px-1 py-0.5 text-xs outline-none focus:border-gray-500 bg-white"
           >
-            <option value="flat">flat</option>
             <option value="hourly">/hr</option>
+            <option value="flat">flat</option>
           </select>
         </>
       )}
