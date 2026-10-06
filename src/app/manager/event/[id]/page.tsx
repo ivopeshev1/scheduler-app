@@ -563,10 +563,27 @@ export default async function EventDetailPage({ params }: { params: { id: string
     }
   }
 
+  // Pre-fetch 21+ gating per role for this company so buildStaffOptions
+  // can mark under-21 (and unknown-DOB) staff as blocked without
+  // querying inside the loop.
+  const companyRoles = await db.select().from(schema.roles).where(eq(schema.roles.companyId, session.companyId));
+  const ageGatedRoleNames = new Set(companyRoles.filter((r) => r.requires21Plus).map((r) => r.name));
+  function ageYearsFromDob(dob: string | null): number | null {
+    if (!dob) return null;
+    const d = new Date(dob);
+    if (Number.isNaN(d.getTime())) return null;
+    const now = new Date();
+    let age = now.getFullYear() - d.getFullYear();
+    const m = now.getMonth() - d.getMonth();
+    if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age -= 1;
+    return age;
+  }
+
   function buildStaffOptions(positionRole: string, positionId: string): StaffOption[] {
     // Show ALL staff. If someone is invited/accepted elsewhere (different position,
     // any event), mark them busyWith so they show but aren't selectable here.
     const invites = invitesByPosition[positionId] ?? [];
+    const roleRequires21 = ageGatedRoleNames.has(positionRole);
     return staffOnly.map((r) => {
       const inv = invites.find((i) => i.userId === r.user.id);
       const busy = busyMap.get(r.user.id);
@@ -582,8 +599,15 @@ export default async function EventDetailPage({ params }: { params: { id: string
       const roleMatch = staffRolesByUserRole.get(`${r.user.id}::${positionRole}`);
       const effectiveRate = roleMatch ? roleMatch.rate : r.profile.defaultRate;
       const effectiveRateType = roleMatch ? roleMatch.rateType : r.profile.defaultRateType;
+      // Age-gate for 21+-only roles: block if under 21 or no DOB.
+      let blockedForAge = false;
+      if (roleRequires21) {
+        const age = ageYearsFromDob(r.profile.dateOfBirth ?? null);
+        blockedForAge = age === null || age < 21;
+      }
       return {
         userId: r.user.id,
+        blockedForAge,
         firstName: r.profile.firstName,
         lastName: r.profile.lastName,
         city: r.profile.city,

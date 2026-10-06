@@ -150,6 +150,9 @@ export async function runMigrations(): Promise<void> {
   // 5-role enum. The column is now free-text so it can hold any role
   // from the company's custom catalog.
   await sql`ALTER TABLE staff_profiles DROP CONSTRAINT IF EXISTS staff_profiles_position_check`;
+  // Age-gate flag per role. Picker filters out under-21 (and
+  // unknown-DOB) staff from roles that have this on.
+  await sql`ALTER TABLE roles ADD COLUMN IF NOT EXISTS requires_21_plus BOOLEAN NOT NULL DEFAULT false`;
   // Backfill one staff_roles row per onboarded staffer that still has a
   // primary position + rate on their profile but no staff_roles yet.
   // 'both' maps to hourly for the backfill since the new table doesn't

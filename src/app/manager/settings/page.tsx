@@ -108,6 +108,9 @@ async function addRoleAction(formData: FormData) {
   "use server";
   const { session } = await requireSettingsAccess();
   const name = String(formData.get("name") ?? "").trim();
+  // 21+ gating per role. Alcohol-service roles need it on; most others
+  // leave it off ("open to all").
+  const requires21Plus = formData.get("requires21Plus") === "on";
   if (!name) {
     redirect("/manager/settings?error=role-name-required");
   }
@@ -137,10 +140,26 @@ async function addRoleAction(formData: FormData) {
     companyId: session.companyId,
     name,
     sortOrder: nextSort,
+    requires21Plus,
   });
 
   revalidatePath("/manager/settings");
   redirect("/manager/settings?saved=role-added");
+}
+
+/**
+ * Toggle the age-gate flag on an existing role. Used by the inline
+ * "21+" checkbox in the roles list.
+ */
+async function toggleRoleAgeGateAction(formData: FormData) {
+  "use server";
+  const { session } = await requireSettingsAccess();
+  const roleId = String(formData.get("roleId") ?? "");
+  const requires21Plus = formData.get("requires21Plus") === "on";
+  const [target] = await db.select().from(schema.roles).where(eq(schema.roles.id, roleId));
+  if (!target || target.companyId !== session.companyId) throw new Error("Not found");
+  await db.update(schema.roles).set({ requires21Plus }).where(eq(schema.roles.id, roleId));
+  revalidatePath("/manager/settings");
 }
 
 /**
@@ -524,13 +543,14 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
           </p>
 
           <RolesList
-            initialRoles={roles.map((r) => ({ id: r.id, name: r.name }))}
+            initialRoles={roles.map((r) => ({ id: r.id, name: r.name, requires21Plus: !!r.requires21Plus }))}
             onReorder={reorderRolesAction}
             onRemove={removeRoleByIdAction}
+            onToggleAgeGate={toggleRoleAgeGateAction}
           />
 
-          <form action={addRoleAction} className="flex items-end gap-2">
-            <div className="flex-1">
+          <form action={addRoleAction} className="space-y-3">
+            <div>
               <label htmlFor="new-role-name" className="label">Add a new role</label>
               <input
                 id="new-role-name"
@@ -542,7 +562,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
                 className="input"
               />
             </div>
-            <button type="submit" className="btn btn-secondary whitespace-nowrap">Add role</button>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="requires21Plus" className="w-4 h-4" />
+              <span>Open to 21+ only (hides staff under 21 or without a known date of birth)</span>
+            </label>
+            <button type="submit" className="btn btn-secondary">Add role</button>
           </form>
 
           {rolesSavedMsg && (

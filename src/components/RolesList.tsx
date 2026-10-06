@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 
-type Role = { id: string; name: string };
+type Role = { id: string; name: string; requires21Plus: boolean };
 
 /**
  * Drag-and-drop list for Settings → Roles. Uses the browser's native HTML5
@@ -16,10 +16,12 @@ export function RolesList({
   initialRoles,
   onReorder,
   onRemove,
+  onToggleAgeGate,
 }: {
   initialRoles: Role[];
   onReorder: (orderedIds: string[]) => Promise<void>;
   onRemove: (roleId: string) => Promise<void>;
+  onToggleAgeGate: (formData: FormData) => Promise<void>;
 }) {
   const [roles, setRoles] = useState<Role[]>(initialRoles);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -94,6 +96,23 @@ export function RolesList({
             >
               <span className="text-gray-400 text-sm leading-none" aria-hidden>⋮⋮</span>
               <span className="text-sm flex-1">{r.name}</span>
+              <form
+                action={onToggleAgeGate}
+                className="flex items-center gap-1 text-xs text-gray-600 cursor-default"
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                draggable={false}
+              >
+                <input type="hidden" name="roleId" value={r.id} />
+                <input
+                  type="checkbox"
+                  name="requires21Plus"
+                  defaultChecked={r.requires21Plus}
+                  onChange={(e) => (e.currentTarget.form as HTMLFormElement).requestSubmit()}
+                  className="w-4 h-4"
+                />
+                <span>21+ only</span>
+              </form>
               <button
                 type="button"
                 onClick={() => remove(r.id)}

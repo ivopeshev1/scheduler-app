@@ -110,6 +110,10 @@ export const roles = pgTable(
     name: text("name").notNull(),
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // When true, staff under 21 (and staff without a known DOB) are
+    // excluded from the picker for this role. Covers alcohol-service
+    // roles like Bartender / Bar Back where state law requires 21+.
+    requires21Plus: boolean("requires_21_plus").notNull().default(false),
   },
   (t) => ({
     companyIdx: index("roles_company_idx").on(t.companyId, t.sortOrder),
