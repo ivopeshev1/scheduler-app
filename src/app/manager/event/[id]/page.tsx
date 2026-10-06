@@ -821,13 +821,13 @@ export default async function EventDetailPage({ params }: { params: { id: string
                         ? s.lines.map((ln, idx) => (
                             <div
                               key={idx}
-                              className={
+                              className={`h-7 flex items-center ${
                                 ln.paid
                                   ? "text-green-600 font-semibold"
                                   : ln.state === "pending"
                                   ? "status-pending"
                                   : "status-confirmed"
-                              }
+                              }`}
                             >
                               {ln.text}
                               {ln.beo === "received" && (
@@ -892,8 +892,8 @@ export default async function EventDetailPage({ params }: { params: { id: string
                           }
                           if (travel > 0) extras.push(`travel $${travel}`);
                           return (
-                            <div key={inv.id}>
-                              {rateLine}
+                            <div key={inv.id} className="h-7 flex items-center">
+                              <span>{rateLine}</span>
                               {extras.length > 0 && (
                                 <span className="text-xs text-gray-400 ml-2">+ {extras.join(", ")}</span>
                               )}
