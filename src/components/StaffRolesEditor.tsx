@@ -42,50 +42,61 @@ export function StaffRolesEditor({
 
   return (
     <div>
-      <div className="space-y-2">
+      <div className="space-y-3">
         {rows.map((r, idx) => (
-          <div key={idx} className="flex items-center gap-2">
-            {/* Role: widest, grows to fill */}
-            <select
-              value={r.role}
-              onChange={(e) => update(idx, { role: e.target.value })}
-              className="input flex-1 min-w-[180px]"
-              required
-            >
-              {roleOptions.map((opt) => (<option key={opt} value={opt}>{opt}</option>))}
-            </select>
-            {/* $ rate: fixed modest width */}
-            <div className="flex items-center gap-1 shrink-0">
-              <span className="text-gray-500 text-sm">$</span>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={r.rate}
-                onChange={(e) => update(idx, { rate: e.target.value })}
-                className="input w-20"
-                placeholder="0"
+          <div key={idx} className="flex items-end gap-3">
+            {/* Role: widest column with its own label on top */}
+            <div className="flex-1 min-w-0">
+              {idx === 0 && <label className="label">Role</label>}
+              <select
+                value={r.role}
+                onChange={(e) => update(idx, { role: e.target.value })}
+                className="input w-full"
                 required
-              />
+              >
+                {roleOptions.map((opt) => (<option key={opt} value={opt}>{opt}</option>))}
+              </select>
             </div>
-            {/* /hr vs flat: compact unit picker */}
-            <select
-              value={r.rateType}
-              onChange={(e) => update(idx, { rateType: e.target.value as "hourly" | "flat" })}
-              className="input w-20 shrink-0 text-sm"
-            >
-              <option value="hourly">/hr</option>
-              <option value="flat">flat</option>
-            </select>
-            <button
-              type="button"
-              onClick={() => remove(idx)}
-              disabled={rows.length <= 1}
-              className="text-sm text-red-600 hover:underline disabled:text-gray-300 disabled:no-underline shrink-0 px-2"
-              title={rows.length <= 1 ? "At least one role is required" : "Remove this role"}
-            >
-              Remove
-            </button>
+            {/* Rate: label on top, modest width */}
+            <div className="shrink-0 w-28">
+              {idx === 0 && <label className="label">Rate</label>}
+              <div className="flex items-center gap-1">
+                <span className="text-gray-500 text-sm">$</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={r.rate}
+                  onChange={(e) => update(idx, { rate: e.target.value })}
+                  className="input w-full"
+                  placeholder="0"
+                  required
+                />
+              </div>
+            </div>
+            {/* Unit picker: half the rate column's width, no label */}
+            <div className="shrink-0 w-14">
+              {idx === 0 && <div className="label invisible">unit</div>}
+              <select
+                value={r.rateType}
+                onChange={(e) => update(idx, { rateType: e.target.value as "hourly" | "flat" })}
+                className="input w-full text-sm px-1"
+              >
+                <option value="hourly">/hr</option>
+                <option value="flat">flat</option>
+              </select>
+            </div>
+            <div className="shrink-0 pb-[6px]">
+              <button
+                type="button"
+                onClick={() => remove(idx)}
+                disabled={rows.length <= 1}
+                className="text-sm text-red-600 hover:underline disabled:text-gray-300 disabled:no-underline px-2"
+                title={rows.length <= 1 ? "At least one role is required" : "Remove this role"}
+              >
+                Remove
+              </button>
+            </div>
           </div>
         ))}
       </div>
