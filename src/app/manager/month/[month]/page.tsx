@@ -294,11 +294,14 @@ async function DayRow({ day, weekday, dateStr, events }: {
           "Add event" when the day is empty so it reads like before. */}
       <div className="flex-1 min-w-0 overflow-x-auto">
         <div className="flex gap-4 min-w-full">
-          {await Promise.all(events.map((ev) => (
-            <div key={ev.id} className="w-[480px] flex-shrink-0">
-              {await EventCard({ event: ev })}
+          {(await Promise.all(events.map(async (ev) => ({
+            id: ev.id,
+            card: await EventCard({ event: ev }),
+          })))).map(({ id, card }) => (
+            <div key={id} className="w-[480px] flex-shrink-0">
+              {card}
             </div>
-          )))}
+          ))}
           <Link
             href={`/manager/event/new?date=${dateStr}`}
             className={`border border-dashed rounded-lg p-4 text-gray-400 text-sm hover:border-gray-400 hover:text-gray-600 flex items-center justify-center min-h-[96px] flex-shrink-0 ${events.length === 0 ? "flex-1 min-w-[320px]" : "w-[280px]"}`}
