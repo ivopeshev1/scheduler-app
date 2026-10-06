@@ -7,6 +7,15 @@ import { AppHeader } from "@/components/AppHeader";
 import { summarizePosition } from "@/lib/status";
 import { formatTime } from "@/lib/format";
 
+// Stub server action for the Send BEO button. Full flow (email + confirmation
+// tracking + reminder cron) will be wired next; for now the click is a no-op
+// so the button renders in place without a 404.
+async function sendBeoAction(formData: FormData) {
+  "use server";
+  const _eventId = String(formData.get("eventId") ?? "");
+  // TODO: implement BEO send + attach + confirmation flow
+}
+
 function parseMonth(m: string) {
   const match = /^(\d{4})-(\d{2})$/.exec(m);
   if (!match) return null;
@@ -106,15 +115,15 @@ async function EventCard({ event }: { event: typeof schema.events.$inferSelect }
   const statuses = await Promise.all(positionsList.map((p) => summarizePosition(p.id)));
 
   return (
-    <Link
+    <div
       key={event.id}
-      href={`/manager/event/${event.id}`}
-      className={`rounded-lg p-4 block ${
+      className={`rounded-lg p-4 ${
         event.cancelledAt
-          ? "border-2 border-red-500 bg-red-50 hover:bg-red-100"
-          : "border hover:border-gray-400 bg-white"
+          ? "border-2 border-red-500 bg-red-50"
+          : "border bg-white hover:border-gray-400"
       }`}
     >
+      <Link href={`/manager/event/${event.id}`} className="block">
       {event.cancelledAt && (
         <div className="text-red-700 text-xs font-bold uppercase mb-2">⚠ Cancelled</div>
       )}
@@ -169,6 +178,15 @@ async function EventCard({ event }: { event: typeof schema.events.$inferSelect }
           {positionsList.length === 0 && (<tr><td colSpan={3} className="py-2 text-gray-400 italic">No positions defined yet</td></tr>)}
         </tbody>
       </table>
-    </Link>
+      </Link>
+      {!event.cancelledAt && (
+        <div className="mt-3 flex justify-center">
+          <form action={sendBeoAction}>
+            <input type="hidden" name="eventId" value={event.id} />
+            <button type="submit" className="btn btn-secondary text-sm">Send BEO</button>
+          </form>
+        </div>
+      )}
+    </div>
   );
 }
