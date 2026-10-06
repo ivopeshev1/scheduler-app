@@ -14,6 +14,11 @@ export type PositionStatus = {
   // ignores `label`. `label` stays populated as a plain-text fallback
   // for places that don't render multi-line (e.g. the month calendar).
   lines?: Array<{ text: string; state: "pending" | "confirmed" }>;
+  // Position-level invite send state, used on the calendar list view
+  // to display "Invited" vs "Invitation not sent" to the right of the
+  // staff names. undefined = no invites yet / all confirmed, so nothing
+  // extra is shown.
+  sendIndicator?: "Invited" | "Invitation not sent";
 };
 
 /**
@@ -63,6 +68,24 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
     return `+${n} backup${n === 1 ? "" : "s"} invited`;
   }
 
+  // Position-level send indicator for the calendar list view. We only
+  // care about PRIORITY invites here (backups are silent until cascaded,
+  // and confirmed/open rows don't need a send prompt).
+  //   - Any priority draft present (sent or not) + no priorities actually
+  //     sent → "Invitation not sent" (manager still has to click Send)
+  //   - At least one priority sent AND some drafts still waiting → also
+  //     "Invitation not sent" (there's still work to do)
+  //   - All priorities sent, nothing drafted → "Invited"
+  //   - No priorities at all → undefined (nothing to say)
+  function computeSendIndicator(): "Invited" | "Invitation not sent" | undefined {
+    const anyPrioritySent = invited > 0;
+    const anyPriorityDraft = priorityDrafts.length > 0;
+    if (!anyPrioritySent && !anyPriorityDraft) return undefined;
+    if (anyPriorityDraft) return "Invitation not sent";
+    return "Invited";
+  }
+  const sendIndicator = computeSendIndicator();
+
   // Single-slot: prefer showing the person's name so the manager sees at a glance who it is.
   if (total === 1) {
     if (filled === 1) {
@@ -71,19 +94,19 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
     }
     // Prefer the sent priority invite's name
     if (invited === 1) {
-      return { label: await firstNameOf(sentPendingInvites[0].userId), subLabel: backupSubLabel(), state: "pending" };
+      return { label: await firstNameOf(sentPendingInvites[0].userId), subLabel: backupSubLabel(), state: "pending", sendIndicator };
     }
     // Multiple priority invites competing (e.g. backups auto-promoted after
     // a rejection) - don't pick one name, call it what it is.
     if (invited > 1) {
-      return { label: `Open to ${invited} backups`, state: "pending" };
+      return { label: `Open to ${invited} backups`, state: "pending", sendIndicator };
     }
     // Nothing sent yet - a priority draft still shows as the primary name
     if (priorityDrafts.length === 1) {
-      return { label: await firstNameOf(priorityDrafts[0].userId), subLabel: backupSubLabel(), state: "pending" };
+      return { label: await firstNameOf(priorityDrafts[0].userId), subLabel: backupSubLabel(), state: "pending", sendIndicator };
     }
     if (priorityDrafts.length > 1) {
-      return { label: `Open to ${priorityDrafts.length} backups`, state: "pending" };
+      return { label: `Open to ${priorityDrafts.length} backups`, state: "pending", sendIndicator };
     }
     // No priority at all, only backups queued
     if (backupDrafts.length === 1) {
@@ -121,5 +144,6 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
     lines,
     subLabel: backupSubLabel(),
     state: allConfirmed ? "confirmed" : "pending",
+    sendIndicator,
   };
 }
