@@ -198,6 +198,26 @@ export const eventAttachments = pgTable("event_attachments", {
   uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * Latest BEO sent for an event. One row per event (upserted on each send).
+ * Lets the manager click Send BEO again without re-uploading the file -
+ * the "reuse last file" path pulls the base64 from here. version bumps on
+ * every new file upload so invitations.beo_version_sent can tell whether
+ * someone was last emailed the current BEO or an older one.
+ */
+export const eventBeos = pgTable("event_beos", {
+  eventId: text("event_id").primaryKey().references(() => events.id, { onDelete: "cascade" }),
+  version: integer("version").notNull().default(1),
+  filename: text("filename").notNull(),
+  fileSize: integer("file_size").notNull(),
+  // Raw base64 payload (no data: prefix). Sent to Resend as the attachment.
+  fileData: text("file_data").notNull(),
+  // Sanitized rich-text note from the last send. Prefilled into the modal
+  // the next time the manager opens Send BEO.
+  noteHtml: text("note_html"),
+  sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const positions = pgTable("positions", {
   id: text("id").primaryKey(),
   eventId: text("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
@@ -263,6 +283,10 @@ export const invitations = pgTable(
     beoSentAt: timestamp("beo_sent_at", { withTimezone: true }),
     beoReceivedAt: timestamp("beo_received_at", { withTimezone: true }),
     beoToken: text("beo_token").unique(),
+    // Which BEO version the invitee was last emailed. Lets the server tell
+    // 'new staff who've never gotten the BEO' from 'everyone' when the
+    // manager clicks Send BEO on an event that already had one go out.
+    beoVersionSent: integer("beo_version_sent"),
   },
   (t) => ({
     positionTierIdx: index("invitations_position_tier_idx").on(t.positionId, t.tier),

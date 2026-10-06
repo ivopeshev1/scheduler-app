@@ -40,10 +40,13 @@ async function sendBeoAction(
   const notePlain = noteHtml
     ? noteHtmlRaw.replace(/<[^>]+>/g, "").replace(/\s+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim()
     : noteTextRaw;
-  const file = formData.get("file");
-  if (!(file instanceof File)) return { ok: false, sentTo: 0, error: "Missing file" };
-  if (file.size === 0) return { ok: false, sentTo: 0, error: "Empty file" };
-  if (file.size > BEO_MAX_BYTES) return { ok: false, sentTo: 0, error: "File too large (max 10 MB)" };
+
+  // Delivery mode: 'all' resends to every accepted staffer and resets
+  // their confirmations (treat as a revision), 'only-new' sends only to
+  // staff whose beo_sent_at is null (new joiners).
+  const modeRaw = String(formData.get("mode") ?? "").toLowerCase();
+  const mode: "all" | "only-new" = modeRaw === "only-new" ? "only-new" : "all";
+  const reuseLastFile = String(formData.get("reuseLast") ?? "") === "1";
 
   const [event] = await db.select().from(schema.events).where(eq(schema.events.id, eventId));
   if (!event || event.companyId !== session.companyId) return { ok: false, sentTo: 0, error: "Event not found" };
@@ -52,8 +55,57 @@ async function sendBeoAction(
   const companyName = company?.name ?? "Scheduler";
   const prettyDate = formatDate(event.date);
 
-  // Only email staff who've already accepted a slot. Pending / backup
-  // invitees get the BEO as part of their own invite flow later.
+  const [lastBeo] = await db.select().from(schema.eventBeos).where(eq(schema.eventBeos.eventId, eventId));
+
+  // Figure out which file to send and whether it's a new revision.
+  let filename: string;
+  let fileSize: number;
+  let contentBase64: string;
+  let currentVersion: number;
+  let isRevision: boolean;
+
+  const file = formData.get("file");
+  const hasNewFile = file instanceof File && file.size > 0;
+
+  if (reuseLastFile && lastBeo && !hasNewFile) {
+    filename = lastBeo.filename;
+    fileSize = lastBeo.fileSize;
+    contentBase64 = lastBeo.fileData;
+    currentVersion = lastBeo.version;
+    isRevision = false;
+    // Overwrite the stored note so re-sends can carry a fresh note
+    // without bumping the file version.
+    if (noteHtml !== (lastBeo.noteHtml ?? "")) {
+      await db.update(schema.eventBeos)
+        .set({ noteHtml: noteHtml || null })
+        .where(eq(schema.eventBeos.eventId, eventId));
+    }
+  } else if (hasNewFile) {
+    if ((file as File).size > BEO_MAX_BYTES) return { ok: false, sentTo: 0, error: "File too large (max 10 MB)" };
+    const bytes = new Uint8Array(await (file as File).arrayBuffer());
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    contentBase64 = Buffer.from(binary, "binary").toString("base64");
+    filename = (file as File).name || "BEO.pdf";
+    fileSize = (file as File).size;
+    currentVersion = (lastBeo?.version ?? 0) + 1;
+    isRevision = true;
+    // Upsert the stored BEO. Postgres ON CONFLICT would be nicer but Drizzle's
+    // flow here is simple: delete + insert when the row already exists.
+    if (lastBeo) {
+      await db.update(schema.eventBeos)
+        .set({ version: currentVersion, filename, fileSize, fileData: contentBase64, noteHtml: noteHtml || null, sentAt: new Date() })
+        .where(eq(schema.eventBeos.eventId, eventId));
+    } else {
+      await db.insert(schema.eventBeos).values({
+        eventId, version: currentVersion, filename, fileSize, fileData: contentBase64, noteHtml: noteHtml || null,
+      });
+    }
+  } else {
+    return { ok: false, sentTo: 0, error: "No BEO file selected" };
+  }
+
+  // Pull every accepted invite on the event, then filter by delivery mode.
   const accepted = await db
     .select({ inv: schema.invitations, pos: schema.positions })
     .from(schema.invitations)
@@ -65,18 +117,17 @@ async function sendBeoAction(
   if (accepted.length === 0) {
     return { ok: false, sentTo: 0, error: "No accepted staff on this event yet" };
   }
+  const recipients = mode === "only-new"
+    ? accepted.filter((r) => !r.inv.beoSentAt)
+    : accepted;
+  if (recipients.length === 0) {
+    return { ok: false, sentTo: 0, error: mode === "only-new" ? "No new staff to send to" : "No recipients" };
+  }
 
-  // Pre-encode the file once; reuse the base64 for every recipient.
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  const contentBase64 = Buffer.from(binary, "binary").toString("base64");
-  const filename = file.name || "BEO.pdf";
   const publicBase = process.env.PUBLIC_APP_URL ?? "";
-
   const now = new Date();
   let sentTo = 0;
-  for (const { inv, pos } of accepted) {
+  for (const { inv, pos } of recipients) {
     const [u] = await db.select().from(schema.users).where(eq(schema.users.id, inv.userId));
     if (!u) continue;
     const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, inv.userId));
@@ -91,7 +142,9 @@ async function sendBeoAction(
     }
     const confirmUrl = `${publicBase}/beo/confirm/${token}`;
 
-    const lead = `The BEO (Banquet Event Order) for your upcoming shift is attached. Please review it and confirm receipt below.`;
+    const lead = isRevision && inv.beoSentAt
+      ? `An updated BEO for your upcoming shift is attached. Please review the latest version and confirm receipt below.`
+      : `The BEO (Banquet Event Order) for your upcoming shift is attached. Please review it and confirm receipt below.`;
     const kv: Array<[string, string]> = [
       ["Client", event.clientName],
       ["Date", prettyDate],
@@ -123,9 +176,12 @@ async function sendBeoAction(
       signoff(companyName),
     ].join("\n"));
 
+    const subject = isRevision && inv.beoSentAt
+      ? `BEO updated: ${event.clientName} on ${prettyDate}`
+      : `BEO: ${event.clientName} on ${prettyDate}`;
     const sendResult = await sendEmail({
       to: u.email,
-      subject: `BEO: ${event.clientName} on ${prettyDate}`,
+      subject,
       body: textBody,
       html: htmlBody,
       companyId: session.companyId,
@@ -134,8 +190,16 @@ async function sendBeoAction(
       attachments: [{ filename, contentBase64 }],
     });
     if (sendResult.ok) {
+      // Revisions reset confirmations; new-staff sends don't touch anyone
+      // who's already confirmed.
+      const update: {
+        beoSentAt: Date;
+        beoReceivedAt?: Date | null;
+        beoVersionSent?: number;
+      } = { beoSentAt: now, beoVersionSent: currentVersion };
+      if (isRevision) update.beoReceivedAt = null;
       await db.update(schema.invitations)
-        .set({ beoSentAt: now, beoReceivedAt: null })
+        .set(update)
         .where(eq(schema.invitations.id, inv.id));
       sentTo += 1;
     }
@@ -244,6 +308,28 @@ async function EventCard({ event }: { event: typeof schema.events.$inferSelect }
   const positionsList = await db.select().from(schema.positions).where(eq(schema.positions.eventId, event.id));
   const statuses = await Promise.all(positionsList.map((p) => summarizePosition(p.id)));
 
+  // Pre-compute BEO context for the Send BEO modal: has there been a BEO
+  // sent? What's the previous filename? How many staff have never gotten
+  // one? Lets the UI pick smart defaults.
+  const [lastBeo] = await db.select().from(schema.eventBeos).where(eq(schema.eventBeos.eventId, event.id));
+  const acceptedInvsForBeo = await db
+    .select({ inv: schema.invitations })
+    .from(schema.invitations)
+    .innerJoin(schema.positions, eq(schema.invitations.positionId, schema.positions.id))
+    .where(and(
+      eq(schema.positions.eventId, event.id),
+      eq(schema.invitations.status, "accepted"),
+    ));
+  const totalAccepted = acceptedInvsForBeo.length;
+  const newStaffCount = acceptedInvsForBeo.filter((r) => !r.inv.beoSentAt).length;
+  const beoContext = {
+    hasPrevious: !!lastBeo,
+    lastFilename: lastBeo?.filename ?? null,
+    lastSentAt: lastBeo?.sentAt ? lastBeo.sentAt.toISOString() : null,
+    totalAccepted,
+    newStaffCount,
+  };
+
   return (
     <div
       key={event.id}
@@ -317,7 +403,7 @@ async function EventCard({ event }: { event: typeof schema.events.$inferSelect }
       </Link>
       {!event.cancelledAt && (
         <div className="mt-3 flex justify-center">
-          <SendBeoButton eventId={event.id} action={sendBeoAction} />
+          <SendBeoButton eventId={event.id} action={sendBeoAction} context={beoContext} />
         </div>
       )}
     </div>
