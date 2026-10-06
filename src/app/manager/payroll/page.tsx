@@ -8,6 +8,7 @@ import { revalidatePath } from "next/cache";
 import { computePayPeriod, movePayPeriod, computeTotalHours, type Cadence } from "@/lib/pay-period";
 import { formatMDY } from "@/lib/format-mdy";
 import { PayrollShiftRow } from "@/components/PayrollShiftRow";
+import { PayrollMarkAllButton } from "@/components/PayrollMarkAllButton";
 
 /**
  * Server action: save all editable payroll fields for a single shift
@@ -66,6 +67,7 @@ async function markAllPaidAction(formData: FormData) {
   const session = await getSession();
   if (!session || session.role !== "manager") throw new Error("Unauthorized");
   const ids = String(formData.get("invitationIds") ?? "").split(",").filter(Boolean);
+  const mode = String(formData.get("mode") ?? "paid") === "unpaid" ? "unpaid" : "paid";
   if (ids.length === 0) return;
   const now = new Date();
   // Validate every invitation belongs to this company before writing.
@@ -82,7 +84,9 @@ async function markAllPaidAction(formData: FormData) {
     monthsToRevalidate.add(r.ev.date.slice(0, 7));
   }
   for (const id of idsToWrite) {
-    await db.update(schema.invitations).set({ paidAt: now }).where(eq(schema.invitations.id, id));
+    await db.update(schema.invitations)
+      .set({ paidAt: mode === "paid" ? now : null })
+      .where(eq(schema.invitations.id, id));
   }
   revalidatePath("/manager/payroll");
   for (const m of monthsToRevalidate) revalidatePath(`/manager/month/${m}`);
@@ -271,6 +275,7 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
               staffTotal += total;
               if (!s.inv.paidAt) idsForBulk.push(s.inv.id);
             }
+            const paidIds = g.shifts.filter((s) => s.inv.paidAt).map((s) => s.inv.id);
             // Gratuity column stays visible by default so the manager
             // can still enter a tip even on shifts with none logged yet.
             const showAddOns = sectionHasAddOns;
@@ -337,18 +342,26 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
                     </tbody>
                   </table>
                 </div>
-                <footer className="px-4 py-3 bg-gray-50 border-t flex items-center justify-between">
+                <footer className="px-4 py-3 bg-gray-50 border-t flex items-center justify-between gap-2">
                   <div className="font-semibold">
                     Total: ${staffTotal.toFixed(2)}
                   </div>
-                  {idsForBulk.length > 0 && (
-                    <form action={markAllPaidAction}>
-                      <input type="hidden" name="invitationIds" value={idsForBulk.join(",")} />
-                      <button type="submit" className="btn btn-primary text-sm">
-                        Mark all paid ({idsForBulk.length})
-                      </button>
-                    </form>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {idsForBulk.length > 0 && (
+                      <PayrollMarkAllButton
+                        invitationIds={idsForBulk}
+                        mode="paid"
+                        action={markAllPaidAction}
+                      />
+                    )}
+                    {paidIds.length > 0 && (
+                      <PayrollMarkAllButton
+                        invitationIds={paidIds}
+                        mode="unpaid"
+                        action={markAllPaidAction}
+                      />
+                    )}
+                  </div>
                 </footer>
               </section>
             );
