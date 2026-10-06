@@ -455,10 +455,16 @@ async function sendPendingInvitations(formData: FormData) {
       // to before they tap accept.
       const [companyRow] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
       const onCallFee = companyRow?.onCallFee ?? 0;
+      const headsUp = `Heads up: we could contact you up to 3 hours before the event's check-in time, so if you accept, please keep that window clear and don't over-book yourself.`;
       const leadLineText = inv.isOnCall
-        ? `You've been invited to be ON CALL for the following shift. If you're NOT activated, you'll be paid a $${onCallFee} standby fee for keeping your calendar open. If you ARE activated, your pay switches to the shift rate below (the $${onCallFee} standby fee is replaced, not stacked). Heads up: we could contact you up to 3 hours before the event's check-in time, so if you accept, please keep that window clear and don't over-book yourself.`
+        ? `You've been invited to be ON CALL for the following shift. If you're NOT activated, you'll be paid a $${onCallFee} standby fee for keeping your calendar open. If you ARE activated, your pay switches to the shift rate below (the $${onCallFee} standby fee is replaced, not stacked). ${headsUp}`
         : `You're invited to work the following shift:`;
-      const leadLineHtml = leadLineText;
+      // Pre-rendered HTML lead so we can embed <strong> around the
+      // heads-up portion. The rest of the sentence is escaped manually
+      // so the raw <strong> isn't neutralized by the outer escapeHtml.
+      const leadLineHtml = inv.isOnCall
+        ? `${escapeHtml(`You've been invited to be ON CALL for the following shift. If you're NOT activated, you'll be paid a $${onCallFee} standby fee for keeping your calendar open. If you ARE activated, your pay switches to the shift rate below (the $${onCallFee} standby fee is replaced, not stacked). `)}<strong>${escapeHtml(headsUp)}</strong>`
+        : escapeHtml(`You're invited to work the following shift:`);
       const onCallCompNote = inv.isOnCall ? [`Standby fee (if NOT activated):  $${onCallFee}`] : [];
 
       const textBody = [
@@ -495,7 +501,7 @@ async function sendPendingInvitations(formData: FormData) {
       const htmlBody = `
 <!doctype html><html><body style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;line-height:1.5;font-size:15px;max-width:560px;margin:0 auto;padding:24px;">
   <p style="margin:0 0 12px;">Hi ${escapeHtml(profile?.firstName ?? "")},</p>
-  <p style="margin:0 0 20px;">${escapeHtml(leadLineHtml)}</p>
+  <p style="margin:0 0 20px;">${leadLineHtml}</p>
 
   <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 24px;">
     ${row("Role", escapeHtml(position.role))}
