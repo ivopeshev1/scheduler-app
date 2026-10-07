@@ -177,6 +177,30 @@ export async function runMigrations(): Promise<void> {
     city TEXT,
     photo_url TEXT
   )`;
+  // One-time: enforce single-owner per company. Older code set is_owner=true
+  // on every signup, which produced multiple owners inside a single company
+  // when teammates each signed up. Keep the earliest-created owner per company
+  // (the actual founder) and demote the rest to regular managers with
+  // delegated full access so they don't lose any abilities beyond editing
+  // other admins.
+  await sql`
+    WITH keep AS (
+      SELECT DISTINCT ON (company_id) id, company_id
+      FROM users
+      WHERE role = 'manager' AND is_owner = true AND archived_at IS NULL
+      ORDER BY company_id, created_at ASC, id ASC
+    )
+    UPDATE users
+    SET is_owner = false,
+        can_access_calendar = true,
+        can_access_staff = true,
+        can_access_log = true,
+        can_access_team = false,
+        can_edit_settings = true
+    WHERE role = 'manager'
+      AND is_owner = true
+      AND id NOT IN (SELECT id FROM keep)
+  `;
   // Backfill one staff_roles row per onboarded staffer that still has a
   // primary position + rate on their profile but no staff_roles yet.
   // 'both' maps to hourly for the backfill since the new table doesn't
