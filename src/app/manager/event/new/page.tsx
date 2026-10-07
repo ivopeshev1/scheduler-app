@@ -5,7 +5,6 @@ import { db, schema } from "@/db/client";
 import { eq, and, asc } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { PositionRows } from "@/components/PositionRows";
-import { AttachmentsField } from "@/components/AttachmentsField";
 import { nanoid } from "nanoid";
 import { PRESET_BY_KEY } from "@/lib/event-fields";
 
@@ -49,24 +48,6 @@ async function createEventAction(formData: FormData) {
       }).onConflictDoNothing();
     }
   }
-
-  // Persist newly-uploaded attachments. `newAttachments` is JSON from
-  // AttachmentsField: array of { name, type, size, dataUrl }.
-  const newAttachmentsRaw = String(formData.get("newAttachments") ?? "[]");
-  try {
-    const uploads = JSON.parse(newAttachmentsRaw) as Array<{ name: string; type: string; size: number; dataUrl: string }>;
-    for (const u of uploads) {
-      if (!u.dataUrl) continue;
-      await db.insert(schema.eventAttachments).values({
-        id: nanoid(),
-        eventId,
-        fileName: u.name,
-        fileType: u.type,
-        fileSize: u.size,
-        fileData: u.dataUrl,
-      });
-    }
-  } catch {}
 
   // Scan form data for position rows - there's no fixed count now
   const positionIndexes = new Set<number>();
@@ -196,7 +177,6 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
     return cfg ? cfg.required : PRESET_BY_KEY[key]?.bucket === "required";
   };
   const customFields = fieldConfigs.filter((c) => c.isCustom && c.enabled);
-  const attachmentsEnabled = isEnabled("attachments");
 
   const autocomplete = await db
     .select()
@@ -270,12 +250,6 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
               </div>
             ))}
           </section>
-
-          {attachmentsEnabled && (
-            <section>
-              <AttachmentsField existing={[]} label="Attachments (BEO, manuals, etc.)" />
-            </section>
-          )}
 
           <section>
             <h2 className="font-semibold mb-2">Positions</h2>

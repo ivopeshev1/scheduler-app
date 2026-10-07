@@ -5,7 +5,6 @@ import { db, schema } from "@/db/client";
 import { eq, and, asc } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { PositionsEditor, type PositionData, type InvitedStaff } from "@/components/PositionsEditor";
-import { AttachmentsField } from "@/components/AttachmentsField";
 import { nanoid } from "nanoid";
 import { PRESET_BY_KEY } from "@/lib/event-fields";
 import {
@@ -211,30 +210,6 @@ async function saveEventEditAction(formData: FormData) {
     }
   }
 
-  // Attachments: handle removes, then new uploads (JSON from AttachmentsField).
-  const removeRaw = String(formData.get("removeAttachments") ?? "[]");
-  try {
-    const removeIds = JSON.parse(removeRaw) as string[];
-    for (const rid of removeIds) {
-      await db.delete(schema.eventAttachments).where(eq(schema.eventAttachments.id, rid));
-    }
-  } catch {}
-  const newAttachmentsRaw = String(formData.get("newAttachments") ?? "[]");
-  try {
-    const uploads = JSON.parse(newAttachmentsRaw) as Array<{ name: string; type: string; size: number; dataUrl: string }>;
-    for (const u of uploads) {
-      if (!u.dataUrl) continue;
-      await db.insert(schema.eventAttachments).values({
-        id: nanoid(),
-        eventId,
-        fileName: u.name,
-        fileType: u.type,
-        fileSize: u.size,
-        fileData: u.dataUrl,
-      });
-    }
-  } catch {}
-
   // Upsert per-event add-on descriptions. Only add-ons the company has
   // configured with includeDescription=true send this field from the UI.
   const companyAddOnsForEvent = await db.select().from(schema.addOns).where(eq(schema.addOns.companyId, session.companyId));
@@ -380,14 +355,6 @@ export default async function EditEventPage({ params }: { params: { id: string }
     .from(schema.eventCustomValues)
     .where(eq(schema.eventCustomValues.eventId, event.id));
   const customValueByKey = new Map(customValues.map((v) => [v.fieldKey, v.value ?? ""]));
-  const attachmentsEnabled = isEnabled("attachments");
-  const existingAttachments = attachmentsEnabled
-    ? (await db
-        .select({ id: schema.eventAttachments.id, fileName: schema.eventAttachments.fileName, fileType: schema.eventAttachments.fileType, fileSize: schema.eventAttachments.fileSize })
-        .from(schema.eventAttachments)
-        .where(eq(schema.eventAttachments.eventId, event.id)))
-    : [];
-
   const autocomplete = await db.select().from(schema.autocompleteValues).where(eq(schema.autocompleteValues.companyId, session.companyId));
   const suggestions = {
     venue: autocomplete.filter((a) => a.field === "venue").map((a) => a.value).sort(),
@@ -461,12 +428,6 @@ export default async function EditEventPage({ params }: { params: { id: string }
               </div>
             ))}
           </section>
-
-          {attachmentsEnabled && (
-            <section>
-              <AttachmentsField existing={existingAttachments} label="Attachments (BEO, manuals, etc.)" />
-            </section>
-          )}
 
           <section>
             <h2 className="font-semibold mb-2">Positions</h2>
