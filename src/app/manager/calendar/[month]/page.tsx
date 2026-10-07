@@ -2,7 +2,7 @@ import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
-import { eq, and, gte, lte } from "drizzle-orm";
+import { eq, and, gte, lte, inArray } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { formatTime } from "@/lib/format";
 
@@ -69,6 +69,58 @@ export default async function CalendarGridView({ params }: { params: { month: st
   // Sort each day's events by check-in time so earlier shifts show up top.
   for (const list of byDay.values()) {
     list.sort((a, b) => (a.checkInTime ?? "").localeCompare(b.checkInTime ?? ""));
+  }
+
+  // Batch-load attention-indicator data for every event the grid will render.
+  // Three signals: staffing fill, invites-all-sent, BEO-sent.
+  const eventIds = monthEvents.map((e) => e.id);
+  type StatusInfo = { needed: number; accepted: number; invitesComplete: boolean; beoSent: boolean };
+  const statusByEvent = new Map<string, StatusInfo>();
+  if (eventIds.length > 0) {
+    const [positions, invitations, beos] = await Promise.all([
+      db.select().from(schema.positions).where(inArray(schema.positions.eventId, eventIds)),
+      db
+        .select({
+          positionId: schema.invitations.positionId,
+          status: schema.invitations.status,
+          isOnCall: schema.invitations.isOnCall,
+          eventId: schema.positions.eventId,
+        })
+        .from(schema.invitations)
+        .innerJoin(schema.positions, eq(schema.invitations.positionId, schema.positions.id))
+        .where(inArray(schema.positions.eventId, eventIds)),
+      db
+        .select({ eventId: schema.eventBeos.eventId })
+        .from(schema.eventBeos)
+        .where(inArray(schema.eventBeos.eventId, eventIds)),
+    ]);
+
+    const beoSentSet = new Set(beos.map((b) => b.eventId));
+    // Count invitations per position so we can tell "no invitation ever sent" apart from accepted/declined.
+    const invsByPosition = new Map<string, number>();
+    const acceptedByEvent = new Map<string, number>();
+    for (const inv of invitations) {
+      invsByPosition.set(inv.positionId, (invsByPosition.get(inv.positionId) ?? 0) + 1);
+      if (inv.status === "accepted" && !inv.isOnCall) {
+        acceptedByEvent.set(inv.eventId, (acceptedByEvent.get(inv.eventId) ?? 0) + 1);
+      }
+    }
+    const neededByEvent = new Map<string, number>();
+    const anyMissingInviteByEvent = new Map<string, boolean>();
+    for (const p of positions) {
+      neededByEvent.set(p.eventId, (neededByEvent.get(p.eventId) ?? 0) + (p.needed ?? 0));
+      if ((invsByPosition.get(p.id) ?? 0) === 0) {
+        anyMissingInviteByEvent.set(p.eventId, true);
+      }
+    }
+    for (const id of eventIds) {
+      statusByEvent.set(id, {
+        needed: neededByEvent.get(id) ?? 0,
+        accepted: acceptedByEvent.get(id) ?? 0,
+        invitesComplete: !anyMissingInviteByEvent.get(id),
+        beoSent: beoSentSet.has(id),
+      });
+    }
   }
 
   const prevMonth = new Date(parsed.year, parsed.month - 2, 1);
@@ -145,25 +197,48 @@ export default async function CalendarGridView({ params }: { params: { month: st
                   </Link>
                 </div>
                 <div className="px-1 pb-1 pt-0.5 flex flex-col gap-0.5">
-                  {events.slice(0, 3).map((ev) => (
+                  {events.slice(0, 3).map((ev) => {
+                    const s = statusByEvent.get(ev.id);
+                    const ratio = s && s.needed > 0 ? s.accepted / s.needed : 0;
+                    // Staffing fill colour drives the dot: red (nothing), amber (partial), green (full), gray (no positions yet).
+                    const staffDot =
+                      !s || s.needed === 0
+                        ? "bg-gray-300"
+                        : ratio >= 1
+                        ? "bg-green-500"
+                        : ratio > 0
+                        ? "bg-amber-500"
+                        : "bg-red-500";
+                    const titleStatus = s
+                      ? ` · ${s.accepted}/${s.needed} staffed${s.invitesComplete ? "" : " · invites missing"}${s.beoSent ? " · BEO sent" : ""}`
+                      : "";
+                    return (
                     <Link
                       key={ev.id}
                       href={`/manager/event/${ev.id}`}
-                      className={`block text-xs leading-tight px-1.5 py-0.5 rounded truncate ${
+                      className={`flex items-center gap-1 text-xs leading-tight px-1.5 py-0.5 rounded ${
                         ev.cancelledAt
                           ? "bg-red-50 text-red-700 line-through border border-red-200"
                           : "bg-blue-50 text-blue-800 hover:bg-blue-100 border border-blue-100"
                       }`}
-                      title={`${ev.clientName}${ev.checkInTime ? ` · ${formatTime(ev.checkInTime)}` : ""}${ev.city ? ` · ${ev.city}` : ""}`}
+                      title={`${ev.clientName}${ev.checkInTime ? ` · ${formatTime(ev.checkInTime)}` : ""}${ev.city ? ` · ${ev.city}` : ""}${titleStatus}`}
                     >
                       {ev.checkInTime && (
-                        <span className="text-[10px] text-gray-500 mr-1">
+                        <span className="text-[10px] text-gray-500 shrink-0">
                           {formatTime(ev.checkInTime).replace(":00 ", "").replace(" ", "")}
                         </span>
                       )}
-                      {ev.clientName}
+                      <span className="truncate flex-1">{ev.clientName}</span>
+                      {!ev.cancelledAt && s && (
+                        <span className="flex items-center gap-0.5 shrink-0">
+                          <span className={`inline-block w-1.5 h-1.5 rounded-full ${staffDot}`} />
+                          {!s.invitesComplete && <span className="text-amber-600 text-[10px] leading-none">⚠</span>}
+                          {s.beoSent && <span className="text-green-600 text-[10px] leading-none">✓</span>}
+                        </span>
+                      )}
                     </Link>
-                  ))}
+                    );
+                  })}
                   {events.length > 3 && (
                     <Link
                       href={`/manager/month/${params.month}#day-${ymd}`}
