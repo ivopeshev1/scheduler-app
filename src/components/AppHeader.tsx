@@ -82,7 +82,7 @@ export function AppHeader({
                 <Link href="/manager/payroll" className="text-gray-700 hover:text-black">Payroll</Link>
               )}
               {showTeam && (
-                <Link href="/manager/team" className="text-gray-700 hover:text-black">Team</Link>
+                <Link href="/manager/team" className="text-gray-700 hover:text-black">Admin</Link>
               )}
               {showSettings && (
                 <Link href="/manager/settings" className="text-gray-700 hover:text-black">Settings</Link>
@@ -92,12 +92,47 @@ export function AppHeader({
           {role === "staff" && (
             <Link href="/staff" className="text-gray-700 hover:text-black">My shifts</Link>
           )}
-          <span className="text-gray-500 hidden md:inline">{userEmail}</span>
+          <div className="flex items-center gap-2" title={`Signed in as ${userEmail}`}>
+            <UserAvatar email={userEmail} />
+            <span className="text-gray-500 hidden md:inline">{userEmail}</span>
+          </div>
           <form action="/logout" method="post">
             <button type="submit" className="text-gray-500 hover:text-black">Log out</button>
           </form>
         </nav>
       </div>
     </header>
+  );
+}
+
+/**
+ * Small circular avatar for the signed-in user. Shows initials derived
+ * from the email on a stable color-seeded background so an owner using
+ * multiple logins (owner account vs. a delegated admin) always sees
+ * which one they're in at a glance.
+ */
+function UserAvatar({ email }: { email: string }) {
+  const local = email.split("@")[0] ?? email;
+  // "jane.doe" → "JD", "jdoe" → "JD", "x" → "X"
+  const parts = local.split(/[.\-_+]/).filter(Boolean);
+  const initials =
+    parts.length >= 2
+      ? (parts[0][0] + parts[1][0]).toUpperCase()
+      : (local.slice(0, 2) || "?").toUpperCase();
+  let hash = 0;
+  for (let i = 0; i < email.length; i++) hash = (hash * 31 + email.charCodeAt(i)) >>> 0;
+  const hue = hash % 360;
+  const style: React.CSSProperties = {
+    background: `hsl(${hue}, 55%, 85%)`,
+    color: `hsl(${hue}, 45%, 25%)`,
+  };
+  return (
+    <div
+      className="w-8 h-8 rounded-full flex items-center justify-center font-semibold text-xs shrink-0"
+      style={style}
+      aria-label={`Signed in as ${email}`}
+    >
+      {initials}
+    </div>
   );
 }

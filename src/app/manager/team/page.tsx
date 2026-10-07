@@ -23,7 +23,7 @@ const ACCESS_LABELS: Record<keyof AccessFlags, string> = {
   canAccessCalendar: "Calendar",
   canAccessStaff: "Staff",
   canAccessLog: "Log",
-  canAccessTeam: "Team",
+  canAccessTeam: "Admin",
   canEditSettings: "Settings",
 };
 
@@ -255,7 +255,7 @@ export default async function TeamPage() {
       <AppHeader companyName={company.name} userEmail={me.email} role="manager" logoUrl={company.logoUrl} isOwner={!!me.isOwner} canAccessCalendar={!!me.canAccessCalendar} canAccessStaff={!!me.canAccessStaff} canAccessLog={!!me.canAccessLog} canAccessTeam={!!me.canAccessTeam} canEditSettings={!!me.canEditSettings} />
       <main className="max-w-4xl mx-auto px-6 py-8">
         <Link href="/manager" className="text-sm text-gray-500 hover:underline">← Back to calendar</Link>
-        <h1 className="text-2xl font-semibold mt-2 mb-2">Team</h1>
+        <h1 className="text-2xl font-semibold mt-2 mb-2">Admin</h1>
         <p className="text-sm text-gray-600 mb-6">
           Manage who can log in to run the app for {company.name}. Tick the boxes for each section you
           want each manager to access; uncheck them to revoke access. Owners always have full access.
@@ -312,7 +312,7 @@ export default async function TeamPage() {
                         <AccessCheckbox id={`cal-${u.id}`}      name="canAccessCalendar" label="Calendar" defaultChecked={!!u.canAccessCalendar} />
                         <AccessCheckbox id={`staff-${u.id}`}    name="canAccessStaff"    label="Staff"    defaultChecked={!!u.canAccessStaff} />
                         <AccessCheckbox id={`log-${u.id}`}      name="canAccessLog"      label="Log"      defaultChecked={!!u.canAccessLog} />
-                        <AccessCheckbox id={`team-${u.id}`}     name="canAccessTeam"     label="Team"     defaultChecked={!!u.canAccessTeam} />
+                        <AccessCheckbox id={`team-${u.id}`}     name="canAccessTeam"     label="Admin"    defaultChecked={!!u.canAccessTeam} />
                         <AccessCheckbox id={`settings-${u.id}`} name="canEditSettings"   label="Settings" defaultChecked={!!u.canEditSettings} />
                         <button type="submit" className="btn btn-secondary text-xs ml-auto">Update access</button>
                       </div>
@@ -377,7 +377,7 @@ export default async function TeamPage() {
                 <AccessCheckbox id="new-cal"      name="canAccessCalendar" label="Calendar" defaultChecked />
                 <AccessCheckbox id="new-staff"    name="canAccessStaff"    label="Staff"    defaultChecked />
                 <AccessCheckbox id="new-log"      name="canAccessLog"      label="Log"      defaultChecked />
-                <AccessCheckbox id="new-team"     name="canAccessTeam"     label="Team" />
+                <AccessCheckbox id="new-team"     name="canAccessTeam"     label="Admin" />
                 <AccessCheckbox id="new-settings" name="canEditSettings"   label="Settings" />
               </div>
             </div>
