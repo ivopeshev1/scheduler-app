@@ -149,12 +149,9 @@ export default async function StaffLogPage({ params }: { params: { userId: strin
       <AppHeader companyName={company.name} userEmail={me.email} role="manager" logoUrl={company.logoUrl} isOwner={!!me.isOwner} canAccessCalendar={!!me.canAccessCalendar} canAccessStaff={!!me.canAccessStaff} canAccessLog={!!me.canAccessLog} canAccessTeam={!!me.canAccessTeam} canEditSettings={!!me.canEditSettings} />
       <main className="max-w-5xl mx-auto px-6 py-8">
         <Link href="/manager/staff" className="text-sm text-gray-500 hover:underline">← Back to staff</Link>
-        <div className="flex items-start justify-between mt-2 mb-6">
-          <div>
-            <h1 className="text-2xl font-semibold">{fullName}</h1>
-            <div className="text-sm text-gray-600">{target.email}{profile?.phone ? ` · ${profile.phone}` : ""}{profile?.city ? ` · ${profile.city}` : ""}</div>
-          </div>
-          <Link href={`/manager/staff/${target.id}/edit`} className="btn btn-secondary text-sm">Edit</Link>
+        <div className="mt-2 mb-6">
+          <h1 className="text-2xl font-semibold">{fullName}</h1>
+          <div className="text-sm text-gray-600">{target.email}{profile?.phone ? ` · ${profile.phone}` : ""}{profile?.city ? ` · ${profile.city}` : ""}</div>
         </div>
 
         <section className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
