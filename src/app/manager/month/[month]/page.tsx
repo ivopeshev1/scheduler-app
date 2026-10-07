@@ -355,6 +355,23 @@ async function EventCard({ event }: { event: typeof schema.events.$inferSelect }
     newStaffCount,
   };
 
+  // Attention indicators the manager scans at a glance:
+  // 1) staffing fill (non-oncall accepted vs needed),
+  // 2) whether every position has invitations out,
+  // 3) whether a BEO has gone out.
+  const totalNeeded = positionsList.reduce((a, p) => a + (p.needed ?? 0), 0);
+  const allInvitesSent = statuses.every((s) => s.sendIndicator !== "Invitation not sent");
+  const beoSent = beoRevisions.length > 0;
+  const fillRatio = totalNeeded === 0 ? 0 : totalAccepted / totalNeeded;
+  const staffPillClass =
+    totalNeeded === 0
+      ? "bg-gray-100 text-gray-500"
+      : fillRatio >= 1
+      ? "bg-green-100 text-green-700"
+      : fillRatio > 0
+      ? "bg-amber-100 text-amber-700"
+      : "bg-red-100 text-red-700";
+
   return (
     <div
       key={event.id}
@@ -368,8 +385,8 @@ async function EventCard({ event }: { event: typeof schema.events.$inferSelect }
       {event.cancelledAt && (
         <div className="text-red-700 text-xs font-bold uppercase mb-2">⚠ Cancelled</div>
       )}
-      <div className="flex items-start justify-between">
-        <div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
           <div className={`font-semibold ${event.cancelledAt ? "line-through text-gray-500" : ""}`}>{event.clientName}</div>
           <div className="text-sm text-gray-600">
             {event.eventType}
@@ -377,9 +394,31 @@ async function EventCard({ event }: { event: typeof schema.events.$inferSelect }
             {event.guestCount ? ` · ${event.guestCount} guests` : ""}
           </div>
         </div>
-        <div className="text-sm text-gray-500">
-          {event.checkInTime ? formatTime(event.checkInTime) : ""}
-          {event.endTime ? ` – ${formatTime(event.endTime)}` : ""}
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <div className="text-sm text-gray-500">
+            {event.checkInTime ? formatTime(event.checkInTime) : ""}
+            {event.endTime ? ` – ${formatTime(event.endTime)}` : ""}
+          </div>
+          <div className="flex items-center gap-1.5 text-xs">
+            <span
+              title={`Staffing: ${totalAccepted} of ${totalNeeded} confirmed`}
+              className={`px-1.5 py-0.5 rounded font-semibold ${staffPillClass}`}
+            >
+              {totalAccepted}/{totalNeeded}
+            </span>
+            <span
+              title={allInvitesSent ? "All invitations sent" : "Some invitations not sent"}
+              className={allInvitesSent ? "text-gray-400" : "text-amber-600"}
+            >
+              {allInvitesSent ? "✉" : "⚠"}
+            </span>
+            <span
+              title={beoSent ? "BEO sent" : "BEO not sent"}
+              className={beoSent ? "text-green-600" : "text-gray-300"}
+            >
+              📄
+            </span>
+          </div>
         </div>
       </div>
       <table className="w-full mt-3 text-sm">
