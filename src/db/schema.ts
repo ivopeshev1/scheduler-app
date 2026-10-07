@@ -68,6 +68,22 @@ export const users = pgTable(
   })
 );
 
+// Profile data for manager-side accounts. Collected the first time a
+// newly-invited manager logs in (via /manager/onboard). Separate from
+// staffProfiles because managers don't need the shift-related fields
+// (DOB, emergency contact, uniform size) and because joining through
+// one table keeps the queries simple.
+export const managerProfiles = pgTable("manager_profiles", {
+  userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  phone: text("phone"),
+  city: text("city"),
+  // Base64 data URL for the avatar. Same storage pattern the company logo
+  // uses — small images only (we cap at ~500 KB on upload).
+  photoUrl: text("photo_url"),
+});
+
 export const staffProfiles = pgTable("staff_profiles", {
   userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
   firstName: text("first_name").notNull(),

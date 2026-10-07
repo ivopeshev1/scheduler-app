@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { canModifyManager, canAddManager, canViewAdminPage, type Actor, type ManagerTarget } from "./permissions";
+import { canModifyManager, canAddManager, canViewAdminPage, shouldOnboardManager, type Actor, type ManagerTarget } from "./permissions";
 
 const owner: Actor = { id: "o1", companyId: "c1", role: "manager", isOwner: true };
 const otherManager: Actor = { id: "m1", companyId: "c1", role: "manager", isOwner: false };
@@ -62,5 +62,20 @@ describe("canViewAdminPage", () => {
 
   it("staff never sees it", () => {
     expect(canViewAdminPage({ ...staff, canAccessTeam: true })).toBe(false);
+  });
+});
+
+describe("shouldOnboardManager", () => {
+  it("redirects a manager with no profile", () => {
+    expect(shouldOnboardManager({ role: "manager" }, false)).toBe(true);
+  });
+
+  it("leaves a manager with a profile alone", () => {
+    expect(shouldOnboardManager({ role: "manager" }, true)).toBe(false);
+  });
+
+  it("never redirects a staff user through this flow", () => {
+    expect(shouldOnboardManager({ role: "staff" }, false)).toBe(false);
+    expect(shouldOnboardManager({ role: "staff" }, true)).toBe(false);
   });
 });

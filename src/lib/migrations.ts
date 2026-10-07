@@ -169,6 +169,14 @@ export async function runMigrations(): Promise<void> {
   await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS activation_requested_at TIMESTAMPTZ`;
   await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMPTZ`;
+  await sql`CREATE TABLE IF NOT EXISTS manager_profiles (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    phone TEXT,
+    city TEXT,
+    photo_url TEXT
+  )`;
   // Backfill one staff_roles row per onboarded staffer that still has a
   // primary position + rate on their profile but no staff_roles yet.
   // 'both' maps to hourly for the backfill since the new table doesn't

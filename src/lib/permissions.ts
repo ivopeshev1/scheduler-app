@@ -58,3 +58,18 @@ export function canViewAdminPage(actor: Actor & { canAccessTeam?: boolean }): bo
   if (actor.role !== "manager") return false;
   return !!actor.isOwner || !!actor.canAccessTeam;
 }
+
+/**
+ * Decide whether a manager should be redirected to /manager/onboard
+ * to fill in their profile. Owners who haven't filled in a profile
+ * yet are nudged too, but they still have working access to the rest
+ * of the app — so the UI should NOT hard-block, just redirect once
+ * they land on a page that triggers this check.
+ */
+export function shouldOnboardManager(
+  actor: Pick<Actor, "role">,
+  hasProfile: boolean,
+): boolean {
+  if (actor.role !== "manager") return false;
+  return !hasProfile;
+}

@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { getSession } from "@/lib/auth";
+import { db, schema } from "@/db/client";
+import { eq } from "drizzle-orm";
 
 type Props = {
   companyName: string;
@@ -16,7 +19,7 @@ type Props = {
   canEditSettings?: boolean;
 };
 
-export function AppHeader({
+export async function AppHeader({
   companyName,
   userEmail,
   role,
@@ -28,6 +31,30 @@ export function AppHeader({
   canAccessTeam,
   canEditSettings,
 }: Props) {
+  // Pull the signed-in user's profile (photo + name) once so the header
+  // can show a real avatar + display name instead of email initials.
+  // Falls back to the email-derived avatar if no profile exists yet.
+  const session = await getSession();
+  let avatarUrl: string | null = null;
+  let displayName: string | null = null;
+  if (session) {
+    if (session.role === "manager") {
+      const [p] = await db
+        .select({ firstName: schema.managerProfiles.firstName, lastName: schema.managerProfiles.lastName, photoUrl: schema.managerProfiles.photoUrl })
+        .from(schema.managerProfiles)
+        .where(eq(schema.managerProfiles.userId, session.userId));
+      if (p) {
+        avatarUrl = p.photoUrl;
+        displayName = `${p.firstName} ${p.lastName}`.trim();
+      }
+    } else if (session.role === "staff") {
+      const [p] = await db
+        .select({ firstName: schema.staffProfiles.firstName, lastName: schema.staffProfiles.lastName })
+        .from(schema.staffProfiles)
+        .where(eq(schema.staffProfiles.userId, session.userId));
+      if (p) displayName = `${p.firstName} ${p.lastName}`.trim();
+    }
+  }
   const isManager = role === "manager";
   const showCalendar = isManager && (isOwner || canAccessCalendar);
   const showStaff = isManager && (isOwner || canAccessStaff);
@@ -92,10 +119,14 @@ export function AppHeader({
           {role === "staff" && (
             <Link href="/staff" className="text-gray-700 hover:text-black">My shifts</Link>
           )}
-          <div className="flex items-center gap-2" title={`Signed in as ${userEmail}`}>
-            <UserAvatar email={userEmail} />
-            <span className="text-gray-500 hidden md:inline">{userEmail}</span>
-          </div>
+          <Link
+            href={role === "manager" ? "/manager/onboard" : "/staff"}
+            className="flex items-center gap-2 hover:opacity-80"
+            title={`Signed in as ${displayName ?? userEmail}${role === "manager" ? " — click to edit profile" : ""}`}
+          >
+            <UserAvatar email={userEmail} photoUrl={avatarUrl} />
+            <span className="text-gray-500 hidden md:inline">{displayName ?? userEmail}</span>
+          </Link>
           <form action="/logout" method="post">
             <button type="submit" className="text-gray-500 hover:text-black">Log out</button>
           </form>
@@ -111,7 +142,18 @@ export function AppHeader({
  * multiple logins (owner account vs. a delegated admin) always sees
  * which one they're in at a glance.
  */
-function UserAvatar({ email }: { email: string }) {
+function UserAvatar({ email, photoUrl }: { email: string; photoUrl?: string | null }) {
+  if (photoUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={photoUrl}
+        alt=""
+        className="w-8 h-8 rounded-full object-cover shrink-0"
+        aria-label={`Signed in as ${email}`}
+      />
+    );
+  }
   const local = email.split("@")[0] ?? email;
   // "jane.doe" → "JD", "jdoe" → "JD", "x" → "X"
   const parts = local.split(/[.\-_+]/).filter(Boolean);
