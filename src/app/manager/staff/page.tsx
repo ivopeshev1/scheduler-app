@@ -171,6 +171,12 @@ export default async function ManagerStaffPage() {
                   </td>
                   <td className="py-3 text-right">
                     <div className="flex gap-3 justify-end items-center">
+                      <Link
+                        href={`/manager/staff/${user.id}`}
+                        className="text-sm underline text-gray-600 hover:text-black"
+                      >
+                        Log
+                      </Link>
                       {profile && (
                         <Link
                           href={`/manager/staff/${user.id}/edit`}
