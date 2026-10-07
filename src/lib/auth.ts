@@ -53,6 +53,14 @@ export async function signInWithPassword(email: string, password: string) {
   if (!user || !user.passwordHash) return { ok: false as const, error: "Invalid email or password" };
   const valid = bcrypt.compareSync(password, user.passwordHash);
   if (!valid) return { ok: false as const, error: "Invalid email or password" };
+  // Owner-suspended managers can still exist in the DB but can't sign in
+  // until the owner lifts the suspension on the Admin page.
+  if (user.suspendedAt) {
+    return { ok: false as const, error: "This account has been suspended. Contact your administrator." };
+  }
+  if (user.archivedAt) {
+    return { ok: false as const, error: "This account has been deactivated." };
+  }
   // First successful login marks the invite as accepted - the Team page uses this
   // to show "Pending first login" vs. "Active" for managers invited by an owner.
   if (!user.inviteAcceptedAt) {

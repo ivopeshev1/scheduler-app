@@ -56,6 +56,10 @@ export const users = pgTable(
     // Pending invitations can still exist in the DB; manager handles any
     // accepted shifts through Edit Event before archiving.
     archivedAt: timestamp("archived_at", { withTimezone: true }),
+    // Owner-controlled lockout for managers. When set, the user still exists
+    // and keeps their history, but login is rejected. Owner can clear this
+    // to restore access.
+    suspendedAt: timestamp("suspended_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({

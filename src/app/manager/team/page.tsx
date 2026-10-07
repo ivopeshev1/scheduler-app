@@ -9,6 +9,7 @@ import { nanoid } from "nanoid";
 import { headers } from "next/headers";
 import { sendEmail } from "@/lib/notifications";
 import { shellWrap, kvRow, kvTable, greeting, paragraph, signoff } from "@/lib/email-html";
+import { canModifyManager, canAddManager } from "@/lib/permissions";
 
 type AccessFlags = {
   canAccessCalendar: boolean;
@@ -45,15 +46,28 @@ function accessSummary(flags: AccessFlags): string {
 }
 
 /**
- * Gate on owner OR canAccessTeam. Owners retain full control (incl. of their
- * own account and other non-owner managers); a delegated Team manager can do
- * the same for anyone except the owner.
+ * View-level gate: owner OR anyone with canAccessTeam can SEE the page.
+ * Mutations are gated separately via requireOwner so a delegated manager
+ * can look at the roster without being able to edit it.
  */
 async function requireTeamAccess() {
   const session = await getSession();
   if (!session || session.role !== "manager") throw new Error("Unauthorized");
   const [me] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
-  if (!me?.isOwner && !me?.canAccessTeam) throw new Error("Forbidden: Team access required");
+  if (!me?.isOwner && !me?.canAccessTeam) throw new Error("Forbidden: Admin access required");
+  return { session, me };
+}
+
+/**
+ * Mutation gate: only the company owner can add, edit, suspend, remove,
+ * or reset-password another manager. Enforced server-side so a crafted
+ * form submit from a non-owner manager still fails.
+ */
+async function requireOwner() {
+  const session = await getSession();
+  if (!session || session.role !== "manager") throw new Error("Unauthorized");
+  const [me] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
+  if (!me?.isOwner) throw new Error("Forbidden: only the company owner can do this");
   return { session, me };
 }
 
@@ -118,7 +132,7 @@ async function sendWelcomeManagerEmail({
 
 async function addManagerAction(formData: FormData) {
   "use server";
-  const { session } = await requireTeamAccess();
+  const { session } = await requireOwner();
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
   const flags = readAccessFlags(formData);
@@ -167,7 +181,7 @@ async function addManagerAction(formData: FormData) {
  */
 async function resendWelcomeAction(formData: FormData) {
   "use server";
-  const { session } = await requireTeamAccess();
+  const { session } = await requireOwner();
   const userId = String(formData.get("userId"));
   const newPassword = String(formData.get("newPassword") ?? "");
   if (newPassword.length < 8) throw new Error("New password must be at least 8 characters");
@@ -210,7 +224,7 @@ async function resendWelcomeAction(formData: FormData) {
  */
 async function updatePermissionsAction(formData: FormData) {
   "use server";
-  const { session } = await requireTeamAccess();
+  const { session } = await requireOwner();
   const userId = String(formData.get("userId"));
   const [target] = await db.select().from(schema.users).where(eq(schema.users.id, userId));
   if (!target || target.companyId !== session.companyId || target.role !== "manager") throw new Error("Not found");
@@ -222,12 +236,30 @@ async function updatePermissionsAction(formData: FormData) {
 
 async function removeManagerAction(formData: FormData) {
   "use server";
-  const { session } = await requireTeamAccess();
+  const { session } = await requireOwner();
   const userId = String(formData.get("userId"));
   const [target] = await db.select().from(schema.users).where(eq(schema.users.id, userId));
   if (!target || target.companyId !== session.companyId || target.role !== "manager") throw new Error("Not found");
   if (target.isOwner) throw new Error("Can't remove the company owner");
   await db.update(schema.users).set({ archivedAt: new Date() }).where(eq(schema.users.id, userId));
+  revalidatePath("/manager/team");
+}
+
+/**
+ * Suspend or restore a manager. Suspension blocks login but keeps the row
+ * intact so history and permissions stay recoverable with one click.
+ */
+async function toggleSuspendAction(formData: FormData) {
+  "use server";
+  const { session } = await requireOwner();
+  const userId = String(formData.get("userId"));
+  const [target] = await db.select().from(schema.users).where(eq(schema.users.id, userId));
+  if (!target || target.companyId !== session.companyId || target.role !== "manager") throw new Error("Not found");
+  if (target.isOwner) throw new Error("Can't suspend the company owner");
+  await db
+    .update(schema.users)
+    .set({ suspendedAt: target.suspendedAt ? null : new Date() })
+    .where(eq(schema.users.id, userId));
   revalidatePath("/manager/team");
 }
 
@@ -257,102 +289,138 @@ export default async function TeamPage() {
         <Link href="/manager" className="text-sm text-gray-500 hover:underline">← Back to calendar</Link>
         <h1 className="text-2xl font-semibold mt-2 mb-2">Admin</h1>
         <p className="text-sm text-gray-600 mb-6">
-          Manage who can log in to run the app for {company.name}. Tick the boxes for each section you
-          want each manager to access; uncheck them to revoke access. Owners always have full access.
+          {me.isOwner
+            ? `Who can log in to run the app for ${company.name}. Click Edit next to anyone to change their access, suspend login, reset their password, or remove them. Only you (the owner) can make these changes.`
+            : `Logins for ${company.name}. Only the company owner can add, edit, suspend, or remove managers.`}
         </p>
 
         <section className="border rounded-lg bg-white divide-y">
           {active.map((u) => {
             const pending = !u.inviteAcceptedAt && !u.isOwner;
+            const suspended = !!u.suspendedAt;
+            const canEditThis = canModifyManager(
+              { id: me.id, companyId: me.companyId, role: "manager", isOwner: !!me.isOwner },
+              { id: u.id, companyId: u.companyId, role: "manager", isOwner: !!u.isOwner },
+            );
+            const headerBlock = (
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium flex items-center gap-2 flex-wrap">
+                    {u.email}
+                    {u.isOwner && (
+                      <span className="text-[10px] uppercase tracking-wide bg-gray-900 text-white px-1.5 py-0.5 rounded">
+                        Owner
+                      </span>
+                    )}
+                    {suspended && (
+                      <span className="text-[10px] uppercase tracking-wide bg-red-100 text-red-800 border border-red-300 px-1.5 py-0.5 rounded">
+                        Suspended
+                      </span>
+                    )}
+                    {pending && !suspended && (
+                      <span className="text-[10px] uppercase tracking-wide bg-yellow-100 text-yellow-800 border border-yellow-300 px-1.5 py-0.5 rounded">
+                        Pending first login
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    {u.isOwner
+                      ? "Full access to everything"
+                      : `Access: ${accessSummary({
+                          canAccessCalendar: !!u.canAccessCalendar,
+                          canAccessStaff: !!u.canAccessStaff,
+                          canAccessLog: !!u.canAccessLog,
+                          canAccessTeam: !!u.canAccessTeam,
+                          canEditSettings: !!u.canEditSettings,
+                        })}`}
+                    {u.inviteAcceptedAt && !u.isOwner && (
+                      <span className="text-gray-400"> · last welcomed {new Date(u.inviteAcceptedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                    )}
+                  </div>
+                </div>
+                {canEditThis && (
+                  <span className="btn btn-secondary text-sm shrink-0 pointer-events-none">
+                    Edit
+                  </span>
+                )}
+              </div>
+            );
             return (
               <div key={u.id} className="px-4 py-3">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium flex items-center gap-2 flex-wrap">
-                      {u.email}
-                      {u.isOwner && (
-                        <span className="text-[10px] uppercase tracking-wide bg-gray-900 text-white px-1.5 py-0.5 rounded">
-                          Owner
-                        </span>
-                      )}
-                      {pending && (
-                        <span className="text-[10px] uppercase tracking-wide bg-yellow-100 text-yellow-800 border border-yellow-300 px-1.5 py-0.5 rounded">
-                          Pending first login
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-gray-500 mt-0.5">
-                      {u.isOwner
-                        ? "Full access to everything"
-                        : `Access: ${accessSummary({
-                            canAccessCalendar: !!u.canAccessCalendar,
-                            canAccessStaff: !!u.canAccessStaff,
-                            canAccessLog: !!u.canAccessLog,
-                            canAccessTeam: !!u.canAccessTeam,
-                            canEditSettings: !!u.canEditSettings,
-                          })}`}
-                      {u.inviteAcceptedAt && !u.isOwner && (
-                        <span className="text-gray-400"> · last welcomed {new Date(u.inviteAcceptedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
-                      )}
-                    </div>
-                  </div>
-                  {!u.isOwner && (
-                    <form action={removeManagerAction} className="shrink-0">
-                      <input type="hidden" name="userId" value={u.id} />
-                      <button type="submit" className="text-sm text-red-600 hover:underline">Remove</button>
-                    </form>
-                  )}
-                </div>
-
-                {!u.isOwner && (
-                  <>
-                    <form action={updatePermissionsAction} className="mt-3 pt-3 border-t">
-                      <input type="hidden" name="userId" value={u.id} />
-                      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-                        <AccessCheckbox id={`cal-${u.id}`}      name="canAccessCalendar" label="Calendar" defaultChecked={!!u.canAccessCalendar} />
-                        <AccessCheckbox id={`staff-${u.id}`}    name="canAccessStaff"    label="Staff"    defaultChecked={!!u.canAccessStaff} />
-                        <AccessCheckbox id={`log-${u.id}`}      name="canAccessLog"      label="Log"      defaultChecked={!!u.canAccessLog} />
-                        <AccessCheckbox id={`team-${u.id}`}     name="canAccessTeam"     label="Admin"    defaultChecked={!!u.canAccessTeam} />
-                        <AccessCheckbox id={`settings-${u.id}`} name="canEditSettings"   label="Settings" defaultChecked={!!u.canEditSettings} />
-                        <button type="submit" className="btn btn-secondary text-xs ml-auto">Update access</button>
-                      </div>
-                    </form>
-
-                    <details className="mt-3">
-                      <summary className="text-xs text-gray-500 cursor-pointer underline">
-                        {pending
-                          ? "Re-send welcome email with a new password"
-                          : "Reset their password & re-send login email"}
-                      </summary>
-                      <form action={resendWelcomeAction} className="mt-2 flex items-end gap-2">
+                {canEditThis ? (
+                  <details className="group">
+                    <summary className="cursor-pointer list-none">
+                      {headerBlock}
+                    </summary>
+                    <div className="mt-3 pt-3 border-t space-y-4">
+                      <form action={updatePermissionsAction}>
                         <input type="hidden" name="userId" value={u.id} />
-                        <div className="flex-1">
-                          <label className="label text-xs" htmlFor={`newpw-${u.id}`}>New starting password</label>
-                          <input
-                            id={`newpw-${u.id}`}
-                            name="newPassword"
-                            type="text"
-                            minLength={8}
-                            required
-                            className="input text-sm"
-                            placeholder="At least 8 chars"
-                          />
+                        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+                          <AccessCheckbox id={`cal-${u.id}`}      name="canAccessCalendar" label="Calendar" defaultChecked={!!u.canAccessCalendar} />
+                          <AccessCheckbox id={`staff-${u.id}`}    name="canAccessStaff"    label="Staff"    defaultChecked={!!u.canAccessStaff} />
+                          <AccessCheckbox id={`log-${u.id}`}      name="canAccessLog"      label="Log"      defaultChecked={!!u.canAccessLog} />
+                          <AccessCheckbox id={`team-${u.id}`}     name="canAccessTeam"     label="Admin"    defaultChecked={!!u.canAccessTeam} />
+                          <AccessCheckbox id={`settings-${u.id}`} name="canEditSettings"   label="Settings" defaultChecked={!!u.canEditSettings} />
+                          <button type="submit" className="btn btn-secondary text-xs ml-auto">Update access</button>
                         </div>
-                        <button type="submit" className="btn btn-secondary text-sm">Send</button>
                       </form>
-                      {!pending && (
-                        <p className="text-xs text-gray-500 mt-1">
-                          This overwrites their current password. They&apos;ll need to use the new one you set here.
-                        </p>
-                      )}
-                    </details>
-                  </>
+
+                      <details>
+                        <summary className="text-xs text-gray-500 cursor-pointer underline">
+                          {pending
+                            ? "Re-send welcome email with a new password"
+                            : "Reset their password & re-send login email"}
+                        </summary>
+                        <form action={resendWelcomeAction} className="mt-2 flex items-end gap-2">
+                          <input type="hidden" name="userId" value={u.id} />
+                          <div className="flex-1">
+                            <label className="label text-xs" htmlFor={`newpw-${u.id}`}>New starting password</label>
+                            <input
+                              id={`newpw-${u.id}`}
+                              name="newPassword"
+                              type="text"
+                              minLength={8}
+                              required
+                              className="input text-sm"
+                              placeholder="At least 8 chars"
+                            />
+                          </div>
+                          <button type="submit" className="btn btn-secondary text-sm">Send</button>
+                        </form>
+                        {!pending && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            This overwrites their current password. They&apos;ll need to use the new one you set here.
+                          </p>
+                        )}
+                      </details>
+
+                      <div className="flex items-center gap-4 pt-3 border-t">
+                        <form action={toggleSuspendAction}>
+                          <input type="hidden" name="userId" value={u.id} />
+                          <button
+                            type="submit"
+                            className={`text-sm ${suspended ? "text-green-700" : "text-amber-700"} hover:underline`}
+                            title={suspended ? "Restore access" : "Block login without deleting"}
+                          >
+                            {suspended ? "Restore access" : "Suspend"}
+                          </button>
+                        </form>
+                        <form action={removeManagerAction}>
+                          <input type="hidden" name="userId" value={u.id} />
+                          <button type="submit" className="text-sm text-red-600 hover:underline">Remove</button>
+                        </form>
+                      </div>
+                    </div>
+                  </details>
+                ) : (
+                  headerBlock
                 )}
               </div>
             );
           })}
         </section>
 
+        {me.isOwner && (
         <section className="mt-10 border rounded-lg bg-white p-5">
           <h2 className="font-semibold mb-1">Add a manager</h2>
           <p className="text-sm text-gray-600 mb-4">
@@ -386,6 +454,7 @@ export default async function TeamPage() {
             </div>
           </form>
         </section>
+        )}
       </main>
     </div>
   );
