@@ -352,6 +352,10 @@ export const invitations = pgTable(
     // Fires an activation email; the slot binding + isOnCall flip to
     // false only happen after the staffer confirms via that email.
     activationRequestedAt: timestamp("activation_requested_at", { withTimezone: true }),
+    // Set when a staff member accepted a shift and later backed out. The
+    // slot is freed (same as a removal) but the record stays with this
+    // flag so the Compare / Staff log can count cancellations.
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
   },
   (t) => ({
     positionTierIdx: index("invitations_position_tier_idx").on(t.positionId, t.tier),

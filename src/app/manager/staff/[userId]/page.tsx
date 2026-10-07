@@ -5,6 +5,36 @@ import { db, schema } from "@/db/client";
 import { eq, and } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { computeTotalHours } from "@/lib/pay-period";
+import { revalidatePath } from "next/cache";
+
+async function markCancelledAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "manager") throw new Error("Unauthorized");
+  const invId = String(formData.get("invId"));
+  const [inv] = await db.select().from(schema.invitations).where(eq(schema.invitations.id, invId));
+  if (!inv) throw new Error("Invitation not found");
+  // Free the slot (same as a removal) but keep the invitation row so the
+  // cancellation metric can count it.
+  if (inv.slotId) {
+    await db.update(schema.slots).set({ acceptedUserId: null, acceptedAt: null }).where(eq(schema.slots.id, inv.slotId));
+  }
+  await db.update(schema.invitations).set({ cancelledAt: new Date() }).where(eq(schema.invitations.id, invId));
+  revalidatePath("/manager/staff/compare");
+  revalidatePath(`/manager/staff/${inv.userId}`);
+}
+
+async function undoCancelAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "manager") throw new Error("Unauthorized");
+  const invId = String(formData.get("invId"));
+  const [inv] = await db.select().from(schema.invitations).where(eq(schema.invitations.id, invId));
+  if (!inv) throw new Error("Invitation not found");
+  await db.update(schema.invitations).set({ cancelledAt: null }).where(eq(schema.invitations.id, invId));
+  revalidatePath("/manager/staff/compare");
+  revalidatePath(`/manager/staff/${inv.userId}`);
+}
 
 /**
  * Per-staff log + stats page. Everything a manager needs to decide
@@ -91,6 +121,7 @@ export default async function StaffLogPage({ params }: { params: { userId: strin
   let accepted = 0;
   let rejected = 0;
   let expired = 0;
+  let cancelled = 0;
   let onCallCount = 0;
   let onCallActivated = 0;
   let pastAccepted = 0;
@@ -104,6 +135,7 @@ export default async function StaffLogPage({ params }: { params: { userId: strin
 
   for (const { inv, pos, ev } of invRows) {
     totalInvites++;
+    if (inv.cancelledAt) cancelled++;
     if (inv.status === "accepted") accepted++;
     else if (inv.status === "rejected") rejected++;
     else if (inv.status === "expired") expired++;
@@ -115,7 +147,7 @@ export default async function StaffLogPage({ params }: { params: { userId: strin
     }
 
     const pastEvent = ev.date < today;
-    if (pastEvent && inv.status === "accepted" && !inv.isOnCall) {
+    if (pastEvent && inv.status === "accepted" && !inv.cancelledAt && !inv.isOnCall) {
       pastAccepted++;
       if (!inv.clockIn) noShows++;
       const late = minutesLate(inv, ev);
@@ -157,12 +189,12 @@ export default async function StaffLogPage({ params }: { params: { userId: strin
         <section className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
           <Stat label="Accept rate" value={fmtPct(acceptRate)} sub={`${accepted} of ${decidable} decided`} />
           <Stat label="Response rate" value={fmtPct(responseRate)} sub={`${expired} ghosted`} />
+          <Stat label="Cancellations" value={String(cancelled)} sub="accepted then backed out" tone={cancelled > 0 ? "amber" : undefined} />
           <Stat label="No-shows" value={String(noShows)} sub={noShowRate != null ? `${noShowRate.toFixed(0)}% of past shifts` : "no past shifts"} />
           <Stat label="Late (>5 min)" value={String(lateCount)} sub="of past shifts" />
           <Stat label="On-call activation" value={fmtPct(activationRate)} sub={`${onCallActivated} of ${onCallCount} standbys`} />
           <Stat label="Hours worked" value={totalHours.toFixed(1)} sub="all time" />
           <Stat label="Total shifts" value={String(paidShiftCount)} sub="paid" />
-          <Stat label="Avg per shift" value={fmtMoney(avgPerShift)} sub="paid shifts" />
         </section>
 
         <section className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
@@ -176,17 +208,6 @@ export default async function StaffLogPage({ params }: { params: { userId: strin
           <RecentShifts rows={invRows} shiftPay={shiftPay} />
         </section>
       </main>
-    </div>
-  );
-}
-
-function Stat({ label, value, sub, big, tone }: { label: string; value: string; sub?: string; big?: boolean; tone?: "amber" }) {
-  const toneCls = tone === "amber" ? "text-amber-700" : "text-gray-900";
-  return (
-    <div className="border rounded-lg px-4 py-3 bg-white">
-      <div className="text-xs text-gray-500 uppercase tracking-wide">{label}</div>
-      <div className={`${big ? "text-2xl" : "text-xl"} font-semibold mt-1 ${toneCls}`}>{value}</div>
-      {sub && <div className="text-xs text-gray-500 mt-0.5">{sub}</div>}
     </div>
   );
 }
@@ -220,6 +241,7 @@ function RecentShifts({
             <th className="text-left px-4 py-2">Status</th>
             <th className="text-right px-4 py-2">Pay</th>
             <th className="text-left px-4 py-2">Paid?</th>
+            <th className="text-right px-4 py-2"></th>
           </tr>
         </thead>
         <tbody>
@@ -232,18 +254,47 @@ function RecentShifts({
                 {inv.isOnCall && <span className="ml-1 text-xs text-gray-500 italic">on call</span>}
               </td>
               <td className="px-4 py-2 text-xs">
-                {inv.status === "accepted" ? "Accepted" : inv.status === "rejected" ? "Declined" : inv.status === "expired" ? "Ghosted" : inv.status}
+                {inv.cancelledAt
+                  ? <span className="text-amber-700">Cancelled</span>
+                  : inv.status === "accepted" ? "Accepted"
+                  : inv.status === "rejected" ? "Declined"
+                  : inv.status === "expired" ? "Ghosted"
+                  : inv.status}
               </td>
               <td className="px-4 py-2 text-right">
-                {inv.status === "accepted" ? `$${shiftPay(inv, pos).toFixed(0)}` : "-"}
+                {inv.status === "accepted" && !inv.cancelledAt ? `$${shiftPay(inv, pos).toFixed(0)}` : "-"}
               </td>
               <td className="px-4 py-2 text-xs">
-                {inv.paidAt ? <span className="text-green-700">Paid</span> : inv.status === "accepted" ? <span className="text-gray-500">Unpaid</span> : "-"}
+                {inv.paidAt ? <span className="text-green-700">Paid</span> : inv.status === "accepted" && !inv.cancelledAt ? <span className="text-gray-500">Unpaid</span> : "-"}
+              </td>
+              <td className="px-4 py-2 text-right text-xs">
+                {inv.cancelledAt ? (
+                  <form action={undoCancelAction}>
+                    <input type="hidden" name="invId" value={inv.id} />
+                    <button className="text-gray-500 hover:underline" title="Undo cancellation">Undo</button>
+                  </form>
+                ) : inv.status === "accepted" ? (
+                  <form action={markCancelledAction}>
+                    <input type="hidden" name="invId" value={inv.id} />
+                    <button className="text-amber-700 hover:underline" title="Mark as cancelled by staff">Cancel</button>
+                  </form>
+                ) : null}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function Stat({ label, value, sub, big, tone }: { label: string; value: string; sub?: string; big?: boolean; tone?: "amber" }) {
+  const toneCls = tone === "amber" ? "text-amber-700" : "text-gray-900";
+  return (
+    <div className="border rounded-lg px-4 py-3 bg-white">
+      <div className="text-xs text-gray-500 uppercase tracking-wide">{label}</div>
+      <div className={`${big ? "text-2xl" : "text-xl"} font-semibold mt-1 ${toneCls}`}>{value}</div>
+      {sub && <div className="text-xs text-gray-500 mt-0.5">{sub}</div>}
     </div>
   );
 }

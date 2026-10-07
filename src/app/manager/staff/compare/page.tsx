@@ -117,6 +117,7 @@ export default async function StaffComparePage() {
 
   type Stats = {
     accepted: number; decidable: number; responded: number;
+    cancelled: number;
     noShows: number; pastAccepted: number; lateCount: number;
     onCallCount: number; onCallActivated: number;
     paidTotal: number; paidShiftCount: number; unpaidTotal: number;
@@ -126,6 +127,7 @@ export default async function StaffComparePage() {
   for (const s of staffRows) {
     statsBy.set(s.user.id, {
       accepted: 0, decidable: 0, responded: 0,
+      cancelled: 0,
       noShows: 0, pastAccepted: 0, lateCount: 0,
       onCallCount: 0, onCallActivated: 0,
       paidTotal: 0, paidShiftCount: 0, unpaidTotal: 0,
@@ -153,6 +155,7 @@ export default async function StaffComparePage() {
     const profile = profileByUser.get(inv.userId);
     if (!stats || !profile) continue;
 
+    if (inv.cancelledAt) stats.cancelled++;
     if (inv.status === "accepted") stats.accepted++;
     if (inv.status === "accepted" || inv.status === "rejected") stats.responded++;
     if (inv.status === "accepted" || inv.status === "rejected" || inv.status === "expired") stats.decidable++;
@@ -164,7 +167,7 @@ export default async function StaffComparePage() {
     }
 
     const pastEvent = ev.date < today;
-    if (pastEvent && inv.status === "accepted" && !inv.isOnCall) {
+    if (pastEvent && inv.status === "accepted" && !inv.cancelledAt && !inv.isOnCall) {
       stats.pastAccepted++;
       if (!inv.clockIn) stats.noShows++;
       if (inv.clockIn && ev.checkInTime) {
@@ -225,6 +228,7 @@ export default async function StaffComparePage() {
                 <th className="text-left px-3 py-2">Name</th>
                 <th className="text-right px-3 py-2">Accept</th>
                 <th className="text-right px-3 py-2">Response</th>
+                <th className="text-right px-3 py-2">Cancels</th>
                 <th className="text-right px-3 py-2">No-shows</th>
                 <th className="text-right px-3 py-2">Late</th>
                 <th className="text-right px-3 py-2">On-call</th>
@@ -272,6 +276,7 @@ export default async function StaffComparePage() {
                     </td>
                     <td className="px-3 py-2 text-right">{fmtPct(accept)}</td>
                     <td className="px-3 py-2 text-right">{fmtPct(response)}</td>
+                    <td className={`px-3 py-2 text-right ${s.cancelled > 0 ? "text-amber-700" : ""}`}>{s.cancelled}</td>
                     <td className={`px-3 py-2 text-right ${s.noShows > 0 ? "text-red-600" : ""}`}>{s.noShows}</td>
                     <td className={`px-3 py-2 text-right ${s.lateCount > 0 ? "text-amber-700" : ""}`}>{s.lateCount}</td>
                     <td className="px-3 py-2 text-right">{fmtPct(activation)}</td>
@@ -281,7 +286,7 @@ export default async function StaffComparePage() {
                 );
               })}
               {sorted.length === 0 && (
-                <tr><td colSpan={9} className="py-8 text-center text-gray-400">No staff yet.</td></tr>
+                <tr><td colSpan={10} className="py-8 text-center text-gray-400">No staff yet.</td></tr>
               )}
             </tbody>
           </table>
