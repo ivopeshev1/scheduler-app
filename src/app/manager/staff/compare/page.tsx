@@ -230,9 +230,6 @@ export default async function StaffComparePage() {
                 <th className="text-right px-3 py-2">On-call</th>
                 <th className="text-right px-3 py-2">Hours</th>
                 <th className="text-right px-3 py-2">Shifts</th>
-                <th className="text-right px-3 py-2">Avg/shift</th>
-                <th className="text-right px-3 py-2">Paid</th>
-                <th className="text-right px-3 py-2">Unpaid</th>
               </tr>
             </thead>
             <tbody>
@@ -280,14 +277,11 @@ export default async function StaffComparePage() {
                     <td className="px-3 py-2 text-right">{fmtPct(activation)}</td>
                     <td className="px-3 py-2 text-right">{s.totalHours.toFixed(0)}</td>
                     <td className="px-3 py-2 text-right">{s.paidShiftCount}</td>
-                    <td className="px-3 py-2 text-right">{fmtMoney(avg)}</td>
-                    <td className="px-3 py-2 text-right">{fmtMoney(s.paidTotal)}</td>
-                    <td className={`px-3 py-2 text-right ${s.unpaidTotal > 0 ? "text-amber-700" : ""}`}>{fmtMoney(s.unpaidTotal)}</td>
                   </tr>
                 );
               })}
               {sorted.length === 0 && (
-                <tr><td colSpan={12} className="py-8 text-center text-gray-400">No staff yet.</td></tr>
+                <tr><td colSpan={9} className="py-8 text-center text-gray-400">No staff yet.</td></tr>
               )}
             </tbody>
           </table>
