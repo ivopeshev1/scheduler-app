@@ -132,6 +132,8 @@ export default async function StaffLogPage({ params }: { params: { userId: strin
   let unpaidTotal = 0;
   let paidShiftCount = 0;
   let totalHours = 0;
+  let responseMsSum = 0;
+  let responseMsCount = 0;
 
   for (const { inv, pos, ev } of invRows) {
     totalInvites++;
@@ -144,6 +146,11 @@ export default async function StaffLogPage({ params }: { params: { userId: strin
     if (wasOnCall) {
       onCallCount++;
       if (inv.activationRequestedAt != null && inv.status === "accepted") onCallActivated++;
+    }
+
+    if (inv.sentAt && inv.respondedAt && (inv.status === "accepted" || inv.status === "rejected")) {
+      const ms = new Date(inv.respondedAt).getTime() - new Date(inv.sentAt).getTime();
+      if (ms >= 0) { responseMsSum += ms; responseMsCount++; }
     }
 
     const pastEvent = ev.date < today;
@@ -173,6 +180,7 @@ export default async function StaffLogPage({ params }: { params: { userId: strin
   const noShowRate = pastAccepted > 0 ? (noShows / pastAccepted) * 100 : null;
   const activationRate = onCallCount > 0 ? (onCallActivated / onCallCount) * 100 : null;
   const avgPerShift = paidShiftCount > 0 ? paidTotal / paidShiftCount : null;
+  const avgResponseHours = responseMsCount > 0 ? responseMsSum / responseMsCount / (1000 * 60 * 60) : null;
 
   const fullName = profile ? `${profile.firstName} ${profile.lastName}` : target.email;
 
@@ -189,6 +197,7 @@ export default async function StaffLogPage({ params }: { params: { userId: strin
         <section className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
           <Stat label="Accept rate" value={fmtPct(acceptRate)} sub={`${accepted} of ${decidable} decided`} />
           <Stat label="Response rate" value={fmtPct(responseRate)} sub={`${expired} ghosted`} />
+          <Stat label="Avg reply time" value={fmtResponseHours(avgResponseHours)} sub={responseMsCount > 0 ? `across ${responseMsCount} responses` : "no responses yet"} />
           <Stat label="Cancellations" value={String(cancelled)} sub="accepted then backed out" tone={cancelled > 0 ? "amber" : undefined} />
           <Stat label="No-shows" value={String(noShows)} sub={noShowRate != null ? `${noShowRate.toFixed(0)}% of past shifts` : "no past shifts"} />
           <Stat label="Late (>5 min)" value={String(lateCount)} sub="of past shifts" />
@@ -305,4 +314,10 @@ function fmtPct(v: number | null): string {
 function fmtMoney(v: number | null): string {
   if (v == null) return "—";
   return `$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+}
+function fmtResponseHours(h: number | null): string {
+  if (h == null) return "—";
+  if (h < 1) return `${Math.round(h * 60)} m`;
+  if (h < 24) return `${h.toFixed(1)} h`;
+  return `${(h / 24).toFixed(1)} d`;
 }

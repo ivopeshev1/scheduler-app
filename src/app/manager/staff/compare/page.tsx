@@ -6,48 +6,28 @@ import { eq, and, isNull } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { computeTotalHours } from "@/lib/pay-period";
 import { revalidatePath } from "next/cache";
+import { StaffRankList, type StaffRankRow } from "@/components/StaffRankList";
 
 /**
- * All-staff comparison + manual ranking page. Each row shows the same
- * reliability + money metrics as the single-staff log, side by side,
- * so a manager can compare at a glance. Up/down arrows reorder: the
- * saved rank drives StaffPicker's default order (ranked staff float to
- * the top in order, unranked fall through to alphabetical).
+ * All-staff comparison + manual ranking page. Each row shows reliability
+ * metrics side by side, and the manager drags rows to set a priority
+ * order. The saved order flows to StaffPicker when inviting people, so
+ * your best people land at the top of the picker.
  */
 
-async function moveRankAction(formData: FormData) {
+async function reorderAction(orderedUserIds: string[]) {
   "use server";
   const session = await getSession();
   if (!session || session.role !== "manager") throw new Error("Unauthorized");
-  const userId = String(formData.get("userId"));
-  const direction = String(formData.get("direction")); // "up" | "down"
-  if (direction !== "up" && direction !== "down") return;
 
-  // Load every active staff member for this company so we can build the
-  // current ranked order and shuffle one row by one position.
-  const rows = await db
-    .select({ profile: schema.staffProfiles, user: schema.users })
-    .from(schema.staffProfiles)
-    .innerJoin(schema.users, eq(schema.staffProfiles.userId, schema.users.id))
-    .where(and(eq(schema.users.companyId, session.companyId), isNull(schema.users.archivedAt)));
-
-  // Normalize: ranked first (by rank), unranked after (alphabetical). After
-  // the move we rewrite everyone's rank_order 1..N so the ordering is stable.
-  const sorted = rows.slice().sort(sortByRankThenName);
-  const idx = sorted.findIndex((r) => r.profile.userId === userId);
-  if (idx < 0) return;
-  const swapWith = direction === "up" ? idx - 1 : idx + 1;
-  if (swapWith < 0 || swapWith >= sorted.length) return;
-  const next = sorted.slice();
-  const tmp = next[idx];
-  next[idx] = next[swapWith];
-  next[swapWith] = tmp;
-
-  for (let i = 0; i < next.length; i++) {
+  // Rewrite rank_order for the dragged subset. Users not in the list keep
+  // their existing rank (or stay null); if the manager just dragged the
+  // whole list from the Compare page, every active staffer is included.
+  for (let i = 0; i < orderedUserIds.length; i++) {
     await db
       .update(schema.staffProfiles)
       .set({ rankOrder: i + 1 })
-      .where(eq(schema.staffProfiles.userId, next[i].profile.userId));
+      .where(eq(schema.staffProfiles.userId, orderedUserIds[i]));
   }
   revalidatePath("/manager/staff/compare");
   revalidatePath("/manager/staff");
@@ -91,8 +71,6 @@ export default async function StaffComparePage() {
   if (!me) redirect("/login");
   if (!me.isOwner && !me.canAccessStaff) redirect("/manager?denied=staff");
 
-  // All active staff + their shift history, batched. Metrics are computed per
-  // staffer from the same join the single-staff log page uses.
   const staffRows = await db
     .select({ profile: schema.staffProfiles, user: schema.users })
     .from(schema.staffProfiles)
@@ -106,13 +84,6 @@ export default async function StaffComparePage() {
     .innerJoin(schema.events, eq(schema.positions.eventId, schema.events.id))
     .where(eq(schema.events.companyId, session.companyId));
 
-  const staffRolesRows = await db.select().from(schema.staffRoles);
-  const rateKey = (userId: string, role: string) => `${userId}::${role}`;
-  const rateMap = new Map<string, { rate: number; rateType: "hourly" | "flat" }>();
-  for (const r of staffRolesRows) {
-    rateMap.set(rateKey(r.userId, r.role), { rate: r.rate, rateType: r.rateType as "hourly" | "flat" });
-  }
-
   const today = new Date().toISOString().slice(0, 10);
 
   type Stats = {
@@ -120,8 +91,8 @@ export default async function StaffComparePage() {
     cancelled: number;
     noShows: number; pastAccepted: number; lateCount: number;
     onCallCount: number; onCallActivated: number;
-    paidTotal: number; paidShiftCount: number; unpaidTotal: number;
-    totalHours: number;
+    responseMsSum: number; responseMsCount: number;
+    totalHours: number; paidShiftCount: number;
   };
   const statsBy = new Map<string, Stats>();
   for (const s of staffRows) {
@@ -130,30 +101,14 @@ export default async function StaffComparePage() {
       cancelled: 0,
       noShows: 0, pastAccepted: 0, lateCount: 0,
       onCallCount: 0, onCallActivated: 0,
-      paidTotal: 0, paidShiftCount: 0, unpaidTotal: 0,
-      totalHours: 0,
+      responseMsSum: 0, responseMsCount: 0,
+      totalHours: 0, paidShiftCount: 0,
     });
   }
 
-  function resolveRate(inv: typeof invRows[number]["inv"], pos: typeof invRows[number]["pos"], profile: typeof schema.staffProfiles.$inferSelect) {
-    if (inv.rateOverrideAmount != null) {
-      return { rate: inv.rateOverrideAmount, rateType: inv.rateOverrideMode === "flat" ? "flat" : "hourly" };
-    }
-    if (pos.baseRateMode === "flat") return { rate: pos.baseRate ?? 0, rateType: "flat" as const };
-    if (pos.baseRateMode === "hourly") return { rate: pos.baseRate ?? 0, rateType: "hourly" as const };
-    const m = rateMap.get(rateKey(profile.userId, pos.role));
-    if (m) return m;
-    return {
-      rate: profile.defaultRate ?? 0,
-      rateType: (profile.defaultRateType === "flat" ? "flat" : "hourly") as "flat" | "hourly",
-    };
-  }
-
-  const profileByUser = new Map(staffRows.map((s) => [s.user.id, s.profile]));
-  for (const { inv, pos, ev } of invRows) {
+  for (const { inv, ev } of invRows) {
     const stats = statsBy.get(inv.userId);
-    const profile = profileByUser.get(inv.userId);
-    if (!stats || !profile) continue;
+    if (!stats) continue;
 
     if (inv.cancelledAt) stats.cancelled++;
     if (inv.status === "accepted") stats.accepted++;
@@ -164,6 +119,15 @@ export default async function StaffComparePage() {
     if (wasOnCall) {
       stats.onCallCount++;
       if (inv.activationRequestedAt != null && inv.status === "accepted") stats.onCallActivated++;
+    }
+
+    // Response time only counts invitations the staffer actually responded to.
+    if (inv.sentAt && inv.respondedAt && (inv.status === "accepted" || inv.status === "rejected")) {
+      const ms = new Date(inv.respondedAt).getTime() - new Date(inv.sentAt).getTime();
+      if (ms >= 0) {
+        stats.responseMsSum += ms;
+        stats.responseMsCount++;
+      }
     }
 
     const pastEvent = ev.date < today;
@@ -180,26 +144,31 @@ export default async function StaffComparePage() {
       }
     }
 
-    const pay = inv.isOnCall
-      ? (company.onCallFee ?? 0)
-      : (() => {
-          const { rate, rateType } = resolveRate(inv, pos, profile);
-          if (rateType === "flat") return rate + (inv.gratuity ?? 0);
-          const hrs = computeTotalHours(inv.clockIn, inv.clockOut, inv.breakFrom, inv.breakTo);
-          return rate * hrs + (inv.gratuity ?? 0);
-        })();
-
-    if (inv.paidAt) {
-      stats.paidTotal += pay;
-      stats.paidShiftCount++;
-    } else if (inv.status === "accepted" && pastEvent) {
-      stats.unpaidTotal += pay;
-    }
     stats.totalHours += computeTotalHours(inv.clockIn, inv.clockOut, inv.breakFrom, inv.breakTo);
+    if (inv.paidAt) stats.paidShiftCount++;
   }
 
   const sorted = staffRows.slice().sort(sortByRankThenName);
   const anyRanked = sorted.some((r) => r.profile.rankOrder != null);
+
+  const rankRows: StaffRankRow[] = sorted.map(({ profile, user }) => {
+    const s = statsBy.get(user.id)!;
+    return {
+      userId: user.id,
+      firstName: profile.firstName,
+      lastName: profile.lastName,
+      city: profile.city,
+      acceptPct: s.decidable > 0 ? (s.accepted / s.decidable) * 100 : null,
+      responsePct: s.decidable > 0 ? (s.responded / s.decidable) * 100 : null,
+      avgResponseHours: s.responseMsCount > 0 ? s.responseMsSum / s.responseMsCount / (1000 * 60 * 60) : null,
+      cancelled: s.cancelled,
+      noShows: s.noShows,
+      lateCount: s.lateCount,
+      activationPct: s.onCallCount > 0 ? (s.onCallActivated / s.onCallCount) * 100 : null,
+      totalHours: s.totalHours,
+      paidShiftCount: s.paidShiftCount,
+    };
+  });
 
   return (
     <div>
@@ -210,7 +179,7 @@ export default async function StaffComparePage() {
             <Link href="/manager/staff" className="text-sm text-gray-500 hover:underline">← Back to staff</Link>
             <h1 className="text-2xl font-semibold mt-1">Compare &amp; rank staff</h1>
             <p className="text-sm text-gray-600 mt-1">
-              Order sets the default position in the StaffPicker when inviting people. Unranked staff fall through to alphabetical.
+              Drag rows to rank your staff. Your best people go on top — this is the exact order they appear in the Staff Picker when you invite people to a shift.
             </p>
           </div>
           {anyRanked && (
@@ -220,84 +189,8 @@ export default async function StaffComparePage() {
           )}
         </div>
 
-        <div className="border rounded-lg overflow-x-auto bg-white">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
-              <tr className="border-b">
-                <th className="text-left px-3 py-2 w-16">Rank</th>
-                <th className="text-left px-3 py-2">Name</th>
-                <th className="text-right px-3 py-2">Accept</th>
-                <th className="text-right px-3 py-2">Response</th>
-                <th className="text-right px-3 py-2">Cancels</th>
-                <th className="text-right px-3 py-2">No-shows</th>
-                <th className="text-right px-3 py-2">Late</th>
-                <th className="text-right px-3 py-2">On-call</th>
-                <th className="text-right px-3 py-2">Hours</th>
-                <th className="text-right px-3 py-2">Shifts</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map(({ profile, user }, i) => {
-                const s = statsBy.get(user.id)!;
-                const accept = s.decidable > 0 ? (s.accepted / s.decidable) * 100 : null;
-                const response = s.decidable > 0 ? (s.responded / s.decidable) * 100 : null;
-                const activation = s.onCallCount > 0 ? (s.onCallActivated / s.onCallCount) * 100 : null;
-                const avg = s.paidShiftCount > 0 ? s.paidTotal / s.paidShiftCount : null;
-                return (
-                  <tr key={user.id} className="border-b last:border-b-0 hover:bg-gray-50">
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      <div className="flex items-center gap-1">
-                        <span className="w-6 text-gray-600 text-xs">{profile.rankOrder ?? "—"}</span>
-                        <form action={moveRankAction}>
-                          <input type="hidden" name="userId" value={user.id} />
-                          <input type="hidden" name="direction" value="up" />
-                          <button
-                            disabled={i === 0}
-                            className="px-1 text-gray-500 hover:text-black disabled:text-gray-200 disabled:cursor-not-allowed"
-                            title="Move up"
-                          >▲</button>
-                        </form>
-                        <form action={moveRankAction}>
-                          <input type="hidden" name="userId" value={user.id} />
-                          <input type="hidden" name="direction" value="down" />
-                          <button
-                            disabled={i === sorted.length - 1}
-                            className="px-1 text-gray-500 hover:text-black disabled:text-gray-200 disabled:cursor-not-allowed"
-                            title="Move down"
-                          >▼</button>
-                        </form>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">
-                      <Link href={`/manager/staff/${user.id}`} className="hover:underline">
-                        <div className="font-medium">{profile.firstName} {profile.lastName}</div>
-                        <div className="text-xs text-gray-500">{profile.city ?? ""}</div>
-                      </Link>
-                    </td>
-                    <td className="px-3 py-2 text-right">{fmtPct(accept)}</td>
-                    <td className="px-3 py-2 text-right">{fmtPct(response)}</td>
-                    <td className={`px-3 py-2 text-right ${s.cancelled > 0 ? "text-amber-700" : ""}`}>{s.cancelled}</td>
-                    <td className={`px-3 py-2 text-right ${s.noShows > 0 ? "text-red-600" : ""}`}>{s.noShows}</td>
-                    <td className={`px-3 py-2 text-right ${s.lateCount > 0 ? "text-amber-700" : ""}`}>{s.lateCount}</td>
-                    <td className="px-3 py-2 text-right">{fmtPct(activation)}</td>
-                    <td className="px-3 py-2 text-right">{s.totalHours.toFixed(0)}</td>
-                    <td className="px-3 py-2 text-right">{s.paidShiftCount}</td>
-                  </tr>
-                );
-              })}
-              {sorted.length === 0 && (
-                <tr><td colSpan={10} className="py-8 text-center text-gray-400">No staff yet.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <StaffRankList initialRows={rankRows} onReorder={reorderAction} />
       </main>
     </div>
   );
-}
-
-function fmtPct(v: number | null) { return v == null ? "—" : `${v.toFixed(0)}%`; }
-function fmtMoney(v: number | null) {
-  if (v == null) return "—";
-  return `$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 }
