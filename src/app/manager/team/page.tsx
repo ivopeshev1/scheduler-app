@@ -249,6 +249,46 @@ async function removeManagerAction(formData: FormData) {
  * Suspend or restore a manager. Suspension blocks login but keeps the row
  * intact so history and permissions stay recoverable with one click.
  */
+/**
+ * One-time fix for legacy data where multiple is_owner=true rows ended
+ * up in the same company. Collapses to the earliest-created owner;
+ * demotes the rest to full-access managers (minus admin). Any current
+ * owner can trigger this once from the Admin page.
+ */
+async function collapseOwnersAction() {
+  "use server";
+  const { session } = await requireOwner();
+  const owners = await db
+    .select()
+    .from(schema.users)
+    .where(and(
+      eq(schema.users.companyId, session.companyId),
+      eq(schema.users.role, "manager"),
+      eq(schema.users.isOwner, true),
+    ));
+  const active = owners.filter((u) => !u.archivedAt);
+  if (active.length < 2) return;
+  active.sort((a, b) => {
+    const aT = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const bT = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    if (aT !== bT) return aT - bT;
+    return a.id.localeCompare(b.id);
+  });
+  const keep = active[0];
+  for (const u of active) {
+    if (u.id === keep.id) continue;
+    await db.update(schema.users).set({
+      isOwner: false,
+      canAccessCalendar: true,
+      canAccessStaff: true,
+      canAccessLog: true,
+      canAccessTeam: false,
+      canEditSettings: true,
+    }).where(eq(schema.users.id, u.id));
+  }
+  revalidatePath("/manager/team");
+}
+
 async function toggleSuspendAction(formData: FormData) {
   "use server";
   const { session } = await requireOwner();
@@ -293,6 +333,20 @@ export default async function TeamPage() {
             ? `Who can log in to run the app for ${company.name}. Click Edit next to anyone to change their access, suspend login, reset their password, or remove them. Only you (the owner) can make these changes.`
             : `Logins for ${company.name}. Only the company owner can add, edit, suspend, or remove managers.`}
         </p>
+
+        {me.isOwner && active.filter((u) => u.isOwner).length > 1 && (
+          <div className="mb-6 border border-amber-300 bg-amber-50 rounded-lg p-4">
+            <div className="font-medium text-amber-900">Multiple owners detected</div>
+            <p className="text-sm text-amber-800 mt-1">
+              {active.filter((u) => u.isOwner).length} managers are marked as owner. There should be exactly one.
+              Clicking the button below keeps the earliest-created account (that&apos;s the one who signed up the company)
+              as sole owner and converts the rest into regular managers with full access except for this Admin page.
+            </p>
+            <form action={collapseOwnersAction} className="mt-3">
+              <button type="submit" className="btn btn-primary text-sm">Collapse to single owner</button>
+            </form>
+          </div>
+        )}
 
         <section className="border rounded-lg bg-white divide-y">
           {active.map((u) => {
