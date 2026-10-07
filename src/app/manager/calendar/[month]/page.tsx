@@ -74,7 +74,14 @@ export default async function CalendarGridView({ params }: { params: { month: st
   // Batch-load attention-indicator data for every event the grid will render.
   // Three signals: staffing fill, invites-all-sent, BEO-sent.
   const eventIds = monthEvents.map((e) => e.id);
-  type StatusInfo = { needed: number; accepted: number; invitesComplete: boolean; beoSent: boolean };
+  type StatusInfo = {
+    needed: number;
+    accepted: number;
+    invitesComplete: boolean;
+    beoSent: boolean;
+    beoAcknowledgedByAll: boolean;
+    anyInviteSent: boolean;
+  };
   const statusByEvent = new Map<string, StatusInfo>();
   if (eventIds.length > 0) {
     const [positions, invitations, beos] = await Promise.all([
@@ -84,6 +91,7 @@ export default async function CalendarGridView({ params }: { params: { month: st
           positionId: schema.invitations.positionId,
           status: schema.invitations.status,
           isOnCall: schema.invitations.isOnCall,
+          beoReceivedAt: schema.invitations.beoReceivedAt,
           eventId: schema.positions.eventId,
         })
         .from(schema.invitations)
@@ -96,13 +104,23 @@ export default async function CalendarGridView({ params }: { params: { month: st
     ]);
 
     const beoSentSet = new Set(beos.map((b) => b.eventId));
-    // Count invitations per position so we can tell "no invitation ever sent" apart from accepted/declined.
+    // Count invitations per position so we can tell "no invitation ever sent"
+    // apart from accepted/declined, and track BEO acknowledgments per event.
     const invsByPosition = new Map<string, number>();
     const acceptedByEvent = new Map<string, number>();
+    const anyInviteByEvent = new Map<string, boolean>();
+    const unacknowledgedAcceptedByEvent = new Map<string, number>();
     for (const inv of invitations) {
       invsByPosition.set(inv.positionId, (invsByPosition.get(inv.positionId) ?? 0) + 1);
+      anyInviteByEvent.set(inv.eventId, true);
       if (inv.status === "accepted" && !inv.isOnCall) {
         acceptedByEvent.set(inv.eventId, (acceptedByEvent.get(inv.eventId) ?? 0) + 1);
+        if (!inv.beoReceivedAt) {
+          unacknowledgedAcceptedByEvent.set(
+            inv.eventId,
+            (unacknowledgedAcceptedByEvent.get(inv.eventId) ?? 0) + 1,
+          );
+        }
       }
     }
     const neededByEvent = new Map<string, number>();
@@ -114,11 +132,15 @@ export default async function CalendarGridView({ params }: { params: { month: st
       }
     }
     for (const id of eventIds) {
+      const accepted = acceptedByEvent.get(id) ?? 0;
       statusByEvent.set(id, {
         needed: neededByEvent.get(id) ?? 0,
-        accepted: acceptedByEvent.get(id) ?? 0,
+        accepted,
         invitesComplete: !anyMissingInviteByEvent.get(id),
         beoSent: beoSentSet.has(id),
+        beoAcknowledgedByAll:
+          accepted > 0 && (unacknowledgedAcceptedByEvent.get(id) ?? 0) === 0,
+        anyInviteSent: !!anyInviteByEvent.get(id),
       });
     }
   }
@@ -199,18 +221,27 @@ export default async function CalendarGridView({ params }: { params: { month: st
                 <div className="px-1 pb-1 pt-0.5 flex flex-col gap-0.5">
                   {events.slice(0, 3).map((ev) => {
                     const s = statusByEvent.get(ev.id);
-                    const ratio = s && s.needed > 0 ? s.accepted / s.needed : 0;
-                    // Staffing fill colour drives the dot: red (nothing), amber (partial), green (full), gray (no positions yet).
-                    const staffDot =
+                    // True "done" means every gate passed: invites all sent,
+                    // every slot staffed, BEO sent, and every accepted staff
+                    // acknowledged the BEO. Any slack = amber. Nothing yet = red.
+                    const fullyDone =
+                      !!s &&
+                      s.needed > 0 &&
+                      s.invitesComplete &&
+                      s.accepted >= s.needed &&
+                      s.beoSent &&
+                      s.beoAcknowledgedByAll;
+                    const nothingStarted = !s || (!s.anyInviteSent && s.accepted === 0);
+                    const statusDot =
                       !s || s.needed === 0
                         ? "bg-gray-300"
-                        : ratio >= 1
+                        : fullyDone
                         ? "bg-green-500"
-                        : ratio > 0
-                        ? "bg-amber-500"
-                        : "bg-red-500";
+                        : nothingStarted
+                        ? "bg-red-500"
+                        : "bg-amber-500";
                     const titleStatus = s
-                      ? ` · ${s.accepted}/${s.needed} staffed${s.invitesComplete ? "" : " · invites missing"}${s.beoSent ? " · BEO sent" : ""}`
+                      ? ` · ${s.accepted}/${s.needed} staffed${s.invitesComplete ? "" : " · invites missing"}${s.beoSent ? (s.beoAcknowledgedByAll ? " · BEO acknowledged" : " · BEO sent (awaiting ack)") : ""}`
                       : "";
                     return (
                     <Link
@@ -231,9 +262,11 @@ export default async function CalendarGridView({ params }: { params: { month: st
                       <span className="truncate flex-1">{ev.clientName}</span>
                       {!ev.cancelledAt && s && (
                         <span className="flex items-center gap-0.5 shrink-0">
-                          <span className={`inline-block w-1.5 h-1.5 rounded-full ${staffDot}`} />
+                          <span className={`inline-block w-1.5 h-1.5 rounded-full ${statusDot}`} />
                           {!s.invitesComplete && <span className="text-amber-600 text-[10px] leading-none">⚠</span>}
-                          {s.beoSent && <span className="text-green-600 text-[10px] leading-none">✓</span>}
+                          {s.beoSent && (
+                            <span className={`text-[10px] leading-none ${s.beoAcknowledgedByAll ? "text-green-600" : "text-gray-400"}`}>✓</span>
+                          )}
                         </span>
                       )}
                     </Link>
