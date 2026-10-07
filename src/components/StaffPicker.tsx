@@ -27,6 +27,9 @@ export type StaffOption = {
   currentIsOnCall: boolean;
   // If set, this staff member is already invited/accepted elsewhere - show but make un-selectable
   busyWith: { eventDate: string; clientName: string; role: string } | null;
+  // Manual rank from /manager/staff/compare. Lower = higher in picker.
+  // Null means "not ranked" and sorts after all ranked staff.
+  rankOrder: number | null;
 };
 
 export type AddOnOption = {
@@ -178,7 +181,16 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
     const q = search.trim().toLowerCase();
     return staff
       .slice()
-      .sort((a, b) => a.firstName.localeCompare(b.firstName))
+      .sort((a, b) => {
+        // Ranked staff float to the top in rank order; unranked fall through
+        // to alphabetical, which matches the old default when nobody is ranked.
+        const ar = a.rankOrder;
+        const br = b.rankOrder;
+        if (ar != null && br != null) return ar - br;
+        if (ar != null) return -1;
+        if (br != null) return 1;
+        return a.firstName.localeCompare(b.firstName);
+      })
       .filter((s) => {
         if (cityFilter !== "all" && s.city !== cityFilter) return false;
         if (!q) return true;

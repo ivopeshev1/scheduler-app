@@ -81,6 +81,9 @@ export const staffProfiles = pgTable("staff_profiles", {
   emergencyContactName: text("emergency_contact_name"),
   emergencyContactPhone: text("emergency_contact_phone"),
   uniformSize: text("uniform_size"),
+  // Manual rank set from the Compare page; drives StaffPicker display order
+  // (lower number = higher in the list). Null → sorts after ranked staff.
+  rankOrder: integer("rank_order"),
 });
 
 // Per-company catalog of optional event "add-on" tasks (van driver, setup

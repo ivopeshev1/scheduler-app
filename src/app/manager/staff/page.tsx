@@ -95,7 +95,10 @@ export default async function ManagerStaffPage() {
       <main className="max-w-6xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-semibold">Staff ({staffRows.length})</h1>
-          <Link href="/manager/staff/new" className="btn btn-primary">+ Add staff</Link>
+          <div className="flex items-center gap-3">
+            <Link href="/manager/staff/compare" className="btn btn-secondary">Compare &amp; rank</Link>
+            <Link href="/manager/staff/new" className="btn btn-primary">+ Add staff</Link>
+          </div>
         </div>
 
         <table className="w-full border-collapse">

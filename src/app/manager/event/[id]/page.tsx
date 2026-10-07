@@ -722,6 +722,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
         currentRateOverrideMode: inv ? inv.rateOverrideMode ?? null : null,
         currentIsOnCall: inv ? !!inv.isOnCall : false,
         busyWith,
+        rankOrder: r.profile.rankOrder,
       };
     });
   }
