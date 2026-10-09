@@ -169,6 +169,7 @@ export async function runMigrations(): Promise<void> {
   await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS activation_requested_at TIMESTAMPTZ`;
   await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMPTZ`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS can_access_payroll BOOLEAN NOT NULL DEFAULT true`;
   await sql`CREATE TABLE IF NOT EXISTS manager_profiles (
     user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     first_name TEXT NOT NULL,

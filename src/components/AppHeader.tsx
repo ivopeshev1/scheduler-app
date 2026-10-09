@@ -17,6 +17,7 @@ type Props = {
   canAccessLog?: boolean;
   canAccessTeam?: boolean;
   canEditSettings?: boolean;
+  canAccessPayroll?: boolean;
 };
 
 export async function AppHeader({
@@ -30,6 +31,7 @@ export async function AppHeader({
   canAccessLog,
   canAccessTeam,
   canEditSettings,
+  canAccessPayroll,
 }: Props) {
   // Pull the signed-in user's profile (photo + name) once so the header
   // can show a real avatar + display name instead of email initials.
@@ -37,7 +39,30 @@ export async function AppHeader({
   const session = await getSession();
   let avatarUrl: string | null = null;
   let displayName: string | null = null;
+  // Freshest permission flags come from the DB — props are the fallback for
+  // callers that haven't been updated yet. Pulling here means a new flag
+  // like canAccessPayroll just works everywhere without touching every page.
+  let liveIsOwner = isOwner;
+  let liveCalendar = canAccessCalendar;
+  let liveStaff = canAccessStaff;
+  let liveLog = canAccessLog;
+  let liveTeam = canAccessTeam;
+  let liveSettings = canEditSettings;
+  let livePayroll = canAccessPayroll;
   if (session) {
+    const [u] = await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.id, session.userId));
+    if (u) {
+      liveIsOwner = !!u.isOwner;
+      liveCalendar = !!u.canAccessCalendar;
+      liveStaff = !!u.canAccessStaff;
+      liveLog = !!u.canAccessLog;
+      liveTeam = !!u.canAccessTeam;
+      liveSettings = !!u.canEditSettings;
+      livePayroll = !!u.canAccessPayroll;
+    }
     if (session.role === "manager") {
       const [p] = await db
         .select({ firstName: schema.managerProfiles.firstName, lastName: schema.managerProfiles.lastName, photoUrl: schema.managerProfiles.photoUrl })
@@ -56,11 +81,12 @@ export async function AppHeader({
     }
   }
   const isManager = role === "manager";
-  const showCalendar = isManager && (isOwner || canAccessCalendar);
-  const showStaff = isManager && (isOwner || canAccessStaff);
-  const showLog = isManager && (isOwner || canAccessLog);
-  const showTeam = isManager && (isOwner || canAccessTeam);
-  const showSettings = isManager && (isOwner || canEditSettings);
+  const showCalendar = isManager && (liveIsOwner || liveCalendar);
+  const showStaff = isManager && (liveIsOwner || liveStaff);
+  const showLog = isManager && (liveIsOwner || liveLog);
+  const showTeam = isManager && (liveIsOwner || liveTeam);
+  const showSettings = isManager && (liveIsOwner || liveSettings);
+  const showPayroll = isManager && (liveIsOwner || livePayroll);
 
   return (
     <header className="border-b bg-white sticky top-0 z-10">
@@ -105,7 +131,7 @@ export async function AppHeader({
               {showLog && (
                 <Link href="/manager/log" className="text-gray-700 hover:text-black">Log</Link>
               )}
-              {showCalendar && (
+              {showPayroll && (
                 <Link href="/manager/payroll" className="text-gray-700 hover:text-black">Payroll</Link>
               )}
               {showTeam && (

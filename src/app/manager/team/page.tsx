@@ -15,6 +15,7 @@ type AccessFlags = {
   canAccessCalendar: boolean;
   canAccessStaff: boolean;
   canAccessLog: boolean;
+  canAccessPayroll: boolean;
   canAccessTeam: boolean;
   canEditSettings: boolean;
 };
@@ -24,6 +25,7 @@ const ACCESS_LABELS: Record<keyof AccessFlags, string> = {
   canAccessCalendar: "Calendar",
   canAccessStaff: "Staff",
   canAccessLog: "Log",
+  canAccessPayroll: "Payroll",
   canAccessTeam: "Admin",
   canEditSettings: "Settings",
 };
@@ -33,6 +35,7 @@ function readAccessFlags(formData: FormData): AccessFlags {
     canAccessCalendar: formData.get("canAccessCalendar") === "on",
     canAccessStaff: formData.get("canAccessStaff") === "on",
     canAccessLog: formData.get("canAccessLog") === "on",
+    canAccessPayroll: formData.get("canAccessPayroll") === "on",
     canAccessTeam: formData.get("canAccessTeam") === "on",
     canEditSettings: formData.get("canEditSettings") === "on",
   };
@@ -209,6 +212,7 @@ async function resendWelcomeAction(formData: FormData) {
       canAccessCalendar: !!target.canAccessCalendar,
       canAccessStaff: !!target.canAccessStaff,
       canAccessLog: !!target.canAccessLog,
+      canAccessPayroll: !!target.canAccessPayroll,
       canAccessTeam: !!target.canAccessTeam,
       canEditSettings: !!target.canEditSettings,
     },
@@ -282,6 +286,7 @@ async function collapseOwnersAction() {
       canAccessCalendar: true,
       canAccessStaff: true,
       canAccessLog: true,
+      canAccessPayroll: true,
       canAccessTeam: false,
       canEditSettings: true,
     }).where(eq(schema.users.id, u.id));
@@ -384,6 +389,7 @@ export default async function TeamPage() {
                           canAccessCalendar: !!u.canAccessCalendar,
                           canAccessStaff: !!u.canAccessStaff,
                           canAccessLog: !!u.canAccessLog,
+                          canAccessPayroll: !!u.canAccessPayroll,
                           canAccessTeam: !!u.canAccessTeam,
                           canEditSettings: !!u.canEditSettings,
                         })}`}
@@ -413,6 +419,7 @@ export default async function TeamPage() {
                           <AccessCheckbox id={`cal-${u.id}`}      name="canAccessCalendar" label="Calendar" defaultChecked={!!u.canAccessCalendar} />
                           <AccessCheckbox id={`staff-${u.id}`}    name="canAccessStaff"    label="Staff"    defaultChecked={!!u.canAccessStaff} />
                           <AccessCheckbox id={`log-${u.id}`}      name="canAccessLog"      label="Log"      defaultChecked={!!u.canAccessLog} />
+                          <AccessCheckbox id={`payroll-${u.id}`}  name="canAccessPayroll"  label="Payroll"  defaultChecked={!!u.canAccessPayroll} />
                           <AccessCheckbox id={`team-${u.id}`}     name="canAccessTeam"     label="Admin"    defaultChecked={!!u.canAccessTeam} />
                           <AccessCheckbox id={`settings-${u.id}`} name="canEditSettings"   label="Settings" defaultChecked={!!u.canEditSettings} />
                           <button type="submit" className="btn btn-secondary text-xs ml-auto">Update access</button>
@@ -499,6 +506,7 @@ export default async function TeamPage() {
                 <AccessCheckbox id="new-cal"      name="canAccessCalendar" label="Calendar" defaultChecked />
                 <AccessCheckbox id="new-staff"    name="canAccessStaff"    label="Staff"    defaultChecked />
                 <AccessCheckbox id="new-log"      name="canAccessLog"      label="Log"      defaultChecked />
+                <AccessCheckbox id="new-payroll"  name="canAccessPayroll"  label="Payroll"  defaultChecked />
                 <AccessCheckbox id="new-team"     name="canAccessTeam"     label="Admin" />
                 <AccessCheckbox id="new-settings" name="canEditSettings"   label="Settings" />
               </div>

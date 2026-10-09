@@ -74,7 +74,7 @@ export default function SignupPage() {
       <h1 className="text-3xl font-semibold mt-6">Create your company</h1>
       <p className="text-gray-600 mt-2">You'll be the first manager. You can invite staff later.</p>
       <form action={signupAction} className="mt-8 space-y-4">
-        <div><label htmlFor="companyName" className="label">Company name</label><input id="companyName" name="companyName" className="input" placeholder="Flair Projects SB" required /></div>
+        <div><label htmlFor="companyName" className="label">Company name</label><input id="companyName" name="companyName" className="input" placeholder="Your company name" required /></div>
         <div><label htmlFor="email" className="label">Your email</label><input id="email" name="email" type="email" className="input" placeholder="you@yourcompany.com" required /></div>
         <div><label htmlFor="password" className="label">Password</label><input id="password" name="password" type="password" className="input" minLength={8} placeholder="At least 8 characters" required /></div>
         <button type="submit" className="btn btn-primary w-full justify-center">Create company</button>

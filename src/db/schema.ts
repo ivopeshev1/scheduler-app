@@ -50,6 +50,10 @@ export const users = pgTable(
     canAccessLog: boolean("can_access_log").notNull().default(true),
     canAccessTeam: boolean("can_access_team").notNull().default(false),
     canEditSettings: boolean("can_edit_settings").notNull().default(false),
+    // Payroll access was previously bundled with Calendar; split so a
+    // Calendar-only manager (shift coordinator) doesn't automatically see
+    // payouts. Default true for existing managers via the backfill below.
+    canAccessPayroll: boolean("can_access_payroll").notNull().default(true),
     inviteToken: text("invite_token"),
     inviteAcceptedAt: timestamp("invite_accepted_at", { withTimezone: true }),
     // Soft-delete: when archived, filtered out of staff list and all pickers.

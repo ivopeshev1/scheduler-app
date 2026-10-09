@@ -101,7 +101,7 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
   const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
   const [user] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
   if (!company || !user) redirect("/login");
-  if (!user.isOwner && !user.canAccessCalendar) redirect("/manager?denied=calendar");
+  if (!user.isOwner && !user.canAccessPayroll) redirect("/manager?denied=payroll");
 
   const cadence: Cadence = (company.payPeriodCadence as Cadence | null) ?? "weekly";
   const anchor = company.payPeriodAnchor ?? null;
