@@ -223,6 +223,88 @@ async function saveInvitations(formData: FormData) {
  * Backup tiers stay unsent until cascaded.
  */
 /**
+ * Per-row Remove: pull a specific staffer off their slot (or cancel their
+ * pending invite) without having to deselect them through the StaffPicker.
+ *
+ * Behavior:
+ *   - Soft-delete: sets invitations.cancelledAt and status='rejected'
+ *     (preserves history + opens the staffer back up for other events the
+ *     same day — same-day conflict check filters cancelled invitations).
+ *   - Frees the bound slot so a backup can fill it or the manager can
+ *     invite someone else.
+ *   - Emails the staffer a `Shift removed` note matching the existing
+ *     deselect-flow email so the two paths look identical to the staffer.
+ */
+async function removeStaffFromPositionAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "manager") throw new Error("Unauthorized");
+  const invitationId = String(formData.get("invitationId"));
+  const [inv] = await db.select().from(schema.invitations).where(eq(schema.invitations.id, invitationId));
+  if (!inv) throw new Error("Invitation not found");
+
+  const [position] = await db.select().from(schema.positions).where(eq(schema.positions.id, inv.positionId));
+  if (!position) throw new Error("Position not found");
+  const [event] = await db.select().from(schema.events).where(eq(schema.events.id, position.eventId));
+  if (!event || event.companyId !== session.companyId) throw new Error("Not found");
+
+  const wasEverNotified = !!inv.sentAt;
+
+  if (inv.slotId) {
+    await db
+      .update(schema.slots)
+      .set({ acceptedUserId: null, acceptedAt: null })
+      .where(eq(schema.slots.id, inv.slotId));
+  }
+  await db
+    .update(schema.invitations)
+    .set({ status: "rejected", cancelledAt: new Date(), slotId: null })
+    .where(eq(schema.invitations.id, invitationId));
+
+  if (wasEverNotified) {
+    const [u] = await db.select().from(schema.users).where(eq(schema.users.id, inv.userId));
+    const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, inv.userId));
+    const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
+    const companyName = company?.name ?? "Scheduler";
+    const prettyDate = formatDate(event.date);
+    if (u) {
+      const textBody = [
+        `Hi ${profile?.firstName ?? ""},`, ``,
+        `Your ${position.role} slot for this shift has been removed.`,
+        `You no longer need to attend.`, ``,
+        `Role:   ${position.role}`,
+        `Date:   ${prettyDate}`,
+        `Client: ${event.clientName}`, ``,
+        `– ${companyName}`,
+      ].join("\n");
+      const htmlBody = shellWrap([
+        greeting(profile?.firstName, `Your ${position.role} slot for this shift has been removed.`),
+        banner("⚠  Shift removed - you no longer need to attend.", "warning"),
+        kvTable([
+          kvRow("Role", position.role),
+          kvRow("Date", prettyDate),
+          kvRow("Client", event.clientName),
+        ]),
+        paragraph("If you have questions, reach out to your manager.", { muted: true }),
+        signoff(companyName),
+      ].join("\n"));
+      await sendEmail({
+        to: u.email,
+        subject: `Shift removed: ${event.clientName} on ${prettyDate}`,
+        body: textBody,
+        html: htmlBody,
+        companyId: session.companyId,
+        userId: inv.userId,
+      });
+    }
+  }
+
+  revalidatePath(`/manager/event/${event.id}`);
+  revalidatePath(`/manager/month/${event.date.slice(0, 7)}`);
+  revalidatePath("/manager");
+}
+
+/**
  * Promote an on-call standby invitation into an accepted slot. Binds
  * the on-call invitee to the first open slot on their position, flips
  * their status to accepted, and clears isOnCall. Called from the
@@ -653,6 +735,11 @@ export default async function EventDetailPage({ params }: { params: { id: string
     // invite record is kept around for audit, but they're free to be booked
     // elsewhere on that day.
     if (row.event.cancelledAt) continue;
+    // A staffer who cancelled this specific shift after accepting (via the
+    // Cancel button on their log, or via the per-row Remove here) is also
+    // free again that day — invitation row is kept for history but it no
+    // longer locks them to the shift.
+    if (inv.cancelledAt) continue;
     const existing = busyMap.get(inv.userId);
     if (!existing) {
       busyMap.set(inv.userId, {
@@ -834,7 +921,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
                         ? s.lines.map((ln, idx) => (
                             <div
                               key={idx}
-                              className={`h-7 flex items-center ${
+                              className={`h-7 flex items-center gap-2 ${
                                 ln.paid
                                   ? "text-green-600 font-semibold"
                                   : ln.state === "pending"
@@ -842,12 +929,24 @@ export default async function EventDetailPage({ params }: { params: { id: string
                                   : "status-confirmed"
                               }`}
                             >
-                              {ln.text}
+                              <span>{ln.text}</span>
                               {ln.beo === "received" && (
-                                <span className="text-xs text-green-600 font-normal ml-2">BEO received</span>
+                                <span className="text-xs text-green-600 font-normal">BEO received</span>
                               )}
                               {ln.beo === "sent" && (
-                                <span className="text-xs text-gray-400 font-normal ml-2">BEO sent</span>
+                                <span className="text-xs text-gray-400 font-normal">BEO sent</span>
+                              )}
+                              {ln.invId && (
+                                <form action={removeStaffFromPositionAction} className="ml-auto">
+                                  <input type="hidden" name="invitationId" value={ln.invId} />
+                                  <button
+                                    type="submit"
+                                    className="text-xs text-gray-400 hover:text-red-600 hover:underline"
+                                    title={ln.state === "confirmed" ? "Remove this staffer and notify them" : "Cancel this pending invite"}
+                                  >
+                                    Remove
+                                  </button>
+                                </form>
                               )}
                             </div>
                           ))

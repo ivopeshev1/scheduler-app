@@ -23,6 +23,11 @@ export type PositionStatus = {
     // the Payroll tab. The calendar list view renders their name in
     // green when this flips on.
     paid?: boolean;
+    // Carries the invitation id for lines backed by a real invitation
+    // (confirmed or pending). "Open" placeholder slots leave this
+    // undefined. The event detail page uses it to render per-row
+    // Remove / un-assign controls.
+    invId?: string;
   }>;
   // Position-level invite send state, used on the calendar list view
   // to display "Invited" vs "Invitation not sent" to the right of the
@@ -140,6 +145,15 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
     return !!inv?.paidAt;
   }
 
+  // Lookup: slot id → accepted invitation id, so we can tag each roster
+  // line with the invitation it corresponds to (powers the per-row Remove
+  // button on the event detail page).
+  const acceptedInvByUserId = new Map(
+    regularInvites
+      .filter((i) => i.status === "accepted")
+      .map((i) => [i.userId, i.id]),
+  );
+
   // Single-slot: prefer showing the person's name so the manager sees at a glance who it is.
   if (total === 1) {
     if (filled === 1) {
@@ -149,7 +163,7 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
       const paid = paidFor(acceptedSlot.id);
       return {
         label: name,
-        lines: [{ text: name, state: "confirmed", beo, paid }],
+        lines: [{ text: name, state: "confirmed", beo, paid, invId: acceptedInvByUserId.get(acceptedSlot.acceptedUserId!) }],
         state: "confirmed",
         onCallLines: onCallField,
       };
@@ -183,17 +197,23 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
   // Multi-slot - render one line per slot, name-first, same style as the
   // single-slot path. Order: confirmed names, then sent priority names, then
   // priority drafts (not sent yet), then "Open" placeholders for the rest.
-  const lines: Array<{ text: string; state: "pending" | "confirmed"; beo?: "sent" | "received"; paid?: boolean }> = [];
+  const lines: Array<{ text: string; state: "pending" | "confirmed"; beo?: "sent" | "received"; paid?: boolean; invId?: string }> = [];
   for (const s of slotRows) {
     if (s.acceptedUserId) {
-      lines.push({ text: await firstNameOf(s.acceptedUserId), state: "confirmed", beo: beoFor(s.id), paid: paidFor(s.id) });
+      lines.push({
+        text: await firstNameOf(s.acceptedUserId),
+        state: "confirmed",
+        beo: beoFor(s.id),
+        paid: paidFor(s.id),
+        invId: acceptedInvByUserId.get(s.acceptedUserId),
+      });
     }
   }
   for (const inv of sentPendingInvites) {
-    lines.push({ text: await firstNameOf(inv.userId), state: "pending" });
+    lines.push({ text: await firstNameOf(inv.userId), state: "pending", invId: inv.id });
   }
   for (const inv of priorityDrafts) {
-    lines.push({ text: await firstNameOf(inv.userId), state: "pending" });
+    lines.push({ text: await firstNameOf(inv.userId), state: "pending", invId: inv.id });
   }
   while (lines.length < total) {
     lines.push({ text: "Open", state: "pending" });
