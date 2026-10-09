@@ -181,6 +181,14 @@ export async function runMigrations(): Promise<void> {
   // re-prompt current users. New signups will have onboarded_at NULL until
   // they finish the wizard.
   await sql`UPDATE companies SET onboarded_at = created_at WHERE onboarded_at IS NULL AND created_at IS NOT NULL`;
+  await sql`CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS password_reset_tokens_user_idx ON password_reset_tokens(user_id)`;
   await sql`CREATE TABLE IF NOT EXISTS manager_profiles (
     user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     first_name TEXT NOT NULL,

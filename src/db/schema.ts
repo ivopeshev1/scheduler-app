@@ -84,6 +84,19 @@ export const users = pgTable(
   })
 );
 
+// Self-serve password-reset tokens. Issued when a user clicks "Forgot
+// password?" from the login screen; destroyed on use or expiry. Only one
+// unexpired token should exist per user at a time (older ones are
+// invalidated when a new one is minted) so a stolen inbox can't accumulate
+// resets. 24-hour expiry.
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  token: text("token").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+});
+
 // Profile data for manager-side accounts. Collected the first time a
 // newly-invited manager logs in (via /manager/onboard). Separate from
 // staffProfiles because managers don't need the shift-related fields
