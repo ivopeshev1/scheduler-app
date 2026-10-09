@@ -36,7 +36,22 @@ export default async function ManagerLayout({ children }: { children: React.Reac
     .from(schema.managerProfiles)
     .where(eq(schema.managerProfiles.userId, session.userId));
 
+  // Owner also has to finish the company-level wizard (company fields set
+  // in step 1 + defaults in step 3). Non-owner managers only need their
+  // own profile.
+  const [me] = await db
+    .select({ isOwner: schema.users.isOwner })
+    .from(schema.users)
+    .where(eq(schema.users.id, session.userId));
+  const [company] = await db
+    .select({ onboardedAt: schema.companies.onboardedAt })
+    .from(schema.companies)
+    .where(eq(schema.companies.id, session.companyId));
+
   if (shouldOnboardManager({ role: "manager" }, !!profile)) {
+    redirect("/manager/onboard");
+  }
+  if (me?.isOwner && !company?.onboardedAt) {
     redirect("/manager/onboard");
   }
 

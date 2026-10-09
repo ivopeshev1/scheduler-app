@@ -65,9 +65,28 @@ async function saveCompanySetupAction(formData: FormData) {
     logoPatch = { logoUrl: null };
   }
 
+  // Extra company fields the signup wizard also collects, so the owner can
+  // tweak them later. Only owner can submit these (checked in the UI; the
+  // field just no-ops here when the inputs aren't rendered).
+  const industry = String(formData.get("industry") ?? "").trim() || null;
+  const timezone = String(formData.get("timezone") ?? "").trim() || null;
+  const country = String(formData.get("country") ?? "").trim() || null;
+  const currency = String(formData.get("currency") ?? "").trim() || null;
+  const address = String(formData.get("address") ?? "").trim() || null;
+  const brandColor = String(formData.get("brandColor") ?? "").trim() || null;
+
   await db
     .update(schema.companies)
-    .set({ name, ...(logoPatch ?? {}) })
+    .set({
+      name,
+      ...(logoPatch ?? {}),
+      ...(industry !== null ? { industry } : {}),
+      ...(timezone !== null ? { timezone } : {}),
+      ...(country !== null ? { country } : {}),
+      ...(currency !== null ? { currency } : {}),
+      ...(address !== null ? { address } : {}),
+      ...(brandColor !== null ? { brandColor } : {}),
+    })
     .where(eq(schema.companies.id, session.companyId));
 
   revalidatePath("/manager");
@@ -566,6 +585,46 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
                 in the header.
               </p>
             </div>
+
+            {user.isOwner && (
+              <>
+                <div className="pt-4 border-t">
+                  <h3 className="font-semibold mb-3 text-sm text-gray-600 uppercase tracking-wide">Location &amp; defaults (owner only)</h3>
+                </div>
+
+                <div>
+                  <label htmlFor="industry" className="label">Industry</label>
+                  <input id="industry" name="industry" defaultValue={company.industry ?? ""} className="input" placeholder="Catering, hotel, security, etc." />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="timezone" className="label">Timezone</label>
+                    <input id="timezone" name="timezone" defaultValue={company.timezone ?? ""} className="input" placeholder="America/Los_Angeles" />
+                  </div>
+                  <div>
+                    <label htmlFor="country" className="label">Country</label>
+                    <input id="country" name="country" defaultValue={company.country ?? ""} className="input" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="currency" className="label">Currency</label>
+                    <input id="currency" name="currency" defaultValue={company.currency ?? "USD"} className="input" />
+                  </div>
+                  <div>
+                    <label htmlFor="brandColor" className="label">Brand color</label>
+                    <input id="brandColor" name="brandColor" type="color" defaultValue={company.brandColor ?? "#111827"} className="input h-10 p-1" />
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="address" className="label">Business address</label>
+                  <input id="address" name="address" defaultValue={company.address ?? ""} className="input" placeholder="123 Main St, City, State" />
+                </div>
+              </>
+            )}
 
             <button type="submit" className="btn btn-primary">Save company setup</button>
           </form>

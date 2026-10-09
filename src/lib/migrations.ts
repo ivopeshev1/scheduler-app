@@ -170,6 +170,17 @@ export async function runMigrations(): Promise<void> {
   await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMPTZ`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS can_access_payroll BOOLEAN NOT NULL DEFAULT true`;
+  await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS industry TEXT`;
+  await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS timezone TEXT`;
+  await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS country TEXT`;
+  await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'USD'`;
+  await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS address TEXT`;
+  await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS brand_color TEXT`;
+  await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS onboarded_at TIMESTAMPTZ`;
+  // Mark pre-existing companies as already onboarded so the wizard doesn't
+  // re-prompt current users. New signups will have onboarded_at NULL until
+  // they finish the wizard.
+  await sql`UPDATE companies SET onboarded_at = created_at WHERE onboarded_at IS NULL AND created_at IS NOT NULL`;
   await sql`CREATE TABLE IF NOT EXISTS manager_profiles (
     user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     first_name TEXT NOT NULL,

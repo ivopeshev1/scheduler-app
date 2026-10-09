@@ -15,6 +15,18 @@ export const companies = pgTable("companies", {
   // these two together to compute Prev/Next period boundaries.
   payPeriodCadence: text("pay_period_cadence", { enum: ["weekly", "biweekly", "monthly"] }).default("weekly"),
   payPeriodAnchor: text("pay_period_anchor"),
+  // Set during the signup wizard; drives schedule/pay-period display and
+  // compliance language. Optional so legacy companies still work.
+  industry: text("industry"),
+  timezone: text("timezone"),
+  country: text("country"),
+  currency: text("currency").default("USD"),
+  address: text("address"),
+  brandColor: text("brand_color"),
+  // Set when the owner completes the signup wizard. Null means the company
+  // was created but the walk-through was never finished (so the manager
+  // layout keeps redirecting them to /manager/onboard until it is).
+  onboardedAt: timestamp("onboarded_at", { withTimezone: true }),
   // Flat fee a company pays for every on-call standby slot, regardless
   // of whether the staffer actually gets activated. Covers "thanks for
   // keeping Saturday night free" pay. NULL = no on-call support set up.
