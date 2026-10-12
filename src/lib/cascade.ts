@@ -16,7 +16,18 @@ type EventRow = typeof schema.events.$inferSelect;
  * and the automatic backup-cascade flow, so the rendering stays in one place.
  * Sets sentAt on the invitation when done.
  */
-export async function sendInvitationEmail(inv: InvitationRow, position: PositionRow, event: EventRow, companyId: string) {
+export async function sendInvitationEmail(
+  inv: InvitationRow,
+  position: PositionRow,
+  event: EventRow,
+  companyId: string,
+  // Set to true when the invite is going out because this person just got
+  // auto-promoted from backup → priority (either the original priority
+  // declined or ghosted). We prepend a short banner so the staffer knows
+  // they moved up — otherwise the email looks identical to a cold invite
+  // and they wonder why it arrived now.
+  isPromotionFromBackup: boolean = false,
+) {
   const [u] = await db.select().from(schema.users).where(eq(schema.users.id, inv.userId));
   if (!u) return;
   const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, inv.userId));
@@ -98,9 +109,18 @@ export async function sendInvitationEmail(inv: InvitationRow, position: Position
     }
   }
 
+  const promotionLineText = isPromotionFromBackup
+    ? `Heads up — you're being moved up from backup to priority for this shift. The original invitee bailed, so the spot is yours if you want it:`
+    : `You're invited to work the following shift:`;
+  const promotionBannerHtml = isPromotionFromBackup
+    ? `<div style="margin:0 0 20px;padding:12px 16px;background:#eff6ff;border-left:4px solid #2563eb;border-radius:4px;color:#1e3a8a;font-weight:500;">
+         🎯 You've been moved up from backup to priority. The original invitee bailed — the spot is yours if you want it.
+       </div>`
+    : "";
+
   const textBody = [
     `Hi ${profile?.firstName ?? ""},`, ``,
-    `You're invited to work the following shift:`, ``,
+    promotionLineText, ``,
     `Role:        ${position.role}`,
     event.eventType ? `Event type:  ${event.eventType}` : "",
     `Date:        ${prettyDate}`,
@@ -124,7 +144,10 @@ export async function sendInvitationEmail(inv: InvitationRow, position: Position
     `<tr><td style="padding:4px 16px 4px 0;color:#555;white-space:nowrap;">${label}</td><td style="padding:4px 0;">${value}</td></tr>`;
 
   const htmlBody = shellWrap([
-    greeting(profile?.firstName, "You're invited to work the following shift:"),
+    greeting(profile?.firstName, isPromotionFromBackup
+      ? "You're moved up from backup to priority for this shift:"
+      : "You're invited to work the following shift:"),
+    promotionBannerHtml,
     `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 24px;">
       ${row("Role", escapeHtml(position.role))}
       ${event.eventType ? row("Event type", escapeHtml(event.eventType)) : ""}
@@ -157,7 +180,9 @@ export async function sendInvitationEmail(inv: InvitationRow, position: Position
 
   await sendEmail({
     to: u.email,
-    subject: `${companyName} invite to a shift - ${prettyDate}`,
+    subject: isPromotionFromBackup
+      ? `You're up — ${companyName} shift on ${prettyDate}`
+      : `${companyName} invite to a shift - ${prettyDate}`,
     body: textBody,
     html: htmlBody,
     companyId,
@@ -431,7 +456,7 @@ export async function runExpiryAndCascade() {
             .where(eq(schema.invitations.id, b.inv.id));
           const [promoted] = await db.select().from(schema.invitations).where(eq(schema.invitations.id, b.inv.id));
           if (promoted) {
-            await sendInvitationEmail(promoted, pos, ev, company.id);
+            await sendInvitationEmail(promoted, pos, ev, company.id, true);
           }
           results.push({ action: "promoted-backup", invId: b.inv.id });
         }
