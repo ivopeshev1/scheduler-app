@@ -21,13 +21,13 @@ export async function sendInvitationEmail(
   position: PositionRow,
   event: EventRow,
   companyId: string,
-  // Set to true when the invite is going out because this person just got
-  // auto-promoted from backup → priority (either the original priority
-  // declined or ghosted). We prepend a short banner so the staffer knows
-  // they moved up — otherwise the email looks identical to a cold invite
-  // and they wonder why it arrived now.
-  isPromotionFromBackup: boolean = false,
 ) {
+  // Silent-backup model: when a cascade promotes a backup, the email that
+  // goes out looks identical to a cold initial invite. The backup never
+  // knew they were a backup — making the promotion look like a fresh
+  // invite keeps that illusion intact and avoids the "you were our second
+  // choice" vibe. Promotion-specific wording lived here before and is
+  // intentionally gone now.
   const [u] = await db.select().from(schema.users).where(eq(schema.users.id, inv.userId));
   if (!u) return;
   const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, inv.userId));
@@ -109,18 +109,9 @@ export async function sendInvitationEmail(
     }
   }
 
-  const promotionLineText = isPromotionFromBackup
-    ? `Heads up — you're being moved up from backup to priority for this shift. The original invitee bailed, so the spot is yours if you want it:`
-    : `You're invited to work the following shift:`;
-  const promotionBannerHtml = isPromotionFromBackup
-    ? `<div style="margin:0 0 20px;padding:12px 16px;background:#eff6ff;border-left:4px solid #2563eb;border-radius:4px;color:#1e3a8a;font-weight:500;">
-         🎯 You've been moved up from backup to priority. The original invitee bailed — the spot is yours if you want it.
-       </div>`
-    : "";
-
   const textBody = [
     `Hi ${profile?.firstName ?? ""},`, ``,
-    promotionLineText, ``,
+    `You're invited to work the following shift:`, ``,
     `Role:        ${position.role}`,
     event.eventType ? `Event type:  ${event.eventType}` : "",
     `Date:        ${prettyDate}`,
@@ -144,10 +135,7 @@ export async function sendInvitationEmail(
     `<tr><td style="padding:4px 16px 4px 0;color:#555;white-space:nowrap;">${label}</td><td style="padding:4px 0;">${value}</td></tr>`;
 
   const htmlBody = shellWrap([
-    greeting(profile?.firstName, isPromotionFromBackup
-      ? "You're moved up from backup to priority for this shift:"
-      : "You're invited to work the following shift:"),
-    promotionBannerHtml,
+    greeting(profile?.firstName, "You're invited to work the following shift:"),
     `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 24px;">
       ${row("Role", escapeHtml(position.role))}
       ${event.eventType ? row("Event type", escapeHtml(event.eventType)) : ""}
@@ -180,9 +168,7 @@ export async function sendInvitationEmail(
 
   await sendEmail({
     to: u.email,
-    subject: isPromotionFromBackup
-      ? `You're up — ${companyName} shift on ${prettyDate}`
-      : `${companyName} invite to a shift - ${prettyDate}`,
+    subject: `${companyName} invite to a shift - ${prettyDate}`,
     body: textBody,
     html: htmlBody,
     companyId,
@@ -450,15 +436,43 @@ export async function runExpiryAndCascade() {
       if (allBackups.length > 0) {
         const lowestTier = allBackups[0].inv.tier;
         const toPromote = allBackups.filter((b) => b.inv.tier === lowestTier);
+        // Silent-backup model: backups haven't been emailed and their day
+        // isn't blocked, so they may have been booked for a different
+        // event this same day while they sat in reserve. Before we promote
+        // one, re-check that they're still free. Anyone busy gets skipped
+        // (their invitation stays as a tier-N backup — if the manager
+        // wants to use them later they can resend manually).
+        let promotedAny = false;
         for (const b of toPromote) {
+          const isBusy = rows.some(
+            (r) =>
+              r.inv.userId === b.inv.userId &&
+              r.inv.id !== b.inv.id &&
+              r.ev.date === ev.date &&
+              !r.ev.cancelledAt &&
+              !r.inv.cancelledAt &&
+              (
+                r.inv.status === "accepted" ||
+                (r.inv.status === "pending" && r.inv.sentAt && (r.inv.isOnCall || r.inv.tier === 0))
+              ),
+          );
+          if (isBusy) {
+            results.push({ action: "skip-backup-busy-elsewhere", invId: b.inv.id });
+            continue;
+          }
           await db.update(schema.invitations)
             .set({ tier: 0 })
             .where(eq(schema.invitations.id, b.inv.id));
           const [promoted] = await db.select().from(schema.invitations).where(eq(schema.invitations.id, b.inv.id));
           if (promoted) {
-            await sendInvitationEmail(promoted, pos, ev, company.id, true);
+            await sendInvitationEmail(promoted, pos, ev, company.id);
           }
           results.push({ action: "promoted-backup", invId: b.inv.id });
+          promotedAny = true;
+        }
+        if (!promotedAny) {
+          await notifyManagerNoBackup(ev, pos, inv.userId, company.id);
+          results.push({ action: "notified-manager-no-backup-all-busy", positionId: pos.id });
         }
       } else {
         // No backup - ping the manager

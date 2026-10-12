@@ -319,9 +319,6 @@ export function NotificationsEditor({
             ["priorityAccepted", "Priority accepts a shift"],
             ["priorityDeclined", "Priority declines a shift"],
             ["priorityGhosted", "Priority ghosts (no response)"],
-            ["backupAccepted", "Backup accepts their backup invite"],
-            ["backupDeclined", "Backup declines their backup invite"],
-            ["backupGhosted", "Backup ghosts their backup invite"],
             ["positionStillEmpty", "A position has nobody invited yet"],
             ["beoAcknowledged", "Staff acknowledges their BEO"],
           ] as const).map(([key, label]) => (

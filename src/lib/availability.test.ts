@@ -63,4 +63,29 @@ describe("invitationBlocksDay — regression guards", () => {
       invitationBlocksDay({ status: "pending", isOnCall: true }, openEvent),
     ).toBe(true);
   });
+
+  it("silent-backup pending (tier > 0, no email ever sent) does NOT block the day", () => {
+    expect(
+      invitationBlocksDay({ status: "pending", tier: 1, sentAt: null }, openEvent),
+    ).toBe(false);
+    expect(
+      invitationBlocksDay({ status: "pending", tier: 2, sentAt: null }, openEvent),
+    ).toBe(false);
+  });
+
+  it("backup that got promoted + emailed (tier=0 or sentAt set) does block the day", () => {
+    // After cascade promotes them, tier drops to 0 and sentAt is set.
+    expect(
+      invitationBlocksDay(
+        { status: "pending", tier: 0, sentAt: new Date() },
+        openEvent,
+      ),
+    ).toBe(true);
+  });
+
+  it("priority pending (tier=0 with sentAt) still blocks", () => {
+    expect(
+      invitationBlocksDay({ status: "pending", tier: 0, sentAt: new Date() }, openEvent),
+    ).toBe(true);
+  });
 });

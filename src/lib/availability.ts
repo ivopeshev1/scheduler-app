@@ -16,8 +16,10 @@
 
 export type AvailabilityInvite = {
   status: "pending" | "accepted" | "rejected" | "expired" | "filled";
+  tier?: number;
   cancelledAt?: Date | null;
   isOnCall?: boolean | null;
+  sentAt?: Date | null;
 };
 
 export type AvailabilityEvent = {
@@ -31,5 +33,20 @@ export function invitationBlocksDay(
   if (event.cancelledAt) return false;
   if (inv.cancelledAt) return false;
   if (inv.status !== "pending" && inv.status !== "accepted") return false;
+  // Silent-backup model: a pending backup (tier > 0) that was never
+  // actually emailed doesn't block the staffer. They don't know they're
+  // queued; the system is just holding their name in reserve. The
+  // cascade re-checks availability at promotion time, so if the backup
+  // got booked elsewhere in the meantime we skip them. On-call standby
+  // is a separate pool and still blocks (they explicitly accepted the
+  // standby fee for keeping the window clear).
+  if (
+    inv.status === "pending" &&
+    (inv.tier ?? 0) > 0 &&
+    !inv.isOnCall &&
+    !inv.sentAt
+  ) {
+    return false;
+  }
   return true;
 }

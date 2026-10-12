@@ -108,8 +108,14 @@ export function classifyDigest(input: DigestInput): DigestBuckets {
     const name = `${inv.userFirstName} ${inv.userLastName}`.trim();
     const dateLabel = inv.eventDate;
 
+    // Silent-backup model: a pending backup (tier > 0) that was never
+    // emailed can't accept or decline, so there's nothing to report.
+    // Skip them for the resolved/waiting lanes. Still count them in the
+    // overview numbers below.
+    const isSilentBackup = inv.tier > 0 && !inv.sentAt;
+
     // Resolved: happened in the last 24h, regardless of event date.
-    if (inv.respondedAt && inv.respondedAt >= oneDayAgo) {
+    if (!isSilentBackup && inv.respondedAt && inv.respondedAt >= oneDayAgo) {
       if (inv.cancelledAt) {
         resolved.push({
           invitationId: inv.invitationId,
