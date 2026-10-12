@@ -14,12 +14,17 @@ async function markCancelledAction(formData: FormData) {
   const invId = String(formData.get("invId"));
   const [inv] = await db.select().from(schema.invitations).where(eq(schema.invitations.id, invId));
   if (!inv) throw new Error("Invitation not found");
-  // Free the slot (same as a removal) but keep the invitation row so the
-  // cancellation metric can count it.
+  // Match the per-row Remove on the event page exactly: null the slot,
+  // flip status → rejected, stamp cancelled_at, clear slot_id. Setting
+  // status is critical — without it the UI stays stuck on "accepted"
+  // and status.ts can't find the invitation for the Remove ×.
   if (inv.slotId) {
     await db.update(schema.slots).set({ acceptedUserId: null, acceptedAt: null }).where(eq(schema.slots.id, inv.slotId));
   }
-  await db.update(schema.invitations).set({ cancelledAt: new Date() }).where(eq(schema.invitations.id, invId));
+  await db
+    .update(schema.invitations)
+    .set({ status: "rejected", cancelledAt: new Date(), slotId: null })
+    .where(eq(schema.invitations.id, invId));
   revalidatePath("/manager/staff/compare");
   revalidatePath(`/manager/staff/${inv.userId}`);
 }
@@ -31,7 +36,13 @@ async function undoCancelAction(formData: FormData) {
   const invId = String(formData.get("invId"));
   const [inv] = await db.select().from(schema.invitations).where(eq(schema.invitations.id, invId));
   if (!inv) throw new Error("Invitation not found");
-  await db.update(schema.invitations).set({ cancelledAt: null }).where(eq(schema.invitations.id, invId));
+  // Undo both the status flip and the cancelled_at stamp. Status goes
+  // back to accepted since the undo path is only shown for rows that
+  // were in the "accepted" bucket before the cancel.
+  await db
+    .update(schema.invitations)
+    .set({ status: "accepted", cancelledAt: null })
+    .where(eq(schema.invitations.id, invId));
   revalidatePath("/manager/staff/compare");
   revalidatePath(`/manager/staff/${inv.userId}`);
 }
