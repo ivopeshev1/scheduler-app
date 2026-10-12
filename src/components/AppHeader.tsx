@@ -149,10 +149,7 @@ export async function AppHeader({
             photoUrl={avatarUrl}
             roleBadge={role === "staff" ? "Staff" : liveIsOwner ? "Owner" : "Manager"}
             profileHref={role === "manager" ? "/manager/onboard" : "/staff"}
-            // My settings is a stub for now — points to the profile edit
-            // page too. Will become its own page when per-user notification
-            // + UI preferences land.
-            mySettingsHref={role === "manager" ? "/manager/onboard" : null}
+            mySettingsHref={role === "manager" ? "/manager/settings/me" : null}
             companySettingsHref="/manager/settings"
             showCompanySettings={role === "manager" && !!liveIsOwner}
           />

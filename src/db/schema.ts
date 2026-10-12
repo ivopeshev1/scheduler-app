@@ -111,6 +111,10 @@ export const managerProfiles = pgTable("manager_profiles", {
   // Base64 data URL for the avatar. Same storage pattern the company logo
   // uses — small images only (we cap at ~500 KB on upload).
   photoUrl: text("photo_url"),
+  // Personal UI preferences the manager picks in My Settings. Stored as
+  // JSON so new preference keys don't need a migration per key. Shape is
+  // defined by UiPreferences in src/lib/ui-prefs.ts.
+  uiPreferences: jsonb("ui_preferences"),
 });
 
 export const staffProfiles = pgTable("staff_profiles", {
