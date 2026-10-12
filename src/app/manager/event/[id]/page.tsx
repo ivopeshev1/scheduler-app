@@ -6,6 +6,7 @@ import { eq, and } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { summarizePosition } from "@/lib/status";
 import { sendEmail, escapeHtml } from "@/lib/notifications";
+import { invitationBlocksDay } from "@/lib/availability";
 import { formatTime, formatDate } from "@/lib/format";
 import { notifyCancellation } from "@/lib/event-notifications";
 import { shellWrap, kvRow, kvTable, greeting, banner, paragraph, signoff } from "@/lib/email-html";
@@ -763,17 +764,11 @@ export default async function EventDetailPage({ params }: { params: { id: string
   const busyMap = new Map<string, { eventDate: string; clientName: string; role: string; positionId: string }>();
   for (const row of companyInvites) {
     const inv = row.invitation;
-    if (inv.status !== "pending" && inv.status !== "accepted") continue;
     if (row.event.date !== event.date) continue; // Only same-date conflicts matter
-    // Cancelled events shouldn't block a staff member's availability - their
-    // invite record is kept around for audit, but they're free to be booked
-    // elsewhere on that day.
-    if (row.event.cancelledAt) continue;
-    // A staffer who cancelled this specific shift after accepting (via the
-    // Cancel button on their log, or via the per-row Remove here) is also
-    // free again that day — invitation row is kept for history but it no
-    // longer locks them to the shift.
-    if (inv.cancelledAt) continue;
+    // Delegate the "does this still block availability?" decision to the
+    // shared predicate so every removal path (manager ×, picker deselect,
+    // staff cancel, event cancelled, expired, declined) stays in sync.
+    if (!invitationBlocksDay(inv, row.event)) continue;
     const existing = busyMap.get(inv.userId);
     if (!existing) {
       busyMap.set(inv.userId, {
