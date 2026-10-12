@@ -174,7 +174,16 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
     }
     // Prefer the sent priority invite's name
     if (invited === 1) {
-      return { label: await firstNameOf(sentPendingInvites[0].userId), subLabel: backupSubLabel(), state: "pending", sendIndicator, onCallLines: onCallField };
+      const inv = sentPendingInvites[0];
+      const name = await firstNameOf(inv.userId);
+      return {
+        label: name,
+        lines: [{ text: name, state: "pending", invId: inv.id }],
+        subLabel: backupSubLabel(),
+        state: "pending",
+        sendIndicator,
+        onCallLines: onCallField,
+      };
     }
     // Multiple priority invites competing (e.g. backups auto-promoted after
     // a rejection) - don't pick one name, call it what it is.
@@ -183,7 +192,16 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
     }
     // Nothing sent yet - a priority draft still shows as the primary name
     if (priorityDrafts.length === 1) {
-      return { label: await firstNameOf(priorityDrafts[0].userId), subLabel: backupSubLabel(), state: "pending", sendIndicator, onCallLines: onCallField };
+      const draft = priorityDrafts[0];
+      const name = await firstNameOf(draft.userId);
+      return {
+        label: name,
+        lines: [{ text: name, state: "pending", invId: draft.id }],
+        subLabel: backupSubLabel(),
+        state: "pending",
+        sendIndicator,
+        onCallLines: onCallField,
+      };
     }
     if (priorityDrafts.length > 1) {
       return { label: `Open to ${priorityDrafts.length} backups`, state: "pending", sendIndicator, onCallLines: onCallField };
