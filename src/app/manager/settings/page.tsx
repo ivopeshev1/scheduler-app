@@ -32,7 +32,10 @@ async function requireSettingsAccess() {
   const session = await getSession();
   if (!session || session.role !== "manager") throw new Error("Unauthorized");
   const [me] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
-  if (!me?.isOwner && !me?.canEditSettings) throw new Error("Forbidden: you don't have permission to edit settings");
+  // Company settings is owner-only now (reorg: non-owners never had any
+  // reason to edit company-wide stuff like timezone, roles catalog, etc.
+  // Per-user preferences live under /manager/onboard for everyone.)
+  if (!me?.isOwner) throw new Error("Forbidden: only the company owner can edit company settings");
   return { session, me };
 }
 
@@ -451,7 +454,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
 
   const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
   const [user] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
-  if (!user?.isOwner && !user?.canEditSettings) {
+  if (!user?.isOwner) {
     redirect("/manager?denied=settings");
   }
 

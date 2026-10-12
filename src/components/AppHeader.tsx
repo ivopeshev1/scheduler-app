@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
 import { eq } from "drizzle-orm";
+import { UserMenu } from "@/components/UserMenu";
 
 type Props = {
   companyName: string;
@@ -137,70 +138,30 @@ export async function AppHeader({
               {showTeam && (
                 <Link href="/manager/team" className="text-gray-700 hover:text-black">Admin</Link>
               )}
-              {showSettings && (
-                <Link href="/manager/settings" className="text-gray-700 hover:text-black">Settings</Link>
-              )}
             </>
           )}
           {role === "staff" && (
             <Link href="/staff" className="text-gray-700 hover:text-black">My shifts</Link>
           )}
-          <Link
-            href={role === "manager" ? "/manager/onboard" : "/staff"}
-            className="flex items-center gap-2 hover:opacity-80"
-            title={`Signed in as ${displayName ?? userEmail}${role === "manager" ? " — click to edit profile" : ""}`}
-          >
-            <UserAvatar email={userEmail} photoUrl={avatarUrl} />
-            <span className="text-gray-500 hidden md:inline">{displayName ?? userEmail}</span>
-          </Link>
-          <form action="/logout" method="post">
-            <button type="submit" className="text-gray-500 hover:text-black">Log out</button>
-          </form>
+          <UserMenu
+            displayName={displayName ?? userEmail}
+            email={userEmail}
+            photoUrl={avatarUrl}
+            roleBadge={role === "staff" ? "Staff" : liveIsOwner ? "Owner" : "Manager"}
+            profileHref={role === "manager" ? "/manager/onboard" : "/staff"}
+            // My settings is a stub for now — points to the profile edit
+            // page too. Will become its own page when per-user notification
+            // + UI preferences land.
+            mySettingsHref={role === "manager" ? "/manager/onboard" : null}
+            companySettingsHref="/manager/settings"
+            showCompanySettings={role === "manager" && !!liveIsOwner}
+          />
         </nav>
       </div>
     </header>
   );
 }
 
-/**
- * Small circular avatar for the signed-in user. Shows initials derived
- * from the email on a stable color-seeded background so an owner using
- * multiple logins (owner account vs. a delegated admin) always sees
- * which one they're in at a glance.
- */
-function UserAvatar({ email, photoUrl }: { email: string; photoUrl?: string | null }) {
-  if (photoUrl) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={photoUrl}
-        alt=""
-        className="w-8 h-8 rounded-full object-cover shrink-0"
-        aria-label={`Signed in as ${email}`}
-      />
-    );
-  }
-  const local = email.split("@")[0] ?? email;
-  // "jane.doe" → "JD", "jdoe" → "JD", "x" → "X"
-  const parts = local.split(/[.\-_+]/).filter(Boolean);
-  const initials =
-    parts.length >= 2
-      ? (parts[0][0] + parts[1][0]).toUpperCase()
-      : (local.slice(0, 2) || "?").toUpperCase();
-  let hash = 0;
-  for (let i = 0; i < email.length; i++) hash = (hash * 31 + email.charCodeAt(i)) >>> 0;
-  const hue = hash % 360;
-  const style: React.CSSProperties = {
-    background: `hsl(${hue}, 55%, 85%)`,
-    color: `hsl(${hue}, 45%, 25%)`,
-  };
-  return (
-    <div
-      className="w-8 h-8 rounded-full flex items-center justify-center font-semibold text-xs shrink-0"
-      style={style}
-      aria-label={`Signed in as ${email}`}
-    >
-      {initials}
-    </div>
-  );
-}
+// Avatar + user menu now live in src/components/UserMenu.tsx so the
+// dropdown dance can run as a client component without pulling the whole
+// header out of the server runtime.
