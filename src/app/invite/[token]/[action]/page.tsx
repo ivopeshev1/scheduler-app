@@ -38,8 +38,14 @@ export default async function InviteActionPage({
   const timeRange = event ? `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}` : "";
 
   // Terminal states - don't re-process, just show the current state.
-  let outcome: "accepted" | "declined" | "expired" | "already-filled" | "shift-filled" | "activated" =
+  // "cancelled" means the manager (or the staffer via their log) pulled the
+  // invitation after it was sent — the staffer did NOT decline. Keep that
+  // distinction so the landing page shows "No longer available" rather
+  // than the confusing "Shift declined" when the staffer clicks Accept
+  // on a stale email.
+  let outcome: "accepted" | "declined" | "cancelled" | "expired" | "already-filled" | "shift-filled" | "activated" =
     inv.status === "accepted" && !inv.isOnCall ? "accepted"
+    : inv.cancelledAt ? "cancelled"
     : inv.status === "rejected" ? "declined"
     : inv.status === "expired" ? "expired"
     : inv.status === "filled" ? "already-filled"
@@ -106,12 +112,14 @@ export default async function InviteActionPage({
     : outcome === "accepted" ? "Shift accepted"
     : outcome === "activated" ? "Activation confirmed"
     : outcome === "declined" ? "Shift declined"
+    : outcome === "cancelled" ? "This shift is no longer available"
     : outcome === "expired" ? "This invite has expired"
     : outcome === "already-filled" ? "This slot was filled by someone else"
     : "Shift already filled";
   const emoji =
     outcome === "accepted" || outcome === "activated" ? "✅"
     : outcome === "declined" ? "👋"
+    : outcome === "cancelled" ? "ℹ️"
     : "⏳";
   const message =
     outcome === "accepted" && inv.isOnCall
@@ -122,6 +130,8 @@ export default async function InviteActionPage({
       ? "You're confirmed for the shift. See you there."
       : outcome === "declined"
       ? "Thanks for letting us know. Your manager has been notified."
+      : outcome === "cancelled"
+      ? "Your manager has removed this invitation, so there's nothing to accept. If you think this is a mistake, reach out to them directly."
       : outcome === "expired"
       ? "The response window closed. Reach out to your manager if you still want in."
       : "Someone else accepted this shift first. No action needed on your end.";
