@@ -69,8 +69,12 @@ export async function summarizePosition(positionId: string): Promise<PositionSta
   // On-call invites live outside the tier/slot system - split them out
   // so they don't contaminate the "Invited" counts and the picker /
   // calendar can render them separately.
-  const regularInvites = invites.filter((i) => !i.isOnCall);
-  const onCallInvites = invites.filter((i) => i.isOnCall && i.status !== "rejected" && i.status !== "expired");
+  // Cancelled invitations (set by the per-row Remove button or the staff-log
+  // Cancel action) are kept in the DB for history but shouldn't contribute
+  // to any counters here — they're not an active invite, not a confirmed
+  // slot, not an "Invited" badge, nothing.
+  const regularInvites = invites.filter((i) => !i.isOnCall && !i.cancelledAt);
+  const onCallInvites = invites.filter((i) => i.isOnCall && !i.cancelledAt && i.status !== "rejected" && i.status !== "expired");
   const sentPendingInvites = regularInvites.filter((i) => i.status === "pending" && i.sentAt);
   const draftInvites = regularInvites.filter((i) => i.status === "pending" && !i.sentAt);
   const invited = sentPendingInvites.length;

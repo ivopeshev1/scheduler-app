@@ -10,6 +10,7 @@ import { formatTime, formatDate } from "@/lib/format";
 import { notifyCancellation } from "@/lib/event-notifications";
 import { shellWrap, kvRow, kvTable, greeting, banner, paragraph, signoff } from "@/lib/email-html";
 import { StaffPicker, type StaffOption } from "@/components/StaffPicker";
+import { RemoveStaffButton } from "@/components/RemoveStaffButton";
 import { DeleteEventForm } from "@/components/DeleteEventForm";
 import { nanoid } from "nanoid";
 import { revalidatePath } from "next/cache";
@@ -54,7 +55,15 @@ async function saveInvitations(formData: FormData) {
   const [event] = await db.select().from(schema.events).where(eq(schema.events.id, position.eventId));
   if (!event) throw new Error("Event not found");
 
-  const existing = await db.select().from(schema.invitations).where(eq(schema.invitations.positionId, positionId));
+  // Only ACTIVE invitations block a re-invite. Cancelled rows are kept
+  // for history but shouldn't make the picker think the staffer is
+  // already on this position — otherwise the manager can't put someone
+  // back after Remove.
+  const existing = (await db
+    .select()
+    .from(schema.invitations)
+    .where(eq(schema.invitations.positionId, positionId)))
+    .filter((inv) => !inv.cancelledAt);
 
   // Pull every active invite for this company on the SAME DATE as this event so we can
   // reject any attempt to double-invite the same person to two positions on the same day
@@ -240,6 +249,9 @@ async function removeStaffFromPositionAction(formData: FormData) {
   const session = await getSession();
   if (!session || session.role !== "manager") throw new Error("Unauthorized");
   const invitationId = String(formData.get("invitationId"));
+  const notify = String(formData.get("notify") ?? "1") === "1";
+  const reason = String(formData.get("reason") ?? "").trim();
+
   const [inv] = await db.select().from(schema.invitations).where(eq(schema.invitations.id, invitationId));
   if (!inv) throw new Error("Invitation not found");
 
@@ -247,8 +259,6 @@ async function removeStaffFromPositionAction(formData: FormData) {
   if (!position) throw new Error("Position not found");
   const [event] = await db.select().from(schema.events).where(eq(schema.events.id, position.eventId));
   if (!event || event.companyId !== session.companyId) throw new Error("Not found");
-
-  const wasEverNotified = !!inv.sentAt;
 
   if (inv.slotId) {
     await db
@@ -261,38 +271,54 @@ async function removeStaffFromPositionAction(formData: FormData) {
     .set({ status: "rejected", cancelledAt: new Date(), slotId: null })
     .where(eq(schema.invitations.id, invitationId));
 
-  if (wasEverNotified) {
+  // Only email when (a) the manager chose "notify" AND (b) the staffer was
+  // actually sent an invite at some point. Removing a never-sent draft
+  // never emails — same as the picker-deselect behavior.
+  if (notify && inv.sentAt) {
     const [u] = await db.select().from(schema.users).where(eq(schema.users.id, inv.userId));
     const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, inv.userId));
     const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
     const companyName = company?.name ?? "Scheduler";
     const prettyDate = formatDate(event.date);
     if (u) {
-      const textBody = [
+      const textLines = [
         `Hi ${profile?.firstName ?? ""},`, ``,
         `Your ${position.role} slot for this shift has been removed.`,
         `You no longer need to attend.`, ``,
+      ];
+      if (reason) {
+        textLines.push(`Message from your manager:`, reason, ``);
+      }
+      textLines.push(
         `Role:   ${position.role}`,
         `Date:   ${prettyDate}`,
         `Client: ${event.clientName}`, ``,
         `– ${companyName}`,
-      ].join("\n");
-      const htmlBody = shellWrap([
+      );
+      const htmlParts = [
         greeting(profile?.firstName, `Your ${position.role} slot for this shift has been removed.`),
-        banner("⚠  Shift removed - you no longer need to attend.", "warning"),
+        banner("⚠  Shift removed — you no longer need to attend.", "warning"),
         kvTable([
           kvRow("Role", position.role),
           kvRow("Date", prettyDate),
           kvRow("Client", event.clientName),
         ]),
+      ];
+      if (reason) {
+        htmlParts.push(
+          `<p style="margin:16px 0 6px;font-weight:600;">Message from your manager:</p>`,
+          `<blockquote style="margin:0 0 20px;padding:12px 16px;border-left:3px solid #d1d5db;background:#f9fafb;color:#111827;white-space:pre-wrap;">${escapeHtml(reason)}</blockquote>`,
+        );
+      }
+      htmlParts.push(
         paragraph("If you have questions, reach out to your manager.", { muted: true }),
         signoff(companyName),
-      ].join("\n"));
+      );
       await sendEmail({
         to: u.email,
         subject: `Shift removed: ${event.clientName} on ${prettyDate}`,
-        body: textBody,
-        html: htmlBody,
+        body: textLines.join("\n"),
+        html: shellWrap(htmlParts.join("\n")),
         companyId: session.companyId,
         userId: inv.userId,
       });
@@ -670,7 +696,15 @@ export default async function EventDetailPage({ params }: { params: { id: string
 
   const invitesByPosition: Record<string, typeof schema.invitations.$inferSelect[]> = {};
   for (const p of positionsList) {
-    invitesByPosition[p.id] = await db.select().from(schema.invitations).where(eq(schema.invitations.positionId, p.id));
+    // Hide cancelled rows so the picker + roster treat them as absent.
+    // The DB row stays for history (shows up in the staff log, counts
+    // toward cancellations metric) but the live UI acts as if the
+    // staffer was never invited to this position.
+    invitesByPosition[p.id] = (await db
+      .select()
+      .from(schema.invitations)
+      .where(eq(schema.invitations.positionId, p.id)))
+      .filter((inv) => !inv.cancelledAt);
   }
 
   // Company add-ons + per-invitation assignments. Passed into each
@@ -884,6 +918,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
                 <th className="text-left">Position</th>
                 <th className="text-left">Staff / Status</th>
                 <th className="text-left">Rate</th>
+                <th className="text-left w-10"></th>
                 <th className="text-left">Invite staff</th>
               </tr>
             </thead>
@@ -935,18 +970,6 @@ export default async function EventDetailPage({ params }: { params: { id: string
                               )}
                               {ln.beo === "sent" && (
                                 <span className="text-xs text-gray-400 font-normal">BEO sent</span>
-                              )}
-                              {ln.invId && (
-                                <form action={removeStaffFromPositionAction} className="ml-auto">
-                                  <input type="hidden" name="invitationId" value={ln.invId} />
-                                  <button
-                                    type="submit"
-                                    className="text-xs text-gray-400 hover:text-red-600 hover:underline"
-                                    title={ln.state === "confirmed" ? "Remove this staffer and notify them" : "Cancel this pending invite"}
-                                  >
-                                    Remove
-                                  </button>
-                                </form>
                               )}
                             </div>
                           ))
@@ -1016,6 +1039,19 @@ export default async function EventDetailPage({ params }: { params: { id: string
                       {openSlotsForRateCol > 0 && primaryInvs.length > 0 && (
                         <div className="text-gray-400 italic">{baseLabel}</div>
                       )}
+                    </td>
+                    <td className="py-3 align-top">
+                      {s.lines?.map((ln, idx) => (
+                        <div key={idx} className="h-7 flex items-center justify-center">
+                          {ln.invId ? (
+                            <RemoveStaffButton
+                              invitationId={ln.invId}
+                              staffName={ln.text}
+                              action={removeStaffFromPositionAction}
+                            />
+                          ) : null}
+                        </div>
+                      ))}
                     </td>
                     <td className="py-3">
                       <StaffPicker
