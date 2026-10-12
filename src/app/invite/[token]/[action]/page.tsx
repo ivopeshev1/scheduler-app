@@ -2,6 +2,7 @@ import { db, schema } from "@/db/client";
 import { eq, and } from "drizzle-orm";
 import { formatDate, formatTime } from "@/lib/format";
 import { notFound } from "next/navigation";
+import { releasePendingIfPositionFilled } from "@/lib/release-pending";
 
 /**
  * Public one-click accept / decline landing page reached from the shift
@@ -70,6 +71,14 @@ export default async function InviteActionPage({
           .set({ isOnCall: false, slotId: openSlot.id })
           .where(eq(schema.invitations.id, inv.id));
         outcome = "activated";
+        // Same cleanup as the regular-accept branch: with the activated
+        // standby now bound to a slot, any still-pending backups on this
+        // position are no longer needed.
+        const [position] = await db.select().from(schema.positions).where(eq(schema.positions.id, inv.positionId));
+        const [event] = position ? await db.select().from(schema.events).where(eq(schema.events.id, position.eventId)) : [null];
+        if (event) {
+          await releasePendingIfPositionFilled(inv.positionId, event.companyId);
+        }
       }
     }
   } else if (inv.status === "pending") {
@@ -102,6 +111,14 @@ export default async function InviteActionPage({
             .set({ status: "accepted", respondedAt: new Date(), slotId: openSlot.id })
             .where(eq(schema.invitations.id, inv.id));
           outcome = "accepted";
+          // Position may now be full — release any pending backups so
+          // they're freed up for other events the same day and get a
+          // courtesy "no action needed" email.
+          const [position] = await db.select().from(schema.positions).where(eq(schema.positions.id, inv.positionId));
+          const [event] = position ? await db.select().from(schema.events).where(eq(schema.events.id, position.eventId)) : [null];
+          if (event) {
+            await releasePendingIfPositionFilled(inv.positionId, event.companyId);
+          }
         }
       }
     }

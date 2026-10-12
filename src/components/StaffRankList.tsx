@@ -11,6 +11,7 @@ export type StaffRankRow = {
   acceptPct: number | null;
   responsePct: number | null;
   avgResponseHours: number | null;
+  avgCancelLeadHours: number | null;
   cancelled: number;
   noShows: number;
   lateCount: number;
@@ -70,6 +71,7 @@ export function StaffRankList({
             <th className="text-right px-3 py-2">Response</th>
             <th className="text-right px-3 py-2">Avg reply</th>
             <th className="text-right px-3 py-2">Cancels</th>
+            <th className="text-right px-3 py-2">Cancel notice</th>
             <th className="text-right px-3 py-2">No-shows</th>
             <th className="text-right px-3 py-2">Late</th>
             <th className="text-right px-3 py-2">On-call</th>
@@ -124,6 +126,7 @@ export function StaffRankList({
                 <td className="px-3 py-2 text-right">{fmtPct(r.responsePct)}</td>
                 <td className="px-3 py-2 text-right">{fmtHours(r.avgResponseHours)}</td>
                 <td className={`px-3 py-2 text-right ${r.cancelled > 0 ? "text-amber-700" : ""}`}>{r.cancelled}</td>
+                <td className={`px-3 py-2 text-right ${r.avgCancelLeadHours != null && r.avgCancelLeadHours < 24 ? "text-amber-700" : ""}`}>{fmtHours(r.avgCancelLeadHours)}</td>
                 <td className={`px-3 py-2 text-right ${r.noShows > 0 ? "text-red-600" : ""}`}>{r.noShows}</td>
                 <td className={`px-3 py-2 text-right ${r.lateCount > 0 ? "text-amber-700" : ""}`}>{r.lateCount}</td>
                 <td className="px-3 py-2 text-right">{fmtPct(r.activationPct)}</td>

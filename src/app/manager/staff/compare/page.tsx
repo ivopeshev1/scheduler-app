@@ -92,6 +92,7 @@ export default async function StaffComparePage() {
     noShows: number; pastAccepted: number; lateCount: number;
     onCallCount: number; onCallActivated: number;
     responseMsSum: number; responseMsCount: number;
+    cancelLeadHoursSum: number; cancelLeadHoursCount: number;
     totalHours: number; paidShiftCount: number;
   };
   const statsBy = new Map<string, Stats>();
@@ -102,6 +103,7 @@ export default async function StaffComparePage() {
       noShows: 0, pastAccepted: 0, lateCount: 0,
       onCallCount: 0, onCallActivated: 0,
       responseMsSum: 0, responseMsCount: 0,
+      cancelLeadHoursSum: 0, cancelLeadHoursCount: 0,
       totalHours: 0, paidShiftCount: 0,
     });
   }
@@ -110,7 +112,19 @@ export default async function StaffComparePage() {
     const stats = statsBy.get(inv.userId);
     if (!stats) continue;
 
-    if (inv.cancelledAt) stats.cancelled++;
+    if (inv.cancelledAt) {
+      stats.cancelled++;
+      if (ev.date) {
+        const [sh, sm] = (ev.checkInTime ?? "12:00").split(":").map(Number);
+        const shiftStart = new Date(ev.date + "T00:00:00Z");
+        shiftStart.setUTCHours(Number.isFinite(sh) ? sh : 12, Number.isFinite(sm) ? sm : 0);
+        const leadMs = shiftStart.getTime() - new Date(inv.cancelledAt).getTime();
+        if (leadMs > 0) {
+          stats.cancelLeadHoursSum += leadMs / (1000 * 60 * 60);
+          stats.cancelLeadHoursCount++;
+        }
+      }
+    }
     if (inv.status === "accepted") stats.accepted++;
     if (inv.status === "accepted" || inv.status === "rejected") stats.responded++;
     if (inv.status === "accepted" || inv.status === "rejected" || inv.status === "expired") stats.decidable++;
@@ -161,6 +175,7 @@ export default async function StaffComparePage() {
       acceptPct: s.decidable > 0 ? (s.accepted / s.decidable) * 100 : null,
       responsePct: s.decidable > 0 ? (s.responded / s.decidable) * 100 : null,
       avgResponseHours: s.responseMsCount > 0 ? s.responseMsSum / s.responseMsCount / (1000 * 60 * 60) : null,
+      avgCancelLeadHours: s.cancelLeadHoursCount > 0 ? s.cancelLeadHoursSum / s.cancelLeadHoursCount : null,
       cancelled: s.cancelled,
       noShows: s.noShows,
       lateCount: s.lateCount,

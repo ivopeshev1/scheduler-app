@@ -5,47 +5,6 @@ import { db, schema } from "@/db/client";
 import { eq, and } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { computeTotalHours } from "@/lib/pay-period";
-import { revalidatePath } from "next/cache";
-
-async function markCancelledAction(formData: FormData) {
-  "use server";
-  const session = await getSession();
-  if (!session || session.role !== "manager") throw new Error("Unauthorized");
-  const invId = String(formData.get("invId"));
-  const [inv] = await db.select().from(schema.invitations).where(eq(schema.invitations.id, invId));
-  if (!inv) throw new Error("Invitation not found");
-  // Match the per-row Remove on the event page exactly: null the slot,
-  // flip status → rejected, stamp cancelled_at, clear slot_id. Setting
-  // status is critical — without it the UI stays stuck on "accepted"
-  // and status.ts can't find the invitation for the Remove ×.
-  if (inv.slotId) {
-    await db.update(schema.slots).set({ acceptedUserId: null, acceptedAt: null }).where(eq(schema.slots.id, inv.slotId));
-  }
-  await db
-    .update(schema.invitations)
-    .set({ status: "rejected", cancelledAt: new Date(), slotId: null })
-    .where(eq(schema.invitations.id, invId));
-  revalidatePath("/manager/staff/compare");
-  revalidatePath(`/manager/staff/${inv.userId}`);
-}
-
-async function undoCancelAction(formData: FormData) {
-  "use server";
-  const session = await getSession();
-  if (!session || session.role !== "manager") throw new Error("Unauthorized");
-  const invId = String(formData.get("invId"));
-  const [inv] = await db.select().from(schema.invitations).where(eq(schema.invitations.id, invId));
-  if (!inv) throw new Error("Invitation not found");
-  // Undo both the status flip and the cancelled_at stamp. Status goes
-  // back to accepted since the undo path is only shown for rows that
-  // were in the "accepted" bucket before the cancel.
-  await db
-    .update(schema.invitations)
-    .set({ status: "accepted", cancelledAt: null })
-    .where(eq(schema.invitations.id, invId));
-  revalidatePath("/manager/staff/compare");
-  revalidatePath(`/manager/staff/${inv.userId}`);
-}
 
 /**
  * Per-staff log + stats page. Everything a manager needs to decide
@@ -145,10 +104,31 @@ export default async function StaffLogPage({ params }: { params: { userId: strin
   let totalHours = 0;
   let responseMsSum = 0;
   let responseMsCount = 0;
+  // Average hours between a cancellation and the shift start. Shorter =
+  // more painful for the manager (less time to find a replacement). Only
+  // counts past-dated cancellations with both timestamps present.
+  let cancelLeadHoursSum = 0;
+  let cancelLeadHoursCount = 0;
 
   for (const { inv, pos, ev } of invRows) {
     totalInvites++;
-    if (inv.cancelledAt) cancelled++;
+    if (inv.cancelledAt) {
+      cancelled++;
+      if (ev.date) {
+        // Treat the shift's start as "midnight of event date + checkInTime
+        // if present, else noon as a reasonable fallback". Lead-time is
+        // from cancelled_at → shift start; negative means cancelled
+        // after the shift (shouldn't happen but guard).
+        const [sh, sm] = (ev.checkInTime ?? "12:00").split(":").map(Number);
+        const shiftStart = new Date(ev.date + "T00:00:00Z");
+        shiftStart.setUTCHours(Number.isFinite(sh) ? sh : 12, Number.isFinite(sm) ? sm : 0);
+        const leadMs = shiftStart.getTime() - new Date(inv.cancelledAt).getTime();
+        if (leadMs > 0) {
+          cancelLeadHoursSum += leadMs / (1000 * 60 * 60);
+          cancelLeadHoursCount++;
+        }
+      }
+    }
     if (inv.status === "accepted") accepted++;
     else if (inv.status === "rejected") rejected++;
     else if (inv.status === "expired") expired++;
@@ -192,6 +172,7 @@ export default async function StaffLogPage({ params }: { params: { userId: strin
   const activationRate = onCallCount > 0 ? (onCallActivated / onCallCount) * 100 : null;
   const avgPerShift = paidShiftCount > 0 ? paidTotal / paidShiftCount : null;
   const avgResponseHours = responseMsCount > 0 ? responseMsSum / responseMsCount / (1000 * 60 * 60) : null;
+  const avgCancelLeadHours = cancelLeadHoursCount > 0 ? cancelLeadHoursSum / cancelLeadHoursCount : null;
 
   const fullName = profile ? `${profile.firstName} ${profile.lastName}` : target.email;
 
@@ -210,6 +191,7 @@ export default async function StaffLogPage({ params }: { params: { userId: strin
           <Stat label="Response rate" value={fmtPct(responseRate)} sub={`${expired} ghosted`} />
           <Stat label="Avg reply time" value={fmtResponseHours(avgResponseHours)} sub={responseMsCount > 0 ? `across ${responseMsCount} responses` : "no responses yet"} />
           <Stat label="Cancellations" value={String(cancelled)} sub="accepted then backed out" tone={cancelled > 0 ? "amber" : undefined} />
+          <Stat label="Avg cancel notice" value={fmtResponseHours(avgCancelLeadHours)} sub={cancelLeadHoursCount > 0 ? `across ${cancelLeadHoursCount} cancellations` : "no cancellations yet"} tone={avgCancelLeadHours != null && avgCancelLeadHours < 24 ? "amber" : undefined} />
           <Stat label="No-shows" value={String(noShows)} sub={noShowRate != null ? `${noShowRate.toFixed(0)}% of past shifts` : "no past shifts"} />
           <Stat label="Late (>5 min)" value={String(lateCount)} sub="of past shifts" />
           <Stat label="On-call activation" value={fmtPct(activationRate)} sub={`${onCallActivated} of ${onCallCount} standbys`} />
@@ -261,7 +243,6 @@ function RecentShifts({
             <th className="text-left px-4 py-2">Status</th>
             <th className="text-right px-4 py-2">Pay</th>
             <th className="text-left px-4 py-2">Paid?</th>
-            <th className="text-right px-4 py-2"></th>
           </tr>
         </thead>
         <tbody>
@@ -286,19 +267,6 @@ function RecentShifts({
               </td>
               <td className="px-4 py-2 text-xs">
                 {inv.paidAt ? <span className="text-green-700">Paid</span> : inv.status === "accepted" && !inv.cancelledAt ? <span className="text-gray-500">Unpaid</span> : "-"}
-              </td>
-              <td className="px-4 py-2 text-right text-xs">
-                {inv.cancelledAt ? (
-                  <form action={undoCancelAction}>
-                    <input type="hidden" name="invId" value={inv.id} />
-                    <button className="text-gray-500 hover:underline" title="Undo cancellation">Undo</button>
-                  </form>
-                ) : inv.status === "accepted" ? (
-                  <form action={markCancelledAction}>
-                    <input type="hidden" name="invId" value={inv.id} />
-                    <button className="text-amber-700 hover:underline" title="Mark as cancelled by staff">Cancel</button>
-                  </form>
-                ) : null}
               </td>
             </tr>
           ))}

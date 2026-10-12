@@ -264,6 +264,67 @@ export async function notifyPositionRemoved(
   }
 }
 
+/**
+ * Notify a staffer that the position they were a pending backup for just
+ * got filled by someone else. No action needed — this is a courtesy so
+ * they're not left wondering whether they're on the shift.
+ *
+ * `invitationIds` is the list from pendingToRelease() — status should
+ * already have been flipped to "filled" by the caller before this fires
+ * so the recipient isn't counted as "still invited" anywhere else.
+ */
+export async function notifyPositionFilled(
+  event: EventRow,
+  role: string,
+  invitationIds: string[],
+  companyId: string,
+) {
+  if (invitationIds.length === 0) return;
+  const companyName = await getCompanyName(companyId);
+  const prettyDate = formatDate(event.date);
+
+  for (const invId of invitationIds) {
+    const [inv] = await db.select().from(schema.invitations).where(eq(schema.invitations.id, invId));
+    if (!inv) continue;
+    // Only send if we had actually emailed them originally — otherwise
+    // we're spamming someone who never knew they were on standby.
+    if (!inv.sentAt) continue;
+    const [u] = await db.select().from(schema.users).where(eq(schema.users.id, inv.userId));
+    const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, inv.userId));
+    if (!u) continue;
+
+    const textBody = [
+      `Hi ${profile?.firstName ?? ""},`, ``,
+      `Quick heads-up — the ${role} position for ${event.clientName} on ${prettyDate} is now fully staffed.`,
+      `You're free from this shift and can be booked for other events that day.`, ``,
+      `No action needed on your end. Thanks for being flexible!`, ``,
+      `– ${companyName}`,
+    ].join("\n");
+
+    const htmlBody = shellWrap([
+      greeting(profile?.firstName, `Heads-up — the ${role} position for ${event.clientName} on ${prettyDate} is now fully staffed.`),
+      banner("✓ No action needed — this slot was filled by someone else.", "info"),
+      kvTable([
+        kvRow("Role", role),
+        kvRow("Date", prettyDate),
+        kvRow("Client", event.clientName),
+      ]),
+      paragraph("You're free from this shift and can be booked for other events that day. Thanks for being flexible!", { muted: true }),
+      signoff(companyName),
+    ].join("\n"));
+
+    await sendEmail({
+      to: u.email,
+      subject: `Position filled: ${event.clientName} on ${prettyDate}`,
+      body: textBody,
+      html: htmlBody,
+      companyId,
+      userId: inv.userId,
+      relatedInvitationId: inv.id,
+    });
+  }
+}
+
 /** Minimal HTML-escape for the change-summary block (preserves newlines). */
 function escapeChangeSummary(s: string): string {
   return s
