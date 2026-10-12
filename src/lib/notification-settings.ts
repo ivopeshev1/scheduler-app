@@ -14,6 +14,17 @@ export type LeadTime = {
   unit: "minutes" | "hours" | "days";
 };
 
+/**
+ * How a per-event-type manager notification should be delivered.
+ *   - "immediately"   = send its own email the moment it happens
+ *   - "digest"        = roll into the next daily digest email
+ *   - "off"           = don't notify at all
+ *
+ * Safety-critical events (urgent threshold, no-backup, account changes)
+ * are always "immediately" — they're not represented here.
+ */
+export type DeliveryMode = "immediately" | "digest" | "off";
+
 export type NotificationSettings = {
   staff: {
     onboardInvite: Channels;
@@ -34,6 +45,27 @@ export type NotificationSettings = {
     staffDeclinedShift: Channels;
     attentionAlerts: Channels & { leadTimes: LeadTime[] };
     autoExpire: Channels;
+    // Per-event-type delivery preferences for the daily-digest era. Each
+    // picks one of "immediately" | "digest" | "off". The urgent-threshold
+    // cutoff below (shift closer than X hours) forces anything to
+    // "immediately" regardless of the setting here.
+    delivery: {
+      priorityAccepted: DeliveryMode;
+      priorityDeclined: DeliveryMode;
+      priorityGhosted: DeliveryMode;
+      backupAccepted: DeliveryMode;
+      backupDeclined: DeliveryMode;
+      backupGhosted: DeliveryMode;
+      positionStillEmpty: DeliveryMode;
+      beoAcknowledged: DeliveryMode;
+    };
+    // When a shift is closer than this many hours away, every gap on it
+    // (unfilled slot, missing BEO ack, etc.) gets escalated to an
+    // out-of-cycle urgent email, overriding `delivery` above.
+    urgentThresholdHours: 12 | 24 | 48 | 72;
+    // Local time the daily digest email goes out. Picked by the owner;
+    // defaults to 09:00 in the company's timezone.
+    digestHourLocal: number; // 0..23
   };
 };
 
@@ -61,6 +93,20 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
     staffDeclinedShift:       { email: true,  text: true },
     attentionAlerts:          { email: true,  text: true, leadTimes: [{ value: 24, unit: "hours" }] },
     autoExpire:               { email: true,  text: false },
+    delivery: {
+      // Good news → batch. Bad news / silence → batch (digest is daily, not
+      // instant); real urgency comes from the urgentThresholdHours gate.
+      priorityAccepted:    "digest",
+      priorityDeclined:    "digest",
+      priorityGhosted:     "digest",
+      backupAccepted:      "digest",
+      backupDeclined:      "digest",
+      backupGhosted:       "digest",
+      positionStillEmpty:  "digest",
+      beoAcknowledged:     "digest",
+    },
+    urgentThresholdHours: 24,
+    digestHourLocal: 9,
   },
 };
 
@@ -73,8 +119,14 @@ export function mergeNotificationSettings(stored: unknown): NotificationSettings
   const d = DEFAULT_NOTIFICATION_SETTINGS;
   if (!stored || typeof stored !== "object") return d;
   const s = stored as Partial<NotificationSettings>;
+  const storedManager = (s.manager ?? {}) as Partial<NotificationSettings["manager"]>;
   return {
     staff: { ...d.staff, ...(s.staff ?? {}) },
-    manager: { ...d.manager, ...(s.manager ?? {}) },
+    manager: {
+      ...d.manager,
+      ...storedManager,
+      // Deep-merge delivery so a stored partial doesn't drop future keys.
+      delivery: { ...d.manager.delivery, ...(storedManager.delivery ?? {}) },
+    },
   };
 }

@@ -304,6 +304,104 @@ export function NotificationsEditor({
         </div>
       </section>
 
+      {/* -------------------- Delivery mode (digest vs instant) -------------------- */}
+      <section className="border rounded-lg bg-white p-6">
+        <h2 className="font-semibold text-lg mb-1">Daily digest vs instant alerts</h2>
+        <p className="text-sm text-gray-600 mb-5">
+          Pick when each kind of manager notification shows up. <strong>Daily digest</strong> rolls into one
+          email per day. <strong>Immediately</strong> sends its own email the moment it happens.
+          <strong> Off</strong> skips it entirely. Anything close to a shift start (see urgent threshold below)
+          always fires immediately, no matter what you pick here.
+        </p>
+
+        <div className="space-y-3 mb-6">
+          {([
+            ["priorityAccepted", "Priority accepts a shift"],
+            ["priorityDeclined", "Priority declines a shift"],
+            ["priorityGhosted", "Priority ghosts (no response)"],
+            ["backupAccepted", "Backup accepts their backup invite"],
+            ["backupDeclined", "Backup declines their backup invite"],
+            ["backupGhosted", "Backup ghosts their backup invite"],
+            ["positionStillEmpty", "A position has nobody invited yet"],
+            ["beoAcknowledged", "Staff acknowledges their BEO"],
+          ] as const).map(([key, label]) => (
+            <div key={key} className="flex items-center justify-between py-1">
+              <label htmlFor={`delivery-${key}`} className="text-sm text-gray-800">{label}</label>
+              <select
+                id={`delivery-${key}`}
+                className="input text-sm py-1 w-44"
+                value={settings.manager.delivery[key]}
+                onChange={(e) => {
+                  setSettings((prev) => ({
+                    ...prev,
+                    manager: {
+                      ...prev.manager,
+                      delivery: { ...prev.manager.delivery, [key]: e.target.value as "immediately" | "digest" | "off" },
+                    },
+                  }));
+                  setSaved(false);
+                }}
+              >
+                <option value="immediately">Immediately</option>
+                <option value="digest">Daily digest</option>
+                <option value="off">Don&apos;t notify</option>
+              </select>
+            </div>
+          ))}
+        </div>
+
+        <div className="border-t pt-5 space-y-5">
+          <div>
+            <label htmlFor="urgentThreshold" className="label">Urgent threshold</label>
+            <select
+              id="urgentThreshold"
+              className="input text-sm w-44"
+              value={settings.manager.urgentThresholdHours}
+              onChange={(e) => {
+                setSettings((prev) => ({
+                  ...prev,
+                  manager: { ...prev.manager, urgentThresholdHours: Number(e.target.value) as 12 | 24 | 48 | 72 },
+                }));
+                setSaved(false);
+              }}
+            >
+              <option value={12}>12 hours</option>
+              <option value={24}>24 hours</option>
+              <option value={48}>48 hours</option>
+              <option value={72}>72 hours</option>
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              Any issue on a shift closer than this gets an urgent email right away, even if you picked
+              &ldquo;Daily digest&rdquo; above.
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="digestHour" className="label">Daily digest sent at</label>
+            <select
+              id="digestHour"
+              className="input text-sm w-44"
+              value={settings.manager.digestHourLocal}
+              onChange={(e) => {
+                setSettings((prev) => ({
+                  ...prev,
+                  manager: { ...prev.manager, digestHourLocal: Number(e.target.value) },
+                }));
+                setSaved(false);
+              }}
+            >
+              {Array.from({ length: 24 }, (_, i) => (
+                <option key={i} value={i}>{i === 0 ? "12:00 AM" : i < 12 ? `${i}:00 AM` : i === 12 ? "12:00 PM" : `${i - 12}:00 PM`}</option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              Hour in your company&apos;s timezone. Default 9:00 AM. Note: today the daily cron runs once at
+              9:00 AM UTC — this setting is honored once we move to hourly ticks (future upgrade).
+            </p>
+          </div>
+        </div>
+      </section>
+
       <div className="flex items-center gap-3">
         <button
           type="button"

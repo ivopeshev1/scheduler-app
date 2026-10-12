@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runExpiryAndCascade, runPriorityNudges } from "@/lib/cascade";
+import { runManagerDigests } from "@/lib/digest-send";
 
 /**
  * Daily cron entrypoint. Vercel Cron hits this once a day (see vercel.json).
@@ -22,10 +23,14 @@ export async function GET(req: Request) {
 
   try {
     // Nudges first so a 3h-before-expiry warning goes out before the same
-    // cron tick marks the invite expired.
+    // cron tick marks the invite expired. Then daily manager digests run
+    // last so they can summarize anything that happened in this same tick
+    // (e.g. "6 priorities were auto-expired overnight" shows up in today's
+    // digest, not tomorrow's).
     const nudges = await runPriorityNudges();
     const expiry = await runExpiryAndCascade();
-    return NextResponse.json({ ok: true, nudges, results: expiry });
+    const digests = await runManagerDigests();
+    return NextResponse.json({ ok: true, nudges, results: expiry, digests });
   } catch (err) {
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }
