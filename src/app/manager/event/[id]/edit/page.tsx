@@ -233,7 +233,21 @@ async function saveEventEditAction(formData: FormData) {
   if (changes.length > 0) {
     const [updated] = await db.select().from(schema.events).where(eq(schema.events.id, eventId));
     if (updated) {
-      await notifyEventDetailsChanged(updated, session.companyId, "Changes:\n" + changes.map((c) => `  • ${c}`).join("\n"));
+      // Big-change detection: any of date / check-in time / end time
+      // changing is operationally meaningful — the staffer needs to
+      // re-check their calendar / commute / childcare. Flag it so the
+      // email leads with URGENT and a prominent banner instead of
+      // looking like a tiny venue tweak.
+      const isBigChange =
+        newValues.date !== event.date ||
+        newValues.checkInTime !== event.checkInTime ||
+        newValues.endTime !== event.endTime;
+      await notifyEventDetailsChanged(
+        updated,
+        session.companyId,
+        "Changes:\n" + changes.map((c) => `  • ${c}`).join("\n"),
+        isBigChange,
+      );
     }
   }
 

@@ -10,6 +10,92 @@ import { formatMDY } from "@/lib/format-mdy";
 import { PayrollShiftRow } from "@/components/PayrollShiftRow";
 import { PayrollMarkAllButton } from "@/components/PayrollMarkAllButton";
 import { PayrollReportView, type ReportStaff } from "@/components/PayrollReportView";
+import { sendEmail } from "@/lib/notifications";
+import { shellWrap, greeting, paragraph, kvTable, kvRow, signoff } from "@/lib/email-html";
+import { resolveRate, shiftPay } from "@/lib/shift-pay";
+import { formatDate } from "@/lib/format";
+
+/**
+ * Email a staffer their "You've been paid $X" receipt after the manager
+ * flips their shift's paid toggle on. Idempotent at the manager-UI level —
+ * flipping off and back on just sends it again (rare case; the manager
+ * meant to confirm the payment went through).
+ */
+async function sendPaymentReceiptEmail(invitationId: string, companyId: string) {
+  const [inv] = await db.select().from(schema.invitations).where(eq(schema.invitations.id, invitationId));
+  if (!inv) return;
+  const [pos] = await db.select().from(schema.positions).where(eq(schema.positions.id, inv.positionId));
+  const [ev] = pos ? await db.select().from(schema.events).where(eq(schema.events.id, pos.eventId)) : [null];
+  const [u] = await db.select().from(schema.users).where(eq(schema.users.id, inv.userId));
+  const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, inv.userId));
+  const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, companyId));
+  if (!pos || !ev || !u) return;
+
+  // Compute the dollars using the shared helper so it stays in sync with
+  // what the manager saw on the Payroll row.
+  const [perRoleRateRow] = await db
+    .select()
+    .from(schema.staffRoles)
+    .where(and(eq(schema.staffRoles.userId, inv.userId), eq(schema.staffRoles.role, pos.role)));
+  const resolved = resolveRate(
+    { rateOverrideAmount: inv.rateOverrideAmount, rateOverrideMode: inv.rateOverrideMode as "flat" | "hourly" | null },
+    { role: pos.role, baseRateMode: pos.baseRateMode as "standard" | "flat" | "hourly" | null, baseRate: pos.baseRate },
+    { defaultRate: profile?.defaultRate ?? null, defaultRateType: (profile?.defaultRateType ?? null) as "flat" | "hourly" | "both" | null },
+    perRoleRateRow
+      ? { rate: perRoleRateRow.rate, rateType: perRoleRateRow.rateType as "flat" | "hourly" }
+      : null,
+  );
+  const hours = computeTotalHours(inv.clockIn, inv.clockOut, inv.breakFrom, inv.breakTo);
+  const amount = shiftPay({
+    isOnCall: !!inv.isOnCall,
+    onCallFee: company?.onCallFee ?? 0,
+    rate: resolved.rate,
+    rateType: resolved.rateType,
+    hours,
+    gratuity: inv.gratuity ?? 0,
+  });
+
+  const companyName = company?.name ?? "Scheduler";
+  const prettyDate = formatDate(ev.date);
+  const amountStr = `$${amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+
+  const textBody = [
+    `Hi ${profile?.firstName ?? ""},`, ``,
+    `You've been paid ${amountStr} for the ${pos.role} shift on ${prettyDate} (${ev.clientName}).`, ``,
+    `Breakdown:`,
+    `Role:        ${pos.role}`,
+    `Date:        ${prettyDate}`,
+    `Hours:       ${hours.toFixed(2)}`,
+    `Rate:        $${resolved.rate}${resolved.rateType === "hourly" ? "/hr" : " flat"}`,
+    inv.gratuity ? `Gratuity:    $${inv.gratuity}` : "",
+    `Total paid:  ${amountStr}`, ``,
+    `– ${companyName}`,
+  ].filter(Boolean).join("\n");
+
+  const htmlBody = shellWrap([
+    greeting(profile?.firstName, `You've been paid ${amountStr} for the ${pos.role} shift on ${prettyDate}.`),
+    kvTable([
+      kvRow("Role", pos.role),
+      kvRow("Date", prettyDate),
+      kvRow("Hours", hours.toFixed(2)),
+      kvRow("Rate", `$${resolved.rate}${resolved.rateType === "hourly" ? "/hr" : " flat"}`),
+      inv.gratuity ? kvRow("Gratuity", `$${inv.gratuity}`) : "",
+      kvRow("Total paid", amountStr),
+    ]),
+    paragraph("Keep this as your payment confirmation.", { muted: true }),
+    signoff(companyName),
+  ].join("\n"));
+
+  await sendEmail({
+    to: u.email,
+    subject: `Paid: ${amountStr} for ${ev.clientName} on ${prettyDate}`,
+    body: textBody,
+    html: htmlBody,
+    companyId,
+    userId: inv.userId,
+    relatedInvitationId: inv.id,
+  });
+}
 
 /**
  * Server action: save all editable payroll fields for a single shift
@@ -48,12 +134,18 @@ async function saveShiftPayrollAction(formData: FormData) {
     gratuity: numOrNull("gratuity"),
   };
   const togglePaidTo = formData.get("togglePaid");
+  const wasPaid = !!inv.paidAt;
   if (togglePaidTo === "on") {
     update.paidAt = new Date();
   } else if (togglePaidTo === "off") {
     update.paidAt = null;
   }
   await db.update(schema.invitations).set(update).where(eq(schema.invitations.id, invitationId));
+  // Fire the receipt only on the unpaid → paid transition. Flipping it off
+  // or re-saving an already-paid row stays quiet.
+  if (togglePaidTo === "on" && !wasPaid) {
+    await sendPaymentReceiptEmail(invitationId, session.companyId);
+  }
   revalidatePath("/manager/payroll");
   revalidatePath(`/manager/event/${ev.id}`);
   revalidatePath(`/manager/month/${ev.date.slice(0, 7)}`);
@@ -84,10 +176,23 @@ async function markAllPaidAction(formData: FormData) {
     idsToWrite.push(r.inv.id);
     monthsToRevalidate.add(r.ev.date.slice(0, 7));
   }
+  // Capture the current paidAt state so we only email on the real
+  // transition (don't re-email rows that were already paid).
+  const previouslyPaid = new Set<string>();
+  for (const r of rows) {
+    if (idsToWrite.includes(r.inv.id) && r.inv.paidAt) previouslyPaid.add(r.inv.id);
+  }
   for (const id of idsToWrite) {
     await db.update(schema.invitations)
       .set({ paidAt: mode === "paid" ? now : null })
       .where(eq(schema.invitations.id, id));
+  }
+  if (mode === "paid") {
+    for (const id of idsToWrite) {
+      if (!previouslyPaid.has(id)) {
+        await sendPaymentReceiptEmail(id, session.companyId);
+      }
+    }
   }
   revalidatePath("/manager/payroll");
   for (const m of monthsToRevalidate) revalidatePath(`/manager/month/${m}`);

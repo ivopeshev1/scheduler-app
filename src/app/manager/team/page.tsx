@@ -246,6 +246,7 @@ async function removeManagerAction(formData: FormData) {
   if (!target || target.companyId !== session.companyId || target.role !== "manager") throw new Error("Not found");
   if (target.isOwner) throw new Error("Can't remove the company owner");
   await db.update(schema.users).set({ archivedAt: new Date() }).where(eq(schema.users.id, userId));
+  await sendAccountChangeEmail(target.email, session.companyId, "removed");
   revalidatePath("/manager/team");
 }
 
@@ -301,11 +302,62 @@ async function toggleSuspendAction(formData: FormData) {
   const [target] = await db.select().from(schema.users).where(eq(schema.users.id, userId));
   if (!target || target.companyId !== session.companyId || target.role !== "manager") throw new Error("Not found");
   if (target.isOwner) throw new Error("Can't suspend the company owner");
+  const nowSuspended = !target.suspendedAt;
   await db
     .update(schema.users)
-    .set({ suspendedAt: target.suspendedAt ? null : new Date() })
+    .set({ suspendedAt: nowSuspended ? new Date() : null })
     .where(eq(schema.users.id, userId));
+  await sendAccountChangeEmail(target.email, session.companyId, nowSuspended ? "suspended" : "restored");
   revalidatePath("/manager/team");
+}
+
+/**
+ * Short email sent to a manager when the owner flips their account state
+ * (suspended, restored, or removed). Keeps the subject punchy so it's
+ * immediately clear what happened; the body explains what to do next.
+ * No action buttons — the whole point is that they're locked out /
+ * reinstated by the owner, not self-service.
+ */
+async function sendAccountChangeEmail(
+  toEmail: string,
+  companyId: string,
+  kind: "suspended" | "restored" | "removed",
+) {
+  const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, companyId));
+  const companyName = company?.name ?? "Scheduler";
+
+  const subject =
+    kind === "suspended" ? `Your ${companyName} account was suspended`
+    : kind === "restored" ? `Your ${companyName} access was restored`
+    : `Your ${companyName} account was removed`;
+
+  const lead =
+    kind === "suspended"
+      ? `Your ${companyName} account has been suspended by the owner. You won't be able to log in until it's restored.`
+      : kind === "restored"
+      ? `Your ${companyName} account access has been restored. You can log in again normally.`
+      : `Your ${companyName} account has been removed. You can no longer log in.`;
+
+  const followUp =
+    kind === "suspended" || kind === "removed"
+      ? `If you believe this is a mistake, reach out to the owner of ${companyName} directly — Scheduler support can't lift this for you.`
+      : `Welcome back.`;
+
+  const textBody = [`Hi,`, ``, lead, ``, followUp, ``, `– ${companyName}`].join("\n");
+
+  const htmlBody = shellWrap([
+    greeting(null, lead),
+    paragraph(followUp, { muted: true }),
+    signoff(companyName),
+  ].join("\n"));
+
+  await sendEmail({
+    to: toEmail,
+    subject,
+    body: textBody,
+    html: htmlBody,
+    companyId,
+  });
 }
 
 export default async function TeamPage() {

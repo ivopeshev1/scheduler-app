@@ -226,6 +226,49 @@ async function notifyManagerNoBackup(event: EventRow, position: PositionRow, exp
 }
 
 /**
+ * Send the "your invite expired" email to a priority who ghosted the
+ * response window. Previously silent — the staffer could log in and find
+ * the shift gone with no explanation. Short, friendly, closes the loop.
+ */
+async function sendInviteExpiredEmail(
+  inv: InvitationRow,
+  position: PositionRow,
+  event: EventRow,
+  companyId: string,
+) {
+  const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, companyId));
+  const [u] = await db.select().from(schema.users).where(eq(schema.users.id, inv.userId));
+  const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, inv.userId));
+  if (!u) return;
+  const companyName = company?.name ?? "Scheduler";
+  const prettyDate = formatDate(event.date);
+
+  const textBody = [
+    `Hi ${profile?.firstName ?? ""},`, ``,
+    `Your invite to the ${position.role} shift on ${prettyDate} for ${event.clientName} expired because we didn't hear back in time.`,
+    ``,
+    `If you still want in, reach out to your manager — the shift might still be open and they can send a fresh invite.`, ``,
+    `– ${companyName}`,
+  ].join("\n");
+
+  const htmlBody = shellWrap([
+    greeting(profile?.firstName, `Your invite to the ${position.role} shift on ${prettyDate} expired because we didn't hear back in time.`),
+    paragraph(`If you still want in, reach out to your manager — the shift might still be open and they can send a fresh invite.`),
+    signoff(companyName),
+  ].join("\n"));
+
+  await sendEmail({
+    to: u.email,
+    subject: `Invite expired: ${event.clientName} on ${prettyDate}`,
+    body: textBody,
+    html: htmlBody,
+    companyId,
+    userId: inv.userId,
+    relatedInvitationId: inv.id,
+  });
+}
+
+/**
  * Build and send a short "friendly nudge" email to a priority invitee who
  * hasn't responded yet. Variant decides the tone:
  *   - "nudge"     fires at 50% of the auto-expire window
@@ -406,6 +449,13 @@ export async function runExpiryAndCascade() {
         .set({ status: "expired", respondedAt: now })
         .where(eq(schema.invitations.id, inv.id));
       results.push({ action: "expired", invId: inv.id });
+
+      // Notify the ghoster so they understand why they're no longer on the
+      // calendar. Previously silent — the staffer could log in and find
+      // their invite gone with no explanation. Only priorities get this
+      // email because only priorities ever got the original invite
+      // (backups are silent, on-call expiry isn't wired up).
+      await sendInviteExpiredEmail(inv, pos, ev, company.id);
 
       // Are there other priority pending invites still on this position? If so,
       // don't cascade - wait on them.

@@ -74,11 +74,30 @@ export async function notifyCancellation(event: EventRow, companyId: string) {
 /**
  * Notify invited+accepted staff that event-level details changed (date/time/venue/notes).
  */
-export async function notifyEventDetailsChanged(event: EventRow, companyId: string, changeSummary: string) {
+export async function notifyEventDetailsChanged(
+  event: EventRow,
+  companyId: string,
+  changeSummary: string,
+  // True when the change involved date, check-in time, or end time.
+  // These are the kinds of changes that could blow up a staffer's day
+  // (childcare, commute, other commitments), so the email flips tone:
+  // URGENT subject + prominent red banner instead of the quiet "Update".
+  isBigChange: boolean = false,
+) {
   const companyName = await getCompanyName(companyId);
   const prettyDate = formatDate(event.date);
   const timeRange = `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`;
   const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
+
+  const subjectPrefix = isBigChange ? "⚠ IMPORTANT — " : "Update: ";
+  const leadSentence = isBigChange
+    ? "The date or time of your shift changed. Double-check it still works for you."
+    : "The shift you were confirmed for has been updated.";
+  const bannerHtml = isBigChange
+    ? `<div style="margin:0 0 20px;padding:14px 18px;background:#fef2f2;border-left:4px solid #dc2626;border-radius:4px;color:#991b1b;font-weight:600;">
+         ⚠ IMPORTANT: date or time changed. Please verify you can still make it.
+       </div>`
+    : "";
 
   const positions = await db.select().from(schema.positions).where(eq(schema.positions.eventId, event.id));
   for (const p of positions) {
@@ -92,7 +111,7 @@ export async function notifyEventDetailsChanged(event: EventRow, companyId: stri
 
       const textBody = [
         `Hi ${profile?.firstName ?? ""},`, ``,
-        `The shift you were invited to has been updated:`, ``,
+        isBigChange ? `⚠ IMPORTANT — the date or time of this shift CHANGED. Double-check it still works for you:` : `The shift you were invited to has been updated:`, ``,
         changeSummary, ``,
         `Current details:`,
         `Role:        ${p.role}`,
@@ -103,12 +122,11 @@ export async function notifyEventDetailsChanged(event: EventRow, companyId: stri
         `– ${companyName}`,
       ].filter(Boolean).join("\n");
 
-      // changeSummary is pre-formatted plain text with bullets; render as a styled
-      // block so it stands out but preserves the author's line breaks.
       const changesHtml = `<pre style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px 14px;margin:0 0 20px;font-family:inherit;font-size:14px;line-height:1.5;white-space:pre-wrap;color:#111;">${escapeChangeSummary(changeSummary)}</pre>`;
 
       const htmlBody = shellWrap([
-        greeting(profile?.firstName, "The shift you were confirmed for has been updated."),
+        greeting(profile?.firstName, leadSentence),
+        bannerHtml,
         `<p style="margin:0 0 8px;font-weight:600;">What changed</p>`,
         changesHtml,
         `<p style="margin:0 0 8px;font-weight:600;">Current details</p>`,
@@ -124,7 +142,7 @@ export async function notifyEventDetailsChanged(event: EventRow, companyId: stri
 
       await sendEmail({
         to: u.email,
-        subject: `Update: ${event.clientName} on ${prettyDate}`,
+        subject: `${subjectPrefix}${event.clientName} on ${prettyDate}`,
         body: textBody,
         html: htmlBody,
         companyId,

@@ -456,6 +456,16 @@ async function deleteEventAction(formData: FormData) {
   const [event] = await db.select().from(schema.events).where(eq(schema.events.id, eventId));
   if (!event || event.companyId !== session.companyId) throw new Error("Not found");
 
+  // Match the Cancel behavior: notify every staff member who was invited
+  // or accepted on this event BEFORE we nuke the rows. The reused
+  // notifyCancellation path treats the event as cancelled; same email
+  // body serves both flows since to the staffer the outcome is identical
+  // (no shift, no reason to show up). If the event was already
+  // cancelled, skip the notification — the staffers already got one.
+  if (!event.cancelledAt) {
+    await notifyCancellation(event, session.companyId);
+  }
+
   // Gather all invitation IDs for this event so we can null the notification FK
   const positions = await db.select({ id: schema.positions.id }).from(schema.positions).where(eq(schema.positions.eventId, eventId));
   for (const p of positions) {

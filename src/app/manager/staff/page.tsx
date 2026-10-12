@@ -6,6 +6,8 @@ import { eq, and, isNull } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
+import { sendEmail } from "@/lib/notifications";
+import { shellWrap, greeting, paragraph, signoff } from "@/lib/email-html";
 
 async function archiveStaffAction(formData: FormData) {
   "use server";
@@ -34,6 +36,21 @@ async function archiveStaffAction(formData: FormData) {
   }
 
   await db.update(schema.users).set({ archivedAt: new Date() }).where(eq(schema.users.id, userId));
+  // Notify them so they know why they can't log in anymore. Same email
+  // path the manager-side account change uses, just for staff.
+  const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
+  const companyName = company?.name ?? "Scheduler";
+  await sendEmail({
+    to: target.email,
+    subject: `Your ${companyName} account was removed`,
+    body: `Hi,\n\nYour ${companyName} staff account has been removed. You can no longer log in.\n\nIf you believe this is a mistake, reach out to your manager at ${companyName} directly.\n\n– ${companyName}`,
+    html: shellWrap([
+      greeting(null, `Your ${companyName} staff account has been removed. You can no longer log in.`),
+      paragraph(`If you believe this is a mistake, reach out to your manager at ${companyName} directly.`, { muted: true }),
+      signoff(companyName),
+    ].join("\n")),
+    companyId: session.companyId,
+  });
   revalidatePath("/manager/staff");
 }
 
