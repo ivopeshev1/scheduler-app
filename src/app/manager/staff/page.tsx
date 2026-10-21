@@ -147,12 +147,6 @@ export default async function ManagerStaffPage() {
     return aName.localeCompare(bName);
   });
 
-  // Build base URL for invite links from request headers
-  const h = headers();
-  const host = h.get("host") ?? "localhost:3000";
-  const proto = h.get("x-forwarded-proto") ?? "https";
-  const baseUrl = `${proto}://${host}`;
-
   return (
     <div>
       <AppHeader companyName={company.name} userEmail={user.email} role="manager" logoUrl={company.logoUrl} isOwner={!!user.isOwner} canAccessCalendar={!!user.canAccessCalendar} canAccessStaff={!!user.canAccessStaff} canAccessLog={!!user.canAccessLog} canAccessTeam={!!user.canAccessTeam} canEditSettings={!!user.canEditSettings} />
@@ -179,9 +173,7 @@ export default async function ManagerStaffPage() {
           </thead>
           <tbody>
             {staffRows.map(({ user, profile }) => {
-              const inviteUrl = user.inviteToken && !user.inviteAcceptedAt
-                ? `${baseUrl}/invite/${user.inviteToken}`
-                : null;
+              const pendingOnboarding = !!user.inviteToken && !user.inviteAcceptedAt;
               return (
                 <tr key={user.id} className="border-b">
                   <td className="py-3">
@@ -230,8 +222,8 @@ export default async function ManagerStaffPage() {
                   <td className="py-3 text-sm">
                     {user.inviteAcceptedAt ? (
                       <span className="text-status-confirmed">Onboarded</span>
-                    ) : inviteUrl ? (
-                      <InviteLinkCell url={inviteUrl} userId={user.id} />
+                    ) : pendingOnboarding ? (
+                      <PendingOnboardingCell userId={user.id} />
                     ) : (
                       <span className="text-gray-400">-</span>
                     )}
@@ -306,27 +298,20 @@ function StaffAvatar({ firstName, lastName, email }: { firstName?: string | null
   );
 }
 
-function InviteLinkCell({ url, userId }: { url: string; userId: string }) {
+function PendingOnboardingCell({ userId }: { userId: string }) {
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col gap-1">
       <span className="status-pending text-xs">Pending onboarding</span>
-      <details className="mt-1">
-        <summary className="text-xs text-gray-500 cursor-pointer underline">Invite link</summary>
-        <div className="mt-1 p-2 bg-gray-50 border rounded text-xs break-all font-mono">
-          {url}
-        </div>
-        <p className="text-xs text-gray-500 mt-1">Copy and email this to the staff member.</p>
-        <form action={resendInviteAction} className="mt-2">
-          <input type="hidden" name="userId" value={userId} />
-          <button
-            type="submit"
-            className="text-xs text-gray-600 underline hover:text-black"
-            title="Generate a fresh link (the old one stops working)"
-          >
-            Regenerate link
-          </button>
-        </form>
-      </details>
+      <form action={resendInviteAction}>
+        <input type="hidden" name="userId" value={userId} />
+        <button
+          type="submit"
+          className="text-xs text-gray-600 underline hover:text-black"
+          title="Email them a fresh invite link (the old one stops working)"
+        >
+          Resend invite
+        </button>
+      </form>
     </div>
   );
 }
