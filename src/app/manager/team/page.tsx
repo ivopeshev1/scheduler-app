@@ -131,38 +131,77 @@ async function addManagerAction(formData: FormData) {
   const lastName = String(formData.get("lastName") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const flags = readAccessFlags(formData);
-  if (!firstName || !lastName || !email) throw new Error("First name, last name, and email are required");
 
-  const dup = await db.select().from(schema.users).where(
+  if (!firstName || !lastName || !email) {
+    redirect("/manager/team?err=" + encodeURIComponent("First name, last name, and email are required."));
+  }
+
+  // Location assignment is required - gate early so we don't leave a
+  // half-created user behind if the owner forgot a checkbox.
+  const locationIds = formData.getAll("locationIds").map(String).filter(Boolean);
+  if (locationIds.length === 0) {
+    redirect("/manager/team?err=" + encodeURIComponent("Pick at least one location for this manager."));
+  }
+
+  // Duplicate-email handling. Mirror the Add Staff flow: if there's an
+  // archived prior row with the same email we resurrect it; an active
+  // one bounces back with an inline error.
+  const existing = await db.select().from(schema.users).where(
     and(eq(schema.users.companyId, session.companyId), eq(schema.users.email, email)),
   );
-  if (dup.length > 0) throw new Error(`A user with email ${email} already exists in your company`);
+  const archivedPrior = existing.find((u) => u.archivedAt && u.role === "manager" && !u.isOwner);
+  const activePrior = existing.find((u) => !u.archivedAt);
+  if (activePrior) {
+    redirect("/manager/team?err=" + encodeURIComponent(`A user with email ${email} already exists in your company.`));
+  }
 
-  const userId = nanoid();
+  const userId = archivedPrior ? archivedPrior.id : nanoid();
   const inviteToken = makeInviteToken();
-  await db.insert(schema.users).values({
-    id: userId,
-    companyId: session.companyId,
-    email,
-    role: "manager",
-    isOwner: false,
-    ...flags,
-    inviteToken,
-    inviteAcceptedAt: null,
-  });
+  if (archivedPrior) {
+    await db
+      .update(schema.users)
+      .set({
+        archivedAt: null,
+        suspendedAt: null,
+        inviteToken,
+        inviteAcceptedAt: null,
+        passwordHash: null,
+        ...flags,
+      })
+      .where(eq(schema.users.id, userId));
+  } else {
+    await db.insert(schema.users).values({
+      id: userId,
+      companyId: session.companyId,
+      email,
+      role: "manager",
+      isOwner: false,
+      ...flags,
+      inviteToken,
+      inviteAcceptedAt: null,
+    });
+  }
 
   // Stash the name so the invite page can greet them properly and so the
-  // Team roster shows "Jane Doe" instead of just the email.
-  await db.insert(schema.managerProfiles).values({
-    userId,
-    firstName,
-    lastName,
-  });
+  // Team roster shows "Jane Doe" instead of just the email. For a resurrected
+  // row, upsert the profile instead of inserting (the old one is still there).
+  const [existingProfile] = await db
+    .select()
+    .from(schema.managerProfiles)
+    .where(eq(schema.managerProfiles.userId, userId));
+  if (existingProfile) {
+    await db
+      .update(schema.managerProfiles)
+      .set({ firstName, lastName })
+      .where(eq(schema.managerProfiles.userId, userId));
+  } else {
+    await db.insert(schema.managerProfiles).values({ userId, firstName, lastName });
+  }
 
-  // Location assignments. Owner picks which locations this manager can
-  // access via a multi-select. At least one is required.
-  const locationIds = formData.getAll("locationIds").map(String).filter(Boolean);
-  if (locationIds.length === 0) throw new Error("Pick at least one location for this manager.");
+  // Replace location assignments cleanly on a resurrect.
+  if (archivedPrior) {
+    await db.delete(schema.userLocations).where(eq(schema.userLocations.userId, userId));
+  }
   const companyLocations = await db
     .select({ id: schema.locations.id })
     .from(schema.locations)
@@ -188,6 +227,7 @@ async function addManagerAction(formData: FormData) {
   });
 
   revalidatePath("/manager/team");
+  redirect("/manager/team?saved=manager-invited");
 }
 
 /**
@@ -375,7 +415,7 @@ async function sendAccountChangeEmail(
   });
 }
 
-export default async function TeamPage() {
+export default async function TeamPage({ searchParams }: { searchParams: { err?: string; saved?: string } }) {
   const session = await getSession();
   if (!session) redirect("/login");
   if (session.role !== "manager") redirect("/staff");
@@ -405,6 +445,16 @@ export default async function TeamPage() {
       <AppHeader companyName={company.name} userEmail={me.email} role="manager" logoUrl={company.logoUrl} isOwner={!!me.isOwner} canAccessCalendar={!!me.canAccessCalendar} canAccessStaff={!!me.canAccessStaff} canAccessLog={!!me.canAccessLog} canAccessTeam={!!me.canAccessTeam} canEditSettings={!!me.canEditSettings} />
       <main className="max-w-4xl mx-auto px-6 py-8">
         <Link href="/manager" className="text-sm text-gray-500 hover:underline">← Back to calendar</Link>
+        {searchParams.err && (
+          <div className="mt-4 border border-red-300 bg-red-50 text-red-800 text-sm rounded p-3">
+            {searchParams.err}
+          </div>
+        )}
+        {searchParams.saved === "manager-invited" && (
+          <div className="mt-4 border border-green-300 bg-green-50 text-green-800 text-sm rounded p-3">
+            Invite sent. They&apos;ll finish setup from the email link.
+          </div>
+        )}
         <h1 className="text-2xl font-semibold mt-2 mb-2">Admin</h1>
         <p className="text-sm text-gray-600 mb-6">
           {me.isOwner
