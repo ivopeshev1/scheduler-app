@@ -11,6 +11,7 @@ import { mergeUiPreferences, type UiPreferences } from "@/lib/ui-prefs";
 import { PasswordInput } from "@/components/PasswordInput";
 import { NotificationPreferencesSection } from "@/components/NotificationPreferencesSection";
 import { prefsFromFormData } from "@/lib/notification-prefs";
+import { QuietHoursSection } from "@/components/QuietHoursSection";
 
 /**
  * Personal settings for the signed-in manager (owner or regular). Any
@@ -62,6 +63,28 @@ async function saveNotificationPrefsAction(formData: FormData) {
     .where(eq(schema.users.id, session.userId));
   revalidatePath("/manager/settings/me");
   redirect("/manager/settings/me?saved=notifications");
+}
+
+async function saveQuietHoursAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "manager") throw new Error("Unauthorized");
+  const enabled = formData.get("quietHoursEnabled") !== null;
+  const start = String(formData.get("quietHoursStart") ?? "").trim();
+  const end = String(formData.get("quietHoursEnd") ?? "").trim();
+  const tz = String(formData.get("quietHoursTz") ?? "").trim() || null;
+  const okStart = /^\d{1,2}:\d{2}$/.test(start) ? start : null;
+  const okEnd = /^\d{1,2}:\d{2}$/.test(end) ? end : null;
+  await db
+    .update(schema.users)
+    .set({
+      quietHoursStart: enabled ? okStart : null,
+      quietHoursEnd: enabled ? okEnd : null,
+      quietHoursTz: enabled ? tz : null,
+    })
+    .where(eq(schema.users.id, session.userId));
+  revalidatePath("/manager/settings/me");
+  redirect("/manager/settings/me?saved=quiet");
 }
 
 async function saveUiPrefsAction(formData: FormData) {
@@ -218,6 +241,14 @@ export default async function MySettingsPage({ searchParams }: { searchParams: {
           storedPrefs={user.notificationPreferences}
           formAction={saveNotificationPrefsAction}
           saved={searchParams.saved === "notifications"}
+        />
+
+        <QuietHoursSection
+          currentStart={user.quietHoursStart}
+          currentEnd={user.quietHoursEnd}
+          currentTz={user.quietHoursTz}
+          formAction={saveQuietHoursAction}
+          saved={searchParams.saved === "quiet"}
         />
       </main>
     </div>

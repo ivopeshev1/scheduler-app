@@ -81,6 +81,14 @@ export const users = pgTable(
     // Account-safety notifications (password reset, account suspended,
     // account removed) are always sent regardless of this.
     notificationPreferences: jsonb("notification_preferences"),
+    // Optional quiet-hours window for SMS. HH:MM 24-hour strings.
+    // When both are set, SMS is skipped during the window and queued for
+    // "the next moment the window reopens." Both null = no quiet hours.
+    // Email ignores quiet hours. Interpreted in the user's local timezone
+    // via quietHoursTz; falls back to America/Los_Angeles.
+    quietHoursStart: text("quiet_hours_start"),
+    quietHoursEnd: text("quiet_hours_end"),
+    quietHoursTz: text("quiet_hours_tz"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
