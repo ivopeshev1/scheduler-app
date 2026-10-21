@@ -105,7 +105,7 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
       positionStillEmpty:  "digest",
       beoAcknowledged:     "digest",
     },
-    urgentThresholdHours: 24,
+    urgentThresholdHours: 48,
     digestHourLocal: 9,
   },
 };
