@@ -23,6 +23,7 @@ export function UserMenu({
   mySettingsHref,
   companySettingsHref,
   showCompanySettings,
+  logHref,
 }: {
   displayName: string;
   email: string;
@@ -32,6 +33,8 @@ export function UserMenu({
   mySettingsHref: string | null;
   companySettingsHref: string;
   showCompanySettings: boolean;
+  /** When set, the dropdown shows a Log entry under My settings. */
+  logHref?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -114,6 +117,16 @@ export function UserMenu({
                 role="menuitem"
               >
                 Company settings
+              </Link>
+            )}
+            {logHref && (
+              <Link
+                href={logHref}
+                onClick={() => setOpen(false)}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100"
+                role="menuitem"
+              >
+                Log
               </Link>
             )}
           </nav>

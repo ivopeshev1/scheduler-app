@@ -132,9 +132,6 @@ export async function AppHeader({
               {showStaff && (
                 <Link href="/manager/staff" className="text-gray-700 hover:text-black">Staff</Link>
               )}
-              {showLog && (
-                <Link href="/manager/log" className="text-gray-700 hover:text-black">Log</Link>
-              )}
               {showPayroll && (
                 <Link href="/manager/payroll" className="text-gray-700 hover:text-black">Payroll</Link>
               )}
@@ -158,6 +155,7 @@ export async function AppHeader({
             mySettingsHref={role === "manager" ? "/manager/settings/me" : "/staff/settings"}
             companySettingsHref="/manager/settings"
             showCompanySettings={role === "manager"}
+            logHref={isManager && showLog ? "/manager/log" : null}
           />
         </nav>
       </div>
