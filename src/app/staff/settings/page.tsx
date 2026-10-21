@@ -12,6 +12,8 @@ import { prefsFromFormData } from "@/lib/notification-prefs";
 import { revalidatePath } from "next/cache";
 import { QuietHoursSection } from "@/components/QuietHoursSection";
 import { ReminderTimesSection } from "@/components/ReminderTimesSection";
+import { LeaveAccountButton } from "./LeaveAccountButton";
+import { clearSession } from "@/lib/auth";
 
 /**
  * Staff "Settings" page — account preferences, not personal details.
@@ -59,6 +61,39 @@ async function saveNotificationPrefsAction(formData: FormData) {
     .where(eq(schema.users.id, session.userId));
   revalidatePath("/staff/settings");
   redirect("/staff/settings?saved=notifications");
+}
+
+async function leaveCompanyAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "staff") throw new Error("Unauthorized");
+  const confirm = String(formData.get("confirm") ?? "").trim().toUpperCase();
+  if (confirm !== "LEAVE") redirect("/staff/settings?err=confirm-leave");
+
+  // Cancel every accepted / pending invitation on their account + free
+  // the slot so the manager sees the opening. Notifications about those
+  // cancels go through the same path as a self-cancel on a shift
+  // detail page, so we skip the email flood here — the archived-staff
+  // email + the "you lost coverage" visibility on the event page cover it.
+  const invs = await db.select().from(schema.invitations).where(eq(schema.invitations.userId, session.userId));
+  for (const inv of invs) {
+    if (inv.status === "pending" || inv.status === "accepted") {
+      await db
+        .update(schema.invitations)
+        .set({ cancelledAt: new Date(), status: "rejected" })
+        .where(eq(schema.invitations.id, inv.id));
+      if (inv.slotId) {
+        await db
+          .update(schema.slots)
+          .set({ acceptedUserId: null, acceptedAt: null })
+          .where(eq(schema.slots.id, inv.slotId));
+      }
+    }
+  }
+
+  await db.update(schema.users).set({ archivedAt: new Date() }).where(eq(schema.users.id, session.userId));
+  await clearSession();
+  redirect("/?left=1");
 }
 
 async function saveReminderTimesAction(formData: FormData) {
@@ -170,6 +205,28 @@ export default async function StaffSettingsPage({
             )}
             <button type="submit" className="btn btn-primary">Save new password</button>
           </form>
+        </section>
+
+        {/* -------------------- Download my data -------------------- */}
+        <section className="border rounded-lg bg-white p-6">
+          <h2 className="font-semibold text-lg mb-1">Download my data</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Grab a JSON file of everything we have on your account: profile, preferences, availability blocks,
+            every shift you&apos;ve been invited to, and the audit log of notifications we&apos;ve sent you.
+            Doesn&apos;t include your profile photo (you can save it from your profile page).
+          </p>
+          <a href="/staff/export" className="btn btn-secondary text-sm">Download my data (JSON)</a>
+        </section>
+
+        {/* -------------------- Leave this company -------------------- */}
+        <section className="border border-red-200 rounded-lg bg-white p-6">
+          <h2 className="font-semibold text-lg mb-1 text-red-700">Leave {company.name}</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Soft-leaves your account. You won&apos;t be able to log back in and any
+            accepted shifts get cancelled. Your past history stays with {company.name} for their records.
+            If you change your mind later, your manager has to re-add you.
+          </p>
+          <LeaveAccountButton companyName={company.name} action={leaveCompanyAction} />
         </section>
 
         {/* -------------------- 2FA stub -------------------- */}

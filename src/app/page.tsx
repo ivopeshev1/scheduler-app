@@ -2,15 +2,22 @@ import Link from "next/link";
 import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 
-export default async function HomePage() {
+export default async function HomePage({ searchParams }: { searchParams: { left?: string } }) {
   const session = await getSession();
   if (session) {
     if (session.role === "manager") redirect("/manager");
     if (session.role === "staff") redirect("/staff");
   }
 
+  const left = searchParams.left === "1";
+
   return (
     <main className="max-w-4xl mx-auto px-6 py-16">
+      {left && (
+        <div className="mb-10 border border-amber-300 bg-amber-50 rounded p-4 text-sm text-amber-900">
+          You&apos;ve left your staffing company. If that was a mistake, reach out to your manager and they can re-add you.
+        </div>
+      )}
       <header className="mb-16">
         <h1 className="text-4xl font-semibold tracking-tight">Scheduler</h1>
         <p className="text-gray-600 mt-2">Event staffing, simplified.</p>
