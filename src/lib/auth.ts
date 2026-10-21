@@ -61,6 +61,35 @@ export async function signInWithPassword(email: string, password: string) {
   if (user.archivedAt) {
     return { ok: false as const, error: "This account has been deactivated." };
   }
+  // Owner-flag auto-heal. If this user is marked isOwner but there's an
+  // older active owner in the same company, they shouldn't be. A legacy
+  // migration used to re-promote managers to owners on every cold start;
+  // removed in Oct 2026 but may have left stuck rows in the wild. Fix
+  // them on login so a real client never has to see "Collapse owners."
+  if (user.role === "manager" && user.isOwner) {
+    const siblings = await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.companyId, user.companyId));
+    const activeOwners = siblings.filter((u) => u.role === "manager" && u.isOwner && !u.archivedAt);
+    activeOwners.sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0));
+    const primary = activeOwners[0];
+    if (primary && primary.id !== user.id) {
+      await db
+        .update(schema.users)
+        .set({
+          isOwner: false,
+          canAccessCalendar: true,
+          canAccessStaff: true,
+          canAccessLog: true,
+          canAccessPayroll: true,
+          canAccessTeam: false,
+          canEditSettings: false,
+        })
+        .where(eq(schema.users.id, user.id));
+      user.isOwner = false;
+    }
+  }
   // First successful login marks the invite as accepted - the Team page uses this
   // to show "Pending first login" vs. "Active" for managers invited by an owner.
   if (!user.inviteAcceptedAt) {
