@@ -17,7 +17,11 @@ type AccessFlags = {
   canAccessLog: boolean;
   canAccessPayroll: boolean;
   canAccessTeam: boolean;
-  canEditSettings: boolean;
+  // canEditSettings is deliberately NOT in the Add Manager / Update
+  // permissions UI anymore. Company settings is owner-only to edit;
+  // non-owner managers can view and request changes. Personal settings
+  // (My settings) is available to everyone. Keeping it in the type +
+  // the payload as a hardcoded false so existing columns stay consistent.
 };
 
 // Display labels for the scope-note in the welcome email, in nav order.
@@ -27,7 +31,6 @@ const ACCESS_LABELS: Record<keyof AccessFlags, string> = {
   canAccessLog: "Log",
   canAccessPayroll: "Payroll",
   canAccessTeam: "Admin",
-  canEditSettings: "Settings",
 };
 
 function readAccessFlags(formData: FormData): AccessFlags {
@@ -37,7 +40,6 @@ function readAccessFlags(formData: FormData): AccessFlags {
     canAccessLog: formData.get("canAccessLog") === "on",
     canAccessPayroll: formData.get("canAccessPayroll") === "on",
     canAccessTeam: formData.get("canAccessTeam") === "on",
-    canEditSettings: formData.get("canEditSettings") === "on",
   };
 }
 
@@ -280,7 +282,6 @@ async function resendWelcomeAction(formData: FormData) {
       canAccessLog: !!target.canAccessLog,
       canAccessPayroll: !!target.canAccessPayroll,
       canAccessTeam: !!target.canAccessTeam,
-      canEditSettings: !!target.canEditSettings,
     },
   });
 
@@ -355,7 +356,10 @@ async function collapseOwnersAction() {
       canAccessLog: true,
       canAccessPayroll: true,
       canAccessTeam: false,
-      canEditSettings: true,
+      // canEditSettings is no longer surfaced in the UI (owner-only edits,
+      // all managers can view). Set to false on demotion so the DB value
+      // doesn't claim an authority the Settings page won't honor anyway.
+      canEditSettings: false,
     }).where(eq(schema.users.id, u.id));
   }
   revalidatePath("/manager/team");
@@ -525,7 +529,6 @@ export default async function TeamPage({ searchParams }: { searchParams: { err?:
                           canAccessLog: !!u.canAccessLog,
                           canAccessPayroll: !!u.canAccessPayroll,
                           canAccessTeam: !!u.canAccessTeam,
-                          canEditSettings: !!u.canEditSettings,
                         })}`}
                     {u.inviteAcceptedAt && !u.isOwner && (
                       <span className="text-gray-400"> · last welcomed {new Date(u.inviteAcceptedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
@@ -555,8 +558,7 @@ export default async function TeamPage({ searchParams }: { searchParams: { err?:
                           <AccessCheckbox id={`log-${u.id}`}      name="canAccessLog"      label="Log"      defaultChecked={!!u.canAccessLog} />
                           <AccessCheckbox id={`payroll-${u.id}`}  name="canAccessPayroll"  label="Payroll"  defaultChecked={!!u.canAccessPayroll} />
                           <AccessCheckbox id={`team-${u.id}`}     name="canAccessTeam"     label="Admin"    defaultChecked={!!u.canAccessTeam} />
-                          <AccessCheckbox id={`settings-${u.id}`} name="canEditSettings"   label="Settings" defaultChecked={!!u.canEditSettings} />
-                          <button type="submit" className="btn btn-secondary text-xs ml-auto">Update access</button>
+                                    <button type="submit" className="btn btn-secondary text-xs ml-auto">Update access</button>
                         </div>
                       </form>
 
@@ -629,7 +631,6 @@ export default async function TeamPage({ searchParams }: { searchParams: { err?:
                 <AccessCheckbox id="new-log"      name="canAccessLog"      label="Log"      defaultChecked />
                 <AccessCheckbox id="new-payroll"  name="canAccessPayroll"  label="Payroll"  defaultChecked />
                 <AccessCheckbox id="new-team"     name="canAccessTeam"     label="Admin" />
-                <AccessCheckbox id="new-settings" name="canEditSettings"   label="Settings" />
               </div>
             </div>
             <div className="pt-2">
