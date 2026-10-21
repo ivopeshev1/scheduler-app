@@ -8,6 +8,8 @@ import { AppHeader } from "@/components/AppHeader";
 import { parseMonthSlug, monthSlug, shiftMonth, buildMonthGrid, monthLabel } from "@/lib/month-grid";
 import { nanoid } from "nanoid";
 import { formatTime } from "@/lib/format";
+import { describeBlock } from "@/lib/availability-blocks";
+import { BlockDayButton } from "./BlockDayButton";
 
 /**
  * Staff calendar — month grid of the staffer's own confirmed shifts, plus
@@ -27,20 +29,25 @@ async function addBlockAction(formData: FormData) {
   const date = String(formData.get("date") ?? "").trim();
   const month = String(formData.get("month") ?? "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Bad date");
+  const mode = String(formData.get("mode") ?? "all");
   const reason = String(formData.get("reason") ?? "").trim() || null;
-  // onConflictDoNothing-style: if a block already exists for this (user, date),
-  // the unique index just silently keeps the earlier row. We don't want a 500
-  // when the staffer double-clicks.
-  try {
-    await db.insert(schema.availabilityBlocks).values({
-      id: nanoid(),
-      userId: session.userId,
-      date,
-      reason,
-    });
-  } catch {
-    // ignore - duplicate date, no-op
+  let startTime: string | null = null;
+  let endTime: string | null = null;
+  if (mode === "range") {
+    const s = String(formData.get("startTime") ?? "").trim();
+    const e = String(formData.get("endTime") ?? "").trim();
+    if (!/^\d{1,2}:\d{2}$/.test(s) || !/^\d{1,2}:\d{2}$/.test(e)) throw new Error("Bad time range");
+    startTime = s;
+    endTime = e;
   }
+  await db.insert(schema.availabilityBlocks).values({
+    id: nanoid(),
+    userId: session.userId,
+    date,
+    startTime,
+    endTime,
+    reason,
+  });
   revalidatePath(`/staff/calendar/${month}`);
   redirect(`/staff/calendar/${month}`);
 }
@@ -49,12 +56,12 @@ async function removeBlockAction(formData: FormData) {
   "use server";
   const session = await getSession();
   if (!session || session.role !== "staff") throw new Error("Unauthorized");
-  const date = String(formData.get("date") ?? "").trim();
   const month = String(formData.get("month") ?? "").trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Bad date");
-  await db.delete(schema.availabilityBlocks).where(
-    and(eq(schema.availabilityBlocks.userId, session.userId), eq(schema.availabilityBlocks.date, date)),
-  );
+  const blockId = String(formData.get("blockId") ?? "").trim();
+  if (!blockId) throw new Error("Bad block id");
+  const [b] = await db.select().from(schema.availabilityBlocks).where(eq(schema.availabilityBlocks.id, blockId));
+  if (!b || b.userId !== session.userId) throw new Error("Not found");
+  await db.delete(schema.availabilityBlocks).where(eq(schema.availabilityBlocks.id, blockId));
   revalidatePath(`/staff/calendar/${month}`);
   redirect(`/staff/calendar/${month}`);
 }
@@ -113,12 +120,18 @@ export default async function StaffMonthPage({ params }: { params: { month: stri
     shiftsByDate.set(evt.date, list);
   }
 
-  // Blocks on the visible grid.
+  // Blocks on the visible grid. Multiple partial blocks per date are
+  // allowed, so bucket into a list per date for rendering.
   const blocks = await db
     .select()
     .from(schema.availabilityBlocks)
     .where(eq(schema.availabilityBlocks.userId, session.userId));
-  const blocksByDate = new Map(blocks.map((b) => [b.date, b]));
+  const blocksByDate = new Map<string, typeof blocks>();
+  for (const b of blocks) {
+    const list = blocksByDate.get(b.date) ?? [];
+    list.push(b);
+    blocksByDate.set(b.date, list);
+  }
 
   const prev = shiftMonth(year, month, -1);
   const next = shiftMonth(year, month, 1);
@@ -154,8 +167,8 @@ export default async function StaffMonthPage({ params }: { params: { month: stri
         </div>
 
         <p className="text-sm text-gray-600 mb-4">
-          Click any day to block it off so your manager won&apos;t invite you to work it.
-          Click a blocked day to unblock.
+          Click <strong>Block</strong> on any day for a whole-day block or a time range (e.g. &ldquo;6pm – 11pm&rdquo;).
+          Your manager won&apos;t be able to invite you to shifts that overlap. Click <strong>×</strong> next to a block to remove it.
         </p>
 
         {/* Weekday header */}
@@ -169,11 +182,14 @@ export default async function StaffMonthPage({ params }: { params: { month: stri
         <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200">
           {grid.map((cell) => {
             const shifts = shiftsByDate.get(cell.iso) ?? [];
-            const block = blocksByDate.get(cell.iso);
+            const dayBlocks = blocksByDate.get(cell.iso) ?? [];
             const isToday = cell.iso === todayIso;
             const past = cell.iso < todayIso;
-            const bg = block
+            const hasWholeDayBlock = dayBlocks.some((b) => !b.startTime && !b.endTime);
+            const bg = hasWholeDayBlock
               ? "bg-red-50"
+              : dayBlocks.length > 0
+              ? "bg-red-50/50"
               : cell.inMonth ? "bg-white" : "bg-gray-50";
             return (
               <div
@@ -186,32 +202,12 @@ export default async function StaffMonthPage({ params }: { params: { month: stri
                   >
                     {cell.day}
                   </span>
-                  {!past && cell.inMonth && shifts.length === 0 && (
-                    block ? (
-                      <form action={removeBlockAction}>
-                        <input type="hidden" name="date" value={cell.iso} />
-                        <input type="hidden" name="month" value={monthSlug(year, month)} />
-                        <button
-                          type="submit"
-                          className="text-[10px] text-red-700 hover:underline"
-                          title="Unblock this day"
-                        >
-                          Unblock
-                        </button>
-                      </form>
-                    ) : (
-                      <form action={addBlockAction}>
-                        <input type="hidden" name="date" value={cell.iso} />
-                        <input type="hidden" name="month" value={monthSlug(year, month)} />
-                        <button
-                          type="submit"
-                          className="text-[10px] text-gray-500 hover:text-black hover:underline"
-                          title="Mark this day unavailable"
-                        >
-                          Block
-                        </button>
-                      </form>
-                    )
+                  {!past && cell.inMonth && shifts.length === 0 && !hasWholeDayBlock && (
+                    <BlockDayButton
+                      dateIso={cell.iso}
+                      monthSlug={monthSlug(year, month)}
+                      action={addBlockAction}
+                    />
                   )}
                 </div>
                 {shifts.map((s, i) => (
@@ -228,11 +224,27 @@ export default async function StaffMonthPage({ params }: { params: { month: stri
                     )}
                   </div>
                 ))}
-                {block && (
-                  <div className="text-xs text-red-700 font-medium mt-1">
-                    Unavailable{block.reason ? ` · ${block.reason}` : ""}
+                {dayBlocks.map((b) => (
+                  <div key={b.id} className="text-xs text-red-700 mt-1 flex items-start justify-between gap-1">
+                    <span className="font-medium">
+                      {describeBlock(b)}
+                      {b.reason ? <span className="font-normal opacity-80"> · {b.reason}</span> : null}
+                    </span>
+                    {!past && (
+                      <form action={removeBlockAction} className="inline">
+                        <input type="hidden" name="blockId" value={b.id} />
+                        <input type="hidden" name="month" value={monthSlug(year, month)} />
+                        <button
+                          type="submit"
+                          className="text-[10px] text-red-700 hover:underline shrink-0"
+                          title="Remove this block"
+                        >
+                          ×
+                        </button>
+                      </form>
+                    )}
                   </div>
-                )}
+                ))}
               </div>
             );
           })}

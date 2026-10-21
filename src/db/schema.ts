@@ -503,11 +503,20 @@ export const availabilityBlocks = pgTable(
     id: text("id").primaryKey(),
     userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     date: text("date").notNull(),
+    // When both are null, the whole day is blocked. When set, only the
+    // range [startTime, endTime) is blocked - the picker still considers
+    // them available for a shift whose working time doesn't overlap.
+    // HH:MM 24-hour strings so they bind to <input type="time"> directly.
+    startTime: text("start_time"),
+    endTime: text("end_time"),
     reason: text("reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    userDateIdx: uniqueIndex("availability_user_date_idx").on(t.userId, t.date),
+    // Multiple partial-day blocks on the same date are allowed, so the
+    // old (user, date) unique index is dropped in favor of this plain
+    // compound index for lookups.
+    userDateIdx: index("availability_user_date_idx").on(t.userId, t.date),
   })
 );
 

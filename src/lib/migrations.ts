@@ -92,7 +92,14 @@ export async function runMigrations(): Promise<void> {
     date TEXT NOT NULL, reason TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`;
-  await sql`CREATE UNIQUE INDEX IF NOT EXISTS availability_user_date_idx ON availability_blocks(user_id, date)`;
+  // Original schema was one row per (user, date) with a unique index.
+  // Partial-day blocks require multiple rows per date, so drop the
+  // unique index + add the HH:MM range columns + re-create a plain
+  // compound index for lookups.
+  await sql`ALTER TABLE availability_blocks ADD COLUMN IF NOT EXISTS start_time TEXT`;
+  await sql`ALTER TABLE availability_blocks ADD COLUMN IF NOT EXISTS end_time TEXT`;
+  await sql`DROP INDEX IF EXISTS availability_user_date_idx`;
+  await sql`CREATE INDEX IF NOT EXISTS availability_user_date_idx ON availability_blocks(user_id, date)`;
   await sql`CREATE TABLE IF NOT EXISTS autocomplete_values (
     id TEXT PRIMARY KEY,
     company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,

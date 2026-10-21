@@ -819,13 +819,34 @@ export default async function EventDetailPage({ params }: { params: { id: string
   }
 
   // Pre-fetch availability blocks any staffer set for THIS event's date.
-  // Staffers blocked on this date get flagged in the picker so the manager
-  // sees "Marked unavailable" and can't invite them.
+  // Staffers whose blocks cover the event's working window (whole-day OR
+  // overlapping partial) get flagged in the picker so the manager sees
+  // "Marked unavailable" and can't invite them. A partial block that
+  // falls entirely outside the shift's time doesn't lock them.
   const blocksForDate = await db
     .select()
     .from(schema.availabilityBlocks)
     .where(eq(schema.availabilityBlocks.date, event.date));
-  const unavailableByUser = new Map(blocksForDate.map((b) => [b.userId, b.reason]));
+  const blocksByUser = new Map<string, typeof blocksForDate>();
+  for (const b of blocksForDate) {
+    const list = blocksByUser.get(b.userId) ?? [];
+    list.push(b);
+    blocksByUser.set(b.userId, list);
+  }
+  const { blocksCoverShift, describeBlock } = await import("@/lib/availability-blocks");
+  const unavailableByUser = new Map<string, string | null>();
+  for (const [uid, blocks] of blocksByUser.entries()) {
+    const covered = blocksCoverShift(
+      blocks.map((b) => ({ startTime: b.startTime, endTime: b.endTime })),
+      { checkInTime: event.checkInTime, endTime: event.endTime },
+    );
+    if (!covered) continue;
+    // Describe the first blocker so the picker can show it.
+    const first = blocks[0];
+    const detail = describeBlock({ startTime: first.startTime, endTime: first.endTime });
+    const reason = first.reason ? `${detail} - ${first.reason}` : detail;
+    unavailableByUser.set(uid, reason);
+  }
 
   // Pre-fetch 21+ gating per role for this company so buildStaffOptions
   // can mark under-21 (and unknown-DOB) staff as blocked without
