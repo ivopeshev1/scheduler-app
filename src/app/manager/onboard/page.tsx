@@ -5,6 +5,7 @@ import { db, schema } from "@/db/client";
 import { eq } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { ProfilePhotoField } from "@/components/ProfilePhotoField";
+import { TimezoneField } from "@/components/TimezoneField";
 import { revalidatePath } from "next/cache";
 
 /**
@@ -78,6 +79,7 @@ async function saveProfileAction(formData: FormData) {
   const phone = String(formData.get("phone") ?? "").trim() || null;
   const city = String(formData.get("city") ?? "").trim() || null;
   const photoUrl = String(formData.get("photoUrl") ?? "").trim() || null;
+  const timezone = String(formData.get("timezone") ?? "").trim() || null;
   if (!firstName || !lastName) throw new Error("First and last name are required");
 
   const [existing] = await db
@@ -87,12 +89,12 @@ async function saveProfileAction(formData: FormData) {
   if (existing) {
     await db
       .update(schema.managerProfiles)
-      .set({ firstName, lastName, phone, city, photoUrl })
+      .set({ firstName, lastName, phone, city, photoUrl, timezone })
       .where(eq(schema.managerProfiles.userId, session.userId));
   } else {
     await db.insert(schema.managerProfiles).values({
       userId: session.userId,
-      firstName, lastName, phone, city, photoUrl,
+      firstName, lastName, phone, city, photoUrl, timezone,
     });
   }
   revalidatePath("/manager/onboard");
@@ -277,6 +279,7 @@ function ProfileStep({ profile, companyName, editOnly }: { profile: typeof schem
           <label htmlFor="city" className="label">City (optional)</label>
           <input id="city" name="city" defaultValue={profile?.city ?? ""} className="input" />
         </div>
+        <TimezoneField initialTz={profile?.timezone ?? null} />
         <div className="pt-2 flex justify-between items-center">
           {!editOnly && (
             <Link href="/manager/onboard?step=1" className="text-sm text-gray-500 hover:underline">← Back</Link>

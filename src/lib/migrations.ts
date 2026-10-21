@@ -137,6 +137,8 @@ export async function runMigrations(): Promise<void> {
   await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS phone_verified_at TIMESTAMPTZ`;
   await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS phone_verification_code TEXT`;
   await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS phone_verification_expires_at TIMESTAMPTZ`;
+  await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS timezone TEXT`;
+  await sql`ALTER TABLE manager_profiles ADD COLUMN IF NOT EXISTS timezone TEXT`;
   await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS rank_order INTEGER`;
   await sql`ALTER TABLE positions ADD COLUMN IF NOT EXISTS travel_rate REAL DEFAULT 0`;
   await sql`ALTER TABLE positions ADD COLUMN IF NOT EXISTS base_rate_mode TEXT NOT NULL DEFAULT 'flat'`;

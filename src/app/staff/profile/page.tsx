@@ -14,6 +14,7 @@ import {
   verifyCode,
   phoneChanged,
 } from "@/lib/phone-verification";
+import { TimezoneField } from "@/components/TimezoneField";
 
 /**
  * Staff "My profile" page. Covers everything the staffer entered during
@@ -36,6 +37,7 @@ async function saveProfileAction(formData: FormData) {
   const emergencyPhone = String(formData.get("emergencyPhone") ?? "").trim();
   const uniformSize = String(formData.get("uniformSize") ?? "").trim() || null;
   const photoUrl = String(formData.get("photoUrl") ?? "").trim() || null;
+  const timezone = String(formData.get("timezone") ?? "").trim() || null;
 
   if (!phone) redirect("/staff/profile?err=phone");
   if (!emergencyName || !emergencyPhone) redirect("/staff/profile?err=emergency");
@@ -73,6 +75,7 @@ async function saveProfileAction(formData: FormData) {
       emergencyContactPhone: emergencyPhone,
       uniformSize,
       photoUrl,
+      timezone,
       phoneVerifiedAt: nextVerification.phoneVerifiedAt,
       phoneVerificationCode: nextVerification.phoneVerificationCode,
       phoneVerificationExpiresAt: nextVerification.phoneVerificationExpiresAt,
@@ -356,6 +359,11 @@ export default async function StaffProfilePage({
                   <input id="emergencyPhone" name="emergencyPhone" type="tel" required defaultValue={profile?.emergencyContactPhone ?? ""} className="input" />
                 </div>
               </div>
+            </div>
+
+            {/* Timezone */}
+            <div className="border-t pt-5">
+              <TimezoneField initialTz={profile?.timezone ?? null} />
             </div>
 
             {/* Photo */}
