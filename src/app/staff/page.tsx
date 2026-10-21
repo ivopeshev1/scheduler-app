@@ -131,37 +131,39 @@ export default async function StaffHomePage({ searchParams }: { searchParams: { 
           </section>
         )}
 
-        {pending.length > 0 && (
-          <section>
-            <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-2">
-              Pending invitations ({pending.length})
-            </h2>
+        <section>
+          <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-2">
+            Pending invitations{pending.length > 0 ? ` (${pending.length})` : ""}
+          </h2>
+          {pending.length > 0 ? (
             <ul className="space-y-3">
               {pending.map((r) => (
                 <PendingInviteCard key={r.inv.id} row={r} />
               ))}
             </ul>
-          </section>
-        )}
+          ) : (
+            <div className="border rounded-lg p-6 text-center text-gray-500 text-sm">
+              No open invitations right now. When your manager sends you a shift, it&apos;ll show up here.
+            </div>
+          )}
+        </section>
 
-        {confirmed.length > 0 && (
-          <section>
-            <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-2">
-              Upcoming confirmed shifts ({confirmed.length})
-            </h2>
+        <section>
+          <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-2">
+            Upcoming confirmed shifts{confirmed.length > 0 ? ` (${confirmed.length})` : ""}
+          </h2>
+          {confirmed.length > 0 ? (
             <ul className="space-y-2">
               {confirmed.map((r) => (
                 <ConfirmedShiftRow key={r.inv.id} row={r} isNext={r === nextShift} />
               ))}
             </ul>
-          </section>
-        )}
-
-        {rows.length === 0 && (
-          <div className="border rounded-lg p-10 text-center text-gray-500">
-            Nothing on your calendar yet.
-          </div>
-        )}
+          ) : (
+            <div className="border rounded-lg p-6 text-center text-gray-500 text-sm">
+              Nothing confirmed yet. Shifts you accept will land here.
+            </div>
+          )}
+        </section>
       </main>
     </div>
   );
