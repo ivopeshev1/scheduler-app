@@ -57,6 +57,9 @@ export type NotificationChannelMeta = {
   /** Whether this channel supports the Individual / Summary / Both picker.
    *  Omit = time-sensitive, forced "individual". */
   digestable?: boolean;
+  /** Default delivery mode when nothing is stored. Defaults to "individual"
+   *  if omitted. Only consulted for digestable channels. */
+  defaultMode?: EmailMode;
 };
 
 export const NOTIFICATION_CHANNELS: readonly NotificationChannelMeta[] = [
@@ -75,14 +78,14 @@ export const NOTIFICATION_CHANNELS: readonly NotificationChannelMeta[] = [
   // them there), but you can override if your workflow calls for a digest.
   { key: "inviteResponse", label: "Invite responses", description: "A staffer accepted or declined an invite you sent.", audience: "manager", digestable: true },
   { key: "staffCancellation", label: "Staff cancellations", description: "A staffer self-cancelled a confirmed shift. Usually worth keeping on Individual — digest means you find out next morning.", audience: "manager", digestable: true },
-  { key: "backupPromoted", label: "Backup promoted to priority", description: "The cascade bumped a backup into a priority slot.", audience: "manager", digestable: true },
+  { key: "backupPromoted", label: "Backup promoted to priority", description: "The cascade bumped a backup into a priority slot.", audience: "manager", digestable: true, defaultMode: "summary" },
   { key: "urgentOpenShifts", label: "Urgent open-shift alerts", description: "An open shift crossed the urgent threshold with nobody booked. Usually worth keeping on Individual.", audience: "manager", digestable: true },
   { key: "eventShortStaffed", label: "Short-staffed events", description: "Event date is getting close and some positions are still open. Usually worth keeping on Individual.", audience: "manager", digestable: true },
   { key: "backupNudge", label: "Backup nudges", description: "Mid-window + last-call nudges to approve backup promotions on pending invites.", audience: "manager", digestable: true },
   { key: "staffBlockedConflict", label: "Blocked-day conflict", description: "A staffer blocked a day they're already booked on. Lets you reach out before it becomes a cancellation.", audience: "manager", digestable: true },
-  { key: "newStaffJoined", label: "New staffer onboarded", description: "An invited staffer completed onboarding and is ready to be booked.", audience: "manager", digestable: true },
-  { key: "staffPendingOnboarding", label: "Pending onboarding reminders", description: "A staffer you invited still hasn't finished onboarding after a few days.", audience: "manager", digestable: true },
-  { key: "staffLeft", label: "Staffer self-left", description: "A staffer soft-left the company from their own Settings page. Any accepted shifts are already cancelled; follow up if you want them back.", audience: "manager", digestable: true },
+  { key: "newStaffJoined", label: "New staffer onboarded", description: "An invited staffer completed onboarding and is ready to be booked.", audience: "manager", digestable: true, defaultMode: "summary" },
+  { key: "staffPendingOnboarding", label: "Pending onboarding reminders", description: "A staffer you invited still hasn't finished onboarding after a few days.", audience: "manager", digestable: true, defaultMode: "summary" },
+  { key: "staffLeft", label: "Staffer self-left", description: "A staffer soft-left the company from their own Settings page. Any accepted shifts are already cancelled; follow up if you want them back.", audience: "manager", digestable: true, defaultMode: "summary" },
   { key: "eventEdited", label: "Team member edited an event", description: "Another manager edited an event you can see. Noise for solo owners, useful on multi-manager teams.", audience: "manager", digestable: true },
   { key: "dailyDigest", label: "Daily digest", description: "End-of-day summary covering everything above you've set to Summary.", audience: "manager" },
   { key: "weeklyDigest", label: "Weekly digest", description: "Monday-morning roll-up of last week's shift coverage, cancellations, and payroll status.", audience: "manager" },
@@ -120,12 +123,13 @@ export function userWantsNotification(stored: unknown, key: NotificationKey, del
 export function emailModeFor(stored: unknown, key: NotificationKey): EmailMode {
   const meta = NOTIFICATION_CHANNELS.find((c) => c.key === key);
   if (!meta?.digestable) return "individual";
-  if (!stored || typeof stored !== "object") return "individual";
+  const fallback = meta.defaultMode ?? "individual";
+  if (!stored || typeof stored !== "object") return fallback;
   const entry = (stored as Record<string, unknown>)[key];
-  if (!entry || typeof entry !== "object") return "individual";
+  if (!entry || typeof entry !== "object") return fallback;
   const m = (entry as Record<string, unknown>).emailMode;
   if (m === "individual" || m === "summary" || m === "both") return m;
-  return "individual";
+  return fallback;
 }
 
 /**
@@ -150,7 +154,7 @@ export function shouldIncludeInDigest(stored: unknown, key: NotificationKey): bo
 export function resolvePreferences(stored: unknown): Record<NotificationKey, ChannelPrefs> {
   const out = {} as Record<NotificationKey, ChannelPrefs>;
   for (const meta of NOTIFICATION_CHANNELS) {
-    out[meta.key] = { email: true, sms: false, emailMode: "individual" };
+    out[meta.key] = { email: true, sms: false, emailMode: meta.defaultMode ?? "individual" };
     if (stored && typeof stored === "object") {
       const entry = (stored as Record<string, unknown>)[meta.key];
       if (typeof entry === "boolean") {

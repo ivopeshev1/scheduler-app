@@ -24,9 +24,18 @@ describe("userWantsNotification", () => {
 });
 
 describe("emailModeFor", () => {
-  it("defaults to individual", () => {
+  it("defaults to individual for channels without defaultMode", () => {
     expect(emailModeFor(null, "inviteResponse")).toBe("individual");
     expect(emailModeFor({}, "inviteResponse")).toBe("individual");
+  });
+  it("honors defaultMode for channels that specify one", () => {
+    expect(emailModeFor(null, "staffLeft")).toBe("summary");
+    expect(emailModeFor(null, "newStaffJoined")).toBe("summary");
+    expect(emailModeFor(null, "staffPendingOnboarding")).toBe("summary");
+    expect(emailModeFor(null, "backupPromoted")).toBe("summary");
+  });
+  it("stored value still wins over defaultMode", () => {
+    expect(emailModeFor({ staffLeft: { email: true, sms: false, emailMode: "individual" } }, "staffLeft")).toBe("individual");
   });
   it("reads stored mode when digestable", () => {
     expect(emailModeFor({ inviteResponse: { email: true, sms: false, emailMode: "summary" } }, "inviteResponse")).toBe("summary");
@@ -80,6 +89,13 @@ describe("resolvePreferences", () => {
     const r = resolvePreferences(null);
     expect(r.inviteResponse).toEqual({ email: true, sms: false, emailMode: "individual" });
     expect(r.urgentOpenShifts).toEqual({ email: true, sms: false, emailMode: "individual" });
+  });
+  it("honors per-channel defaultMode when nothing is stored", () => {
+    const r = resolvePreferences(null);
+    expect(r.staffLeft.emailMode).toBe("summary");
+    expect(r.newStaffJoined.emailMode).toBe("summary");
+    expect(r.staffPendingOnboarding.emailMode).toBe("summary");
+    expect(r.backupPromoted.emailMode).toBe("summary");
   });
   it("the digest channels themselves can't store a mode other than individual", () => {
     const r = resolvePreferences({ dailyDigest: { email: true, sms: true, emailMode: "summary" } });
