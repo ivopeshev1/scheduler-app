@@ -63,12 +63,6 @@ export default async function StaffHomePage({ searchParams }: { searchParams: { 
   );
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD, local-ish
 
-  type Row = {
-    inv: typeof invitations[number];
-    pos: typeof positionsList[number];
-    evt: typeof eventsList[number];
-    estPay: number;
-  };
   const rows: Row[] = [];
   for (const inv of invitations) {
     const pos = posById.get(inv.positionId);
@@ -85,13 +79,14 @@ export default async function StaffHomePage({ searchParams }: { searchParams: { 
       { defaultRate: profile?.defaultRate ?? null, defaultRateType: (profile?.defaultRateType as ("hourly" | "flat" | "both" | null)) ?? null },
       rateByRole.get(pos.role) ?? null,
     );
+    const hours = hoursBetween(evt.checkInTime, evt.endTime);
     const estPay = shiftPay({
       rate: resolved.rate,
       rateType: resolved.rateType,
-      hours: hoursBetween(evt.checkInTime, evt.endTime),
+      hours,
       isOnCall: !!inv.isOnCall,
     });
-    rows.push({ inv, pos, evt, estPay });
+    rows.push({ inv, pos, evt, estPay, rate: resolved.rate, rateType: resolved.rateType, hours });
   }
 
   // Sort by date (then start-of-day for stability). Next shift is the first
@@ -174,6 +169,9 @@ type Row = {
   pos: typeof schema.positions.$inferSelect;
   evt: typeof schema.events.$inferSelect;
   estPay: number;
+  rate: number;
+  rateType: "hourly" | "flat";
+  hours: number;
 };
 
 /** HH:MM diff in decimal hours. Null-safe + returns 0 for missing/invalid. */
@@ -187,30 +185,78 @@ function hoursBetween(from: string | null, to: string | null): number {
   return mins / 60;
 }
 
+function formatRate(rate: number, type: "hourly" | "flat"): string {
+  return type === "hourly" ? `$${rate.toFixed(2)}/hr` : `$${rate.toFixed(2)} flat`;
+}
+
+function formatHours(h: number): string {
+  if (h <= 0) return "–";
+  const whole = Math.floor(h);
+  const minutes = Math.round((h - whole) * 60);
+  if (minutes === 0) return `${whole}h`;
+  return `${whole}h ${minutes}m`;
+}
+
 function NextShiftCard({ row }: { row: Row }) {
-  const { inv, pos, evt, estPay } = row;
+  const { inv, pos, evt, rate, rateType, hours } = row;
+  const beoStatus = inv.beoReceivedAt
+    ? { label: "BEO received", tone: "ok" as const }
+    : inv.beoSentAt
+    ? { label: "BEO sent — not yet acknowledged", tone: "warn" as const }
+    : { label: "BEO not sent yet", tone: "muted" as const };
   return (
     <div className="border-2 border-black rounded-lg p-5 bg-white">
       <div className="flex items-baseline justify-between gap-3">
         <div className="text-xl font-semibold">{formatDate(evt.date)}</div>
         <div className="text-sm text-gray-600">
-          {formatTime(evt.checkInTime)} – {formatTime(evt.endTime)}
+          <span className="font-medium">{pos.role}</span>
+          {inv.isOnCall ? " · on-call" : null}
         </div>
       </div>
-      <div className="mt-2 text-sm">
-        <span className="font-medium">{pos.role}</span>
-        {evt.venue ? <> at {evt.venue}</> : null}
-        {evt.city ? <>, {evt.city}</> : null}
-      </div>
-      <div className="mt-2 text-sm text-gray-700">
-        Estimated pay: <strong>${estPay.toFixed(2)}</strong>
-        {inv.isOnCall ? " (on-call)" : null}
-      </div>
+      {(evt.venue || evt.city) && (
+        <div className="mt-1 text-sm text-gray-700">
+          {evt.venue ?? ""}{evt.venue && evt.city ? ", " : ""}{evt.city ?? ""}
+        </div>
+      )}
+
+      <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+        <DetailRow label="Check in" value={formatTime(evt.checkInTime) || "–"} />
+        <DetailRow label="Event start" value={formatTime(evt.eventStartTime) || "–"} />
+        <DetailRow label="End" value={formatTime(evt.endTime) || "–"} />
+        <DetailRow label="Hours" value={formatHours(hours)} />
+        <DetailRow label="Rate" value={formatRate(rate, rateType)} />
+        <DetailRow
+          label="BEO"
+          value={
+            <span
+              className={
+                beoStatus.tone === "ok"
+                  ? "text-green-700 font-medium"
+                  : beoStatus.tone === "warn"
+                  ? "text-amber-700 font-medium"
+                  : "text-gray-500"
+              }
+            >
+              {beoStatus.label}
+            </span>
+          }
+        />
+      </dl>
+
       {evt.staffNotes && (
-        <div className="mt-3 text-sm text-gray-600 border-t pt-3 whitespace-pre-wrap">
+        <div className="mt-4 text-sm text-gray-600 border-t pt-3 whitespace-pre-wrap">
           {evt.staffNotes}
         </div>
       )}
+    </div>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline gap-2">
+      <dt className="text-xs uppercase tracking-wide text-gray-500 w-24 shrink-0">{label}</dt>
+      <dd className="text-sm">{value}</dd>
     </div>
   );
 }
@@ -255,7 +301,7 @@ function PendingInviteCard({ row }: { row: Row }) {
 }
 
 function ConfirmedShiftRow({ row, isNext }: { row: Row; isNext: boolean }) {
-  const { inv, pos, evt, estPay } = row;
+  const { inv, pos, evt, rate, rateType } = row;
   if (isNext) return null; // already shown in Next shift card
   return (
     <li className="border rounded-lg p-3 flex items-center justify-between gap-3 bg-white">
@@ -267,7 +313,7 @@ function ConfirmedShiftRow({ row, isNext }: { row: Row; isNext: boolean }) {
           {inv.isOnCall ? " · on-call" : ""}
         </div>
       </div>
-      <div className="text-sm text-gray-700 shrink-0">${estPay.toFixed(2)}</div>
+      <div className="text-sm text-gray-700 shrink-0">{formatRate(rate, rateType)}</div>
     </li>
   );
 }
