@@ -84,9 +84,17 @@ export const DEFAULT_PREFS: Readonly<Record<NotificationKey, ChannelPrefs>> = Ob
  */
 export function userWantsNotification(stored: unknown, key: NotificationKey, delivery: Delivery = "email"): boolean {
   const meta = NOTIFICATION_CHANNELS.find((c) => c.key === key);
-  if (meta?.alwaysOn) return true;
+  // alwaysOn locks EMAIL only - "required" means we must email you about
+  // this; SMS stays your call because a 2am password-reset text would be
+  // worse than the email it duplicates.
+  if (meta?.alwaysOn && delivery === "email") return true;
   if (meta?.audience === "staff" && delivery === "email") return true;
-  if (!stored || typeof stored !== "object") return DEFAULT_CHANNELS[delivery];
+  if (!stored || typeof stored !== "object") {
+    // SMS defaults to OFF for required channels (opt-in) and ON for
+    // regular channels. Email defaults to ON everywhere.
+    if (meta?.alwaysOn && delivery === "sms") return false;
+    return DEFAULT_CHANNELS[delivery];
+  }
   const entry = (stored as Record<string, unknown>)[key];
   // Backward compat: older rows stored a plain boolean.
   if (typeof entry === "boolean") return entry;
@@ -94,6 +102,7 @@ export function userWantsNotification(stored: unknown, key: NotificationKey, del
     const v = (entry as Record<string, unknown>)[delivery];
     if (typeof v === "boolean") return v;
   }
+  if (meta?.alwaysOn && delivery === "sms") return false;
   return DEFAULT_CHANNELS[delivery];
 }
 
@@ -105,15 +114,13 @@ export function userWantsNotification(stored: unknown, key: NotificationKey, del
 export function resolvePreferences(stored: unknown): Record<NotificationKey, ChannelPrefs> {
   const out = {} as Record<NotificationKey, ChannelPrefs>;
   for (const meta of NOTIFICATION_CHANNELS) {
-    if (meta.alwaysOn) {
-      out[meta.key] = { email: true, sms: true };
-      continue;
-    }
-    out[meta.key] = { ...DEFAULT_CHANNELS };
+    // Email default: on everywhere.
+    // SMS default: on for optional channels, OFF for required channels
+    // (user has to explicitly opt in to midnight password-reset texts).
+    out[meta.key] = { email: true, sms: meta.alwaysOn ? false : true };
     if (stored && typeof stored === "object") {
       const entry = (stored as Record<string, unknown>)[meta.key];
       if (typeof entry === "boolean") {
-        // Legacy single-channel value — carry it through on both.
         out[meta.key] = { email: entry, sms: entry };
       } else if (entry && typeof entry === "object") {
         const em = (entry as Record<string, unknown>).email;
@@ -122,8 +129,8 @@ export function resolvePreferences(stored: unknown): Record<NotificationKey, Cha
         if (typeof sm === "boolean") out[meta.key].sms = sm;
       }
     }
-    // Staff rule: email is always on, no matter what's stored.
-    if (meta.audience === "staff") out[meta.key].email = true;
+    // Email floor: alwaysOn + staff audience both lock email on.
+    if (meta.alwaysOn || meta.audience === "staff") out[meta.key].email = true;
   }
   return out;
 }
@@ -133,12 +140,12 @@ export function prefsFromFormData(getter: (key: string) => FormDataEntryValue | 
   const out: NotificationPrefs = {};
   for (const meta of NOTIFICATION_CHANNELS) {
     if (meta.audience !== audience) continue;
-    if (meta.alwaysOn) continue;
+    // SMS is user-choosable on every channel (even alwaysOn). Email is
+    // locked on for staff + for every alwaysOn channel; otherwise reads
+    // the checkbox state.
+    const emailLocked = meta.alwaysOn || audience === "staff";
     out[meta.key] = {
-      // Staff email is locked on - the form doesn't submit it as a
-      // checkbox at all, but we hardcode it true here so even a
-      // crafted submission can't drop below the floor.
-      email: audience === "staff" ? true : getter(`pref_${meta.key}_email`) !== null,
+      email: emailLocked ? true : getter(`pref_${meta.key}_email`) !== null,
       sms: getter(`pref_${meta.key}_sms`) !== null,
     };
   }

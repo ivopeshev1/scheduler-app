@@ -37,7 +37,7 @@ export function NotificationPreferencesSection({
       <p className="text-sm text-gray-600 mb-4">
         {audience === "staff"
           ? "Email is always on so you never miss shift info. SMS is up to you — turn it on for the things you want texts about."
-          : "Pick what you want and how. A few are required (and shown with locked boxes) because missing them would break your workflow."}
+          : "Pick what you want and how. A few require the email (shown with a locked box) because missing them would break your workflow. SMS is always your call."}
       </p>
       <div className="mb-5 border border-amber-200 bg-amber-50 rounded p-3 text-xs text-amber-900">
         SMS delivery is almost ready — the carrier approval is still in flight. Your SMS
@@ -54,7 +54,6 @@ export function NotificationPreferencesSection({
           <ul className="divide-y">
             {rows.map((c) => {
               const emailLocked = c.alwaysOn || audience === "staff";
-              const smsLocked = c.alwaysOn;
               return (
                 <li
                   key={c.key}
@@ -93,25 +92,14 @@ export function NotificationPreferencesSection({
                     )}
                   </div>
                   <div className="flex justify-center items-start pt-0.5">
-                    {smsLocked ? (
-                      <input
-                        type="checkbox"
-                        checked
-                        disabled
-                        className="w-5 h-5 opacity-60 cursor-not-allowed"
-                        aria-label={`${c.label} — SMS (always on)`}
-                        title="This notification can't be turned off."
-                      />
-                    ) : (
-                      <input
-                        type="checkbox"
-                        id={`pref_${c.key}_sms`}
-                        name={`pref_${c.key}_sms`}
-                        defaultChecked={resolved[c.key].sms}
-                        className="w-5 h-5"
-                        aria-label={`${c.label} — SMS`}
-                      />
-                    )}
+                    <input
+                      type="checkbox"
+                      id={`pref_${c.key}_sms`}
+                      name={`pref_${c.key}_sms`}
+                      defaultChecked={resolved[c.key].sms}
+                      className="w-5 h-5"
+                      aria-label={`${c.label} — SMS`}
+                    />
                   </div>
                 </li>
               );
