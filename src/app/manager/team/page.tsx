@@ -151,8 +151,19 @@ async function addManagerAction(formData: FormData) {
   );
   const archivedPrior = existing.find((u) => u.archivedAt && u.role === "manager" && !u.isOwner);
   const activePrior = existing.find((u) => !u.archivedAt);
+  // Email is unique per company across both staff and managers (the
+  // underlying unique index on users doesn't care about role). If an
+  // archived staff account owns this email, resurrecting as a manager
+  // would be surprising - tell the owner to pick a different email.
+  const archivedCrossRole = existing.find((u) => u.archivedAt && (u.role !== "manager" || !!u.isOwner));
   if (activePrior) {
     redirect("/manager/team?err=" + encodeURIComponent(`A user with email ${email} already exists in your company.`));
+  }
+  if (!archivedPrior && archivedCrossRole) {
+    redirect(
+      "/manager/team?err=" +
+        encodeURIComponent(`That email was used before by a removed ${archivedCrossRole.role} account. Pick a different email for this manager.`),
+    );
   }
 
   const userId = archivedPrior ? archivedPrior.id : nanoid();
