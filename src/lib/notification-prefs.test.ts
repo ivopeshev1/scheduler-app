@@ -1,63 +1,75 @@
 import { describe, it, expect } from "vitest";
 import {
   userWantsNotification, resolvePreferences, prefsFromFormData,
-  DEFAULT_PREFS, NOTIFICATION_CHANNELS,
+  NOTIFICATION_CHANNELS,
 } from "./notification-prefs";
 
 describe("userWantsNotification", () => {
-  it("defaults to true when nothing is stored", () => {
-    expect(userWantsNotification(null, "shiftInvite")).toBe(true);
-    expect(userWantsNotification({}, "shiftInvite")).toBe(true);
-    expect(userWantsNotification(undefined, "shiftInvite")).toBe(true);
+  it("defaults to true on both channels when nothing is stored", () => {
+    expect(userWantsNotification(null, "shiftReminder", "email")).toBe(true);
+    expect(userWantsNotification({}, "shiftReminder", "sms")).toBe(true);
+    expect(userWantsNotification(undefined, "shiftReminder", "email")).toBe(true);
   });
-  it("respects a stored false", () => {
-    expect(userWantsNotification({ shiftInvite: false }, "shiftInvite")).toBe(false);
+  it("respects per-channel stored values", () => {
+    const stored = { shiftReminder: { email: false, sms: true } };
+    expect(userWantsNotification(stored, "shiftReminder", "email")).toBe(false);
+    expect(userWantsNotification(stored, "shiftReminder", "sms")).toBe(true);
   });
-  it("respects a stored true", () => {
-    expect(userWantsNotification({ shiftInvite: true }, "shiftInvite")).toBe(true);
+  it("falls back to default when only one channel is stored", () => {
+    const stored = { shiftReminder: { email: false } };
+    expect(userWantsNotification(stored, "shiftReminder", "email")).toBe(false);
+    expect(userWantsNotification(stored, "shiftReminder", "sms")).toBe(true);
   });
-  it("ignores non-boolean values", () => {
-    expect(userWantsNotification({ shiftInvite: "nope" }, "shiftInvite")).toBe(true);
-    expect(userWantsNotification({ shiftInvite: 0 }, "shiftInvite")).toBe(true);
+  it("respects legacy boolean values", () => {
+    const stored = { shiftReminder: false };
+    expect(userWantsNotification(stored, "shiftReminder", "email")).toBe(false);
+    expect(userWantsNotification(stored, "shiftReminder", "sms")).toBe(false);
   });
-  it("alwaysOn keys ignore stored prefs", () => {
-    expect(userWantsNotification({ accountChange: false }, "accountChange")).toBe(true);
-    expect(userWantsNotification({ passwordReset: false }, "passwordReset")).toBe(true);
+  it("ignores stored prefs on alwaysOn channels", () => {
+    expect(userWantsNotification({ shiftInvite: { email: false, sms: false } }, "shiftInvite", "email")).toBe(true);
+    expect(userWantsNotification({ accountChange: { email: false, sms: false } }, "accountChange", "sms")).toBe(true);
+    expect(userWantsNotification({ staffCancellation: { email: false, sms: false } }, "staffCancellation", "email")).toBe(true);
   });
 });
 
 describe("resolvePreferences", () => {
-  it("fills in defaults for missing keys", () => {
-    const resolved = resolvePreferences({ shiftInvite: false });
-    expect(resolved.shiftInvite).toBe(false);
-    expect(resolved.beoSent).toBe(true);
+  it("fills defaults for missing keys / channels", () => {
+    const r = resolvePreferences({ shiftReminder: { email: false } });
+    expect(r.shiftReminder).toEqual({ email: false, sms: true });
+    expect(r.beoSent).toEqual({ email: true, sms: true });
   });
-  it("forces alwaysOn keys to true even if stored false", () => {
-    const resolved = resolvePreferences({ accountChange: false });
-    expect(resolved.accountChange).toBe(true);
+  it("forces alwaysOn keys to on", () => {
+    const r = resolvePreferences({ shiftInvite: { email: false, sms: false } });
+    expect(r.shiftInvite).toEqual({ email: true, sms: true });
   });
   it("works on null / undefined input", () => {
-    expect(resolvePreferences(null)).toEqual(DEFAULT_PREFS);
-    expect(resolvePreferences(undefined)).toEqual(DEFAULT_PREFS);
+    const r = resolvePreferences(null);
+    expect(r.shiftReminder).toEqual({ email: true, sms: true });
+  });
+  it("handles legacy boolean entries", () => {
+    const r = resolvePreferences({ shiftReminder: false });
+    expect(r.shiftReminder).toEqual({ email: false, sms: false });
   });
 });
 
 describe("prefsFromFormData", () => {
-  it("captures only staff-audience, non-alwaysOn checkboxes for staff", () => {
-    const checked = new Set(["pref_shiftInvite", "pref_shiftReminder"]);
+  it("reads both channels for each toggleable staff channel", () => {
+    const checked = new Set(["pref_shiftReminder_email"]);
     const getter = (k: string): FormDataEntryValue | null => (checked.has(k) ? "on" : null);
     const result = prefsFromFormData(getter, "staff");
-    expect(result.shiftInvite).toBe(true);
-    expect(result.shiftReminder).toBe(true);
-    expect(result.beoSent).toBe(false); // not checked → unchecked
-    expect("accountChange" in result).toBe(false); // alwaysOn → not included
-    expect("inviteResponse" in result).toBe(false); // manager-audience, not included
+    expect(result.shiftReminder).toEqual({ email: true, sms: false });
+    expect(result.beoSent).toEqual({ email: false, sms: false });
+    expect("shiftInvite" in result).toBe(false); // alwaysOn omitted
+    expect("inviteResponse" in result).toBe(false); // other audience
   });
-  it("captures only manager-audience, non-alwaysOn checkboxes for manager", () => {
+  it("omits every alwaysOn + wrong-audience channel for manager", () => {
     const getter = (): FormDataEntryValue | null => null;
     const result = prefsFromFormData(getter, "manager");
-    const managerKeys = NOTIFICATION_CHANNELS.filter((c) => c.audience === "manager" && !c.alwaysOn).map((c) => c.key);
-    for (const k of managerKeys) expect(result[k]).toBe(false);
-    expect("shiftInvite" in result).toBe(false);
+    const expected = NOTIFICATION_CHANNELS.filter((c) => c.audience === "manager" && !c.alwaysOn).map((c) => c.key);
+    for (const k of expected) {
+      expect(result[k]).toEqual({ email: false, sms: false });
+    }
+    expect("staffCancellation" in result).toBe(false);
+    expect("urgentOpenShifts" in result).toBe(false);
   });
 });
