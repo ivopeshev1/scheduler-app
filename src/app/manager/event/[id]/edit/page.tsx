@@ -33,6 +33,7 @@ async function saveEventEditAction(formData: FormData) {
     formData.has(key) ? transform(formData.get(key)) : existing;
 
   const newValues = {
+    locationId: pick("locationId", (v) => (String(v ?? "").trim() || null), event.locationId ?? null),
     date: pick("date", (v) => String(v ?? event.date), event.date),
     clientName: pick("clientName", (v) => String(v ?? "").trim() || event.clientName, event.clientName),
     clientContactInfo: pick("clientContactInfo", str, event.clientContactInfo ?? null),
@@ -52,6 +53,7 @@ async function saveEventEditAction(formData: FormData) {
   };
 
   const changes: string[] = [];
+  if ((newValues.locationId ?? null) !== (event.locationId ?? null)) changes.push(`Location updated`);
   if (newValues.date !== event.date) changes.push(`Date: ${event.date} → ${newValues.date}`);
   if (newValues.checkInTime !== event.checkInTime) changes.push(`Check-in time updated`);
   if (newValues.endTime !== event.endTime) changes.push(`End time updated`);
@@ -300,6 +302,31 @@ export default async function EditEventPage({ params }: { params: { id: string }
   roleRows.sort((a, b) => a.sortOrder - b.sortOrder);
   const roles = roleRows.map((r) => r.name);
 
+  // Locations this manager can reassign the event to. Owners get everything.
+  const [currentUser] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
+  const allActiveLocations = await db
+    .select()
+    .from(schema.locations)
+    .where(eq(schema.locations.companyId, session.companyId));
+  const sortedActive = allActiveLocations.filter((l) => !l.archivedAt).sort((a, b) => a.sortOrder - b.sortOrder);
+  let locationOptions: typeof sortedActive;
+  if (currentUser?.isOwner) {
+    locationOptions = sortedActive;
+  } else {
+    const myLocRows = await db
+      .select({ id: schema.userLocations.locationId })
+      .from(schema.userLocations)
+      .where(eq(schema.userLocations.userId, session.userId));
+    const mySet = new Set(myLocRows.map((r) => r.id));
+    locationOptions = sortedActive.filter((l) => mySet.has(l.id));
+  }
+  // If the event's current location is archived or inaccessible, still show
+  // it in the dropdown as a disabled option so the picker doesn't appear empty.
+  const currentEventLocation = allActiveLocations.find((l) => l.id === event.locationId);
+  if (currentEventLocation && !locationOptions.some((l) => l.id === currentEventLocation.id)) {
+    locationOptions = [currentEventLocation, ...locationOptions];
+  }
+
   const positions = await db.select().from(schema.positions).where(eq(schema.positions.eventId, event.id));
   positions.sort((a, b) => a.sortOrder - b.sortOrder);
 
@@ -389,6 +416,15 @@ export default async function EditEventPage({ params }: { params: { id: string }
           <input type="hidden" name="eventId" value={event.id} />
 
           <section className="grid md:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="locationId" className="label">Location</label>
+              <select id="locationId" name="locationId" required className="input" defaultValue={event.locationId ?? ""}>
+                {!event.locationId && <option value="" disabled>Pick a location…</option>}
+                {locationOptions.map((l) => (
+                  <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+              </select>
+            </div>
             {isEnabled("date") && (
               <Field label="Date" name="date" type="date" defaultValue={event.date} required={isRequired("date")} />
             )}

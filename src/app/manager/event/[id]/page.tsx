@@ -691,7 +691,31 @@ export default async function EventDetailPage({ params }: { params: { id: string
   // Archived (removed) staff don't appear in pickers, but if they still have an
   // active invite to THIS position we keep them visible so the manager can see
   // / remove that invite explicitly.
-  const staffOnly = allStaff.filter((r) => r.user.role === "staff" && !r.user.archivedAt);
+  const activeStaff = allStaff.filter((r) => r.user.role === "staff" && !r.user.archivedAt);
+  // Location-scope: only staff assigned to this event's location appear in
+  // the picker. Rules:
+  //   - Legacy event (locationId null, pre-feature) → every staffer shows
+  //   - Staffer with no explicit location assignment → stays visible (also
+  //     pre-feature — we don't want to hide them until the manager has had
+  //     a chance to assign them)
+  //   - Otherwise require the staffer's assignments to include this event's
+  //     locationId
+  const staffLocationRows = await db
+    .select({ userId: schema.userLocations.userId, locationId: schema.userLocations.locationId })
+    .from(schema.userLocations);
+  const staffLocationMap = new Map<string, Set<string>>();
+  for (const r of staffLocationRows) {
+    const set = staffLocationMap.get(r.userId) ?? new Set<string>();
+    set.add(r.locationId);
+    staffLocationMap.set(r.userId, set);
+  }
+  const staffOnly = !event.locationId
+    ? activeStaff
+    : activeStaff.filter((r) => {
+        const locs = staffLocationMap.get(r.user.id);
+        if (!locs || locs.size === 0) return true;
+        return locs.has(event.locationId!);
+      });
 
   // Per-staff multi-role rate catalog. Keyed by `${userId}::${role}` so
   // buildStaffOptions can swap in the right rate when a position matches

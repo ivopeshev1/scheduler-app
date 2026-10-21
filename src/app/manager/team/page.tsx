@@ -161,6 +161,21 @@ async function addManagerAction(formData: FormData) {
     inviteAcceptedAt: null,
   });
 
+  // Location assignments. Owner picks which locations this manager can
+  // access via a multi-select. At least one is required.
+  const locationIds = formData.getAll("locationIds").map(String).filter(Boolean);
+  if (locationIds.length === 0) throw new Error("Pick at least one location for this manager.");
+  // Validate they all belong to this company.
+  const companyLocations = await db
+    .select({ id: schema.locations.id })
+    .from(schema.locations)
+    .where(eq(schema.locations.companyId, session.companyId));
+  const validSet = new Set(companyLocations.map((l) => l.id));
+  for (const locId of locationIds) {
+    if (!validSet.has(locId)) continue;
+    await db.insert(schema.userLocations).values({ userId, locationId: locId });
+  }
+
   const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
   const h = headers();
   const host = h.get("host") ?? "localhost:3000";
@@ -369,6 +384,12 @@ export default async function TeamPage() {
   const [me] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
   if (!me?.isOwner && !me?.canAccessTeam) redirect("/manager?denied=team");
 
+  const allLocations = await db
+    .select()
+    .from(schema.locations)
+    .where(eq(schema.locations.companyId, session.companyId));
+  const activeLocations = allLocations.filter((l) => !l.archivedAt).sort((a, b) => a.sortOrder - b.sortOrder);
+
   const managers = await db
     .select()
     .from(schema.users)
@@ -561,6 +582,21 @@ export default async function TeamPage() {
                 <AccessCheckbox id="new-payroll"  name="canAccessPayroll"  label="Payroll"  defaultChecked />
                 <AccessCheckbox id="new-team"     name="canAccessTeam"     label="Admin" />
                 <AccessCheckbox id="new-settings" name="canEditSettings"   label="Settings" />
+              </div>
+            </div>
+            <div className="pt-2">
+              <div className="label mb-2">Locations <span className="text-red-500">*</span></div>
+              <p className="text-xs text-gray-500 mb-2">Pick at least one. This manager will only see events + staff at the locations you tick here.</p>
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+                {activeLocations.map((l) => (
+                  <label key={l.id} className="inline-flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" name="locationIds" value={l.id} className="w-4 h-4" />
+                    <span>{l.name}</span>
+                  </label>
+                ))}
+                {activeLocations.length === 0 && (
+                  <span className="text-xs text-gray-500 italic">No locations yet — add one under Settings → Locations first.</span>
+                )}
               </div>
             </div>
             <div className="pt-2">

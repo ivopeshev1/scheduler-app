@@ -186,11 +186,52 @@ export const roles = pgTable(
   })
 );
 
+// Physical operating locations for the company (LA office, NY office, etc.).
+// Multi-location companies use this to scope who sees what: an event belongs
+// to one location, staff + managers can be assigned to one or more locations,
+// and the roster picker only shows people assigned to the event's location.
+// Owners always see all locations regardless of assignment.
+export const locations = pgTable(
+  "locations",
+  {
+    id: text("id").primaryKey(),
+    companyId: text("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    address: text("address"),
+    timezone: text("timezone"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    // Soft-delete so historical events/users keep their location reference.
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    companyIdx: index("locations_company_idx").on(t.companyId, t.sortOrder),
+  })
+);
+
+// Many-to-many: a user can belong to one or more locations. Owners don't need
+// rows here — they implicitly have access to every location in their company.
+export const userLocations = pgTable(
+  "user_locations",
+  {
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    locationId: text("location_id").notNull().references(() => locations.id, { onDelete: "cascade" }),
+  },
+  (t) => ({
+    pk: uniqueIndex("user_locations_pk").on(t.userId, t.locationId),
+    locationIdx: index("user_locations_location_idx").on(t.locationId),
+  })
+);
+
 export const events = pgTable(
   "events",
   {
     id: text("id").primaryKey(),
     companyId: text("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+    // Which physical location this event runs at. Required post-backfill,
+    // but kept nullable in the schema so legacy rows pre-locations keep
+    // working. The event create form enforces it going forward.
+    locationId: text("location_id").references(() => locations.id),
     date: text("date").notNull(),
     clientName: text("client_name").notNull(),
     clientContactInfo: text("client_contact_info"),

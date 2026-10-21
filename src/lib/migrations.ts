@@ -182,6 +182,80 @@ export async function runMigrations(): Promise<void> {
   // they finish the wizard.
   await sql`UPDATE companies SET onboarded_at = created_at WHERE onboarded_at IS NULL AND created_at IS NOT NULL`;
   await sql`ALTER TABLE manager_profiles ADD COLUMN IF NOT EXISTS ui_preferences JSONB`;
+
+  // ────────── Multi-location: locations + user_locations + events.location_id ──────────
+  await sql`CREATE TABLE IF NOT EXISTS locations (
+    id TEXT PRIMARY KEY,
+    company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    address TEXT,
+    timezone TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    archived_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS locations_company_idx ON locations(company_id, sort_order)`;
+
+  await sql`CREATE TABLE IF NOT EXISTS user_locations (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    location_id TEXT NOT NULL REFERENCES locations(id) ON DELETE CASCADE
+  )`;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS user_locations_pk ON user_locations(user_id, location_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS user_locations_location_idx ON user_locations(location_id)`;
+
+  await sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS location_id TEXT REFERENCES locations(id)`;
+
+  // Backfill: every company that doesn't have a location yet gets a
+  // "Default location". Every existing event + non-owner user gets
+  // assigned to it. Owners stay implicit (they always see everything).
+  const companiesNeedingDefault = (await sql`
+    SELECT c.id FROM companies c
+    WHERE NOT EXISTS (SELECT 1 FROM locations l WHERE l.company_id = c.id)
+  `) as Array<{ id: string }>;
+  for (const { id: companyId } of companiesNeedingDefault) {
+    const defaultId = nanoid();
+    await sql`INSERT INTO locations (id, company_id, name, sort_order) VALUES (${defaultId}, ${companyId}, 'Default location', 0)`;
+    await sql`UPDATE events SET location_id = ${defaultId} WHERE company_id = ${companyId} AND location_id IS NULL`;
+    // Every existing user in the company gets a user_locations row to the
+    // default — including non-owner managers and all staff, so the picker
+    // behavior stays unchanged for legacy data. Owners are implicit so we
+    // skip inserting rows for them (keeps the join table lean).
+    const usersToAssign = (await sql`
+      SELECT id FROM users
+      WHERE company_id = ${companyId}
+        AND (is_owner IS NULL OR is_owner = false)
+    `) as Array<{ id: string }>;
+    for (const { id: uid } of usersToAssign) {
+      await sql`INSERT INTO user_locations (user_id, location_id) VALUES (${uid}, ${defaultId}) ON CONFLICT DO NOTHING`;
+    }
+  }
+  // Also pick up any events across companies that already have locations
+  // but somehow slipped through (e.g. event created in the gap between
+  // deploy and this backfill). Assign them to the first location of their
+  // company.
+  await sql`
+    UPDATE events ev
+    SET location_id = (
+      SELECT id FROM locations l
+      WHERE l.company_id = ev.company_id AND l.archived_at IS NULL
+      ORDER BY l.sort_order ASC
+      LIMIT 1
+    )
+    WHERE ev.location_id IS NULL
+  `;
+
+  // Flair-specific one-time setup (user asked to seed with LA + NY for the
+  // multi-location exercise). Rename the default location to "Los Angeles"
+  // and add "New York" as a second location if it's not already there.
+  // Guarded by slug so other tenants are untouched.
+  const [flair] = (await sql`SELECT id FROM companies WHERE slug = 'flair-projects-sb' LIMIT 1`) as Array<{ id: string }>;
+  if (flair) {
+    await sql`UPDATE locations SET name = 'Los Angeles' WHERE company_id = ${flair.id} AND name = 'Default location'`;
+    const existingNY = (await sql`SELECT id FROM locations WHERE company_id = ${flair.id} AND name = 'New York' LIMIT 1`) as Array<{ id: string }>;
+    if (existingNY.length === 0) {
+      await sql`INSERT INTO locations (id, company_id, name, sort_order) VALUES (${nanoid()}, ${flair.id}, 'New York', 1)`;
+    }
+  }
   await sql`CREATE TABLE IF NOT EXISTS password_reset_tokens (
     token TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

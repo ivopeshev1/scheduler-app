@@ -54,11 +54,22 @@ export default async function CalendarGridView({ params }: { params: { month: st
   const gridEnd = new Date(gridStart);
   gridEnd.setDate(gridStart.getDate() + 41);
 
-  const monthEvents = await db.select().from(schema.events).where(and(
+  const allMonthEvents = await db.select().from(schema.events).where(and(
     eq(schema.events.companyId, session.companyId),
     gte(schema.events.date, toYMD(gridStart)),
     lte(schema.events.date, toYMD(gridEnd)),
   ));
+  // Location-scope: non-owner managers only see events at locations they
+  // belong to. Legacy events with no locationId stay visible to everyone.
+  let monthEvents = allMonthEvents;
+  if (!user.isOwner) {
+    const myLocs = await db
+      .select({ id: schema.userLocations.locationId })
+      .from(schema.userLocations)
+      .where(eq(schema.userLocations.userId, session.userId));
+    const myLocSet = new Set(myLocs.map((r) => r.id));
+    monthEvents = allMonthEvents.filter((ev) => ev.locationId == null || myLocSet.has(ev.locationId));
+  }
 
   // Bucket events by date so each cell only walks its own list.
   const byDay = new Map<string, typeof monthEvents>();

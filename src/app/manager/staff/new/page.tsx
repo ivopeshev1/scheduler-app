@@ -88,6 +88,33 @@ async function addStaffAction(formData: FormData) {
     });
   }
 
+  // Location assignments. The form sends one "locationIds" entry per picked
+  // checkbox. The manager can only assign to locations they themselves have
+  // access to (owners pass this freely).
+  const requestedLocationIds = formData.getAll("locationIds").map(String).filter(Boolean);
+  const [me] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
+  const companyLocations = await db
+    .select()
+    .from(schema.locations)
+    .where(eq(schema.locations.companyId, session.companyId));
+  let allowedForManager: string[];
+  if (me?.isOwner) {
+    allowedForManager = companyLocations.map((l) => l.id);
+  } else {
+    const myLocs = await db
+      .select({ id: schema.userLocations.locationId })
+      .from(schema.userLocations)
+      .where(eq(schema.userLocations.userId, session.userId));
+    allowedForManager = myLocs.map((r) => r.id);
+  }
+  const toAssign = requestedLocationIds.filter((id) => allowedForManager.includes(id));
+  if (toAssign.length === 0) {
+    throw new Error("Pick at least one location this staffer can work at.");
+  }
+  for (const locId of toAssign) {
+    await db.insert(schema.userLocations).values({ userId, locationId: locId });
+  }
+
   redirect("/manager/staff");
 }
 
@@ -109,6 +136,25 @@ export default async function AddStaffPage() {
   const roleOptions = companyRoles.length > 0
     ? companyRoles.map((r) => r.name)
     : ["Lead", "Bartender", "Bar Back", "Server", "Cashier"];
+
+  // Locations the current manager can assign a new staffer to. Owners get
+  // the full list; non-owners only see the ones they themselves belong to.
+  const allLocations = await db
+    .select()
+    .from(schema.locations)
+    .where(eq(schema.locations.companyId, session.companyId));
+  const sortedLocations = allLocations.filter((l) => !l.archivedAt).sort((a, b) => a.sortOrder - b.sortOrder);
+  let assignableLocations: typeof sortedLocations;
+  if (user.isOwner) {
+    assignableLocations = sortedLocations;
+  } else {
+    const myLocs = await db
+      .select({ id: schema.userLocations.locationId })
+      .from(schema.userLocations)
+      .where(eq(schema.userLocations.userId, session.userId));
+    const mine = new Set(myLocs.map((r) => r.id));
+    assignableLocations = sortedLocations.filter((l) => mine.has(l.id));
+  }
 
   return (
     <div>
@@ -138,6 +184,29 @@ export default async function AddStaffPage() {
               a given position, the system uses the matching role&apos;s rate automatically.
             </p>
             <StaffRolesEditor roleOptions={roleOptions} initial={[]} />
+          </section>
+
+          <section className="pt-6 border-t">
+            <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-1">
+              Locations <span className="text-red-500">*</span>
+            </h2>
+            <p className="text-sm text-gray-600 mb-3">
+              Which locations this staffer can work at. They&apos;ll only appear in the invite picker for events at these locations. Pick one or more.
+            </p>
+            {assignableLocations.length === 0 ? (
+              <div className="text-sm text-red-600 border border-red-200 bg-red-50 rounded px-3 py-2">
+                You&apos;re not assigned to any locations. Ask the owner to add you to one so you can start adding staff.
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-3">
+                {assignableLocations.map((l) => (
+                  <label key={l.id} className="inline-flex items-center gap-2 border rounded px-3 py-2 cursor-pointer hover:bg-gray-50">
+                    <input type="checkbox" name="locationIds" value={l.id} className="w-4 h-4" />
+                    <span className="text-sm">{l.name}</span>
+                  </label>
+                ))}
+              </div>
+            )}
           </section>
 
           <div className="flex gap-3 pt-4 border-t">

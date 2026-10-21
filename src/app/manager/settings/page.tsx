@@ -39,6 +39,75 @@ async function requireSettingsAccess() {
   return { session, me };
 }
 
+/** Owner-only. Add a new physical location to the company's roster. */
+async function addLocationAction(formData: FormData) {
+  "use server";
+  const { session } = await requireSettingsAccess();
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) throw new Error("Location name is required");
+  const existing = await db
+    .select()
+    .from(schema.locations)
+    .where(eq(schema.locations.companyId, session.companyId));
+  const nextOrder = Math.max(0, ...existing.map((l) => l.sortOrder)) + 1;
+  const { nanoid } = await import("nanoid");
+  await db.insert(schema.locations).values({
+    id: nanoid(),
+    companyId: session.companyId,
+    name,
+    sortOrder: nextOrder,
+  });
+  revalidatePath("/manager/settings");
+  redirect("/manager/settings?saved=locations");
+}
+
+/** Owner-only. Rename a location in place. */
+async function renameLocationAction(formData: FormData) {
+  "use server";
+  const { session } = await requireSettingsAccess();
+  const id = String(formData.get("locationId"));
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) throw new Error("Location name is required");
+  const [loc] = await db.select().from(schema.locations).where(eq(schema.locations.id, id));
+  if (!loc || loc.companyId !== session.companyId) throw new Error("Not found");
+  await db.update(schema.locations).set({ name }).where(eq(schema.locations.id, id));
+  revalidatePath("/manager/settings");
+  redirect("/manager/settings?saved=locations");
+}
+
+/**
+ * Owner-only. Archive a location rather than deleting so historical events
+ * + user assignments keep their foreign key references intact. Archived
+ * locations stop appearing in the event-create picker but current events
+ * assigned to them still show up on the calendar.
+ */
+async function archiveLocationAction(formData: FormData) {
+  "use server";
+  const { session } = await requireSettingsAccess();
+  const id = String(formData.get("locationId"));
+  const [loc] = await db.select().from(schema.locations).where(eq(schema.locations.id, id));
+  if (!loc || loc.companyId !== session.companyId) throw new Error("Not found");
+  const activeCount = (await db
+    .select()
+    .from(schema.locations)
+    .where(eq(schema.locations.companyId, session.companyId))).filter((l) => !l.archivedAt).length;
+  if (activeCount <= 1) throw new Error("You need at least one active location.");
+  await db.update(schema.locations).set({ archivedAt: new Date() }).where(eq(schema.locations.id, id));
+  revalidatePath("/manager/settings");
+  redirect("/manager/settings?saved=locations");
+}
+
+async function unarchiveLocationAction(formData: FormData) {
+  "use server";
+  const { session } = await requireSettingsAccess();
+  const id = String(formData.get("locationId"));
+  const [loc] = await db.select().from(schema.locations).where(eq(schema.locations.id, id));
+  if (!loc || loc.companyId !== session.companyId) throw new Error("Not found");
+  await db.update(schema.locations).set({ archivedAt: null }).where(eq(schema.locations.id, id));
+  revalidatePath("/manager/settings");
+  redirect("/manager/settings?saved=locations");
+}
+
 async function saveCompanySetupAction(formData: FormData) {
   "use server";
   const { session } = await requireSettingsAccess();
@@ -464,6 +533,12 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
     .where(eq(schema.roles.companyId, session.companyId))
     .orderBy(asc(schema.roles.sortOrder));
 
+  const locationsList = await db
+    .select()
+    .from(schema.locations)
+    .where(eq(schema.locations.companyId, session.companyId))
+    .orderBy(asc(schema.locations.sortOrder));
+
   const addOns = await db
     .select()
     .from(schema.addOns)
@@ -642,6 +717,76 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
               {companyErrorMsg}
             </div>
           )}
+        </section>
+
+        {/* -------------------- Locations -------------------- */}
+        <section className="border rounded-lg bg-white p-6">
+          <h2 className="text-lg font-semibold mb-1">Locations</h2>
+          <p className="text-sm text-gray-600 mb-5">
+            Physical operating locations for {company.name}. Every event is tied to one location.
+            Staff and managers only see events at the locations they&apos;re assigned to — owners see everything.
+            You can&apos;t archive the last active location.
+          </p>
+
+          {saved === "locations" && (
+            <div className="mb-4 p-3 border border-green-300 bg-green-50 text-green-800 text-sm rounded">
+              Locations updated.
+            </div>
+          )}
+
+          <ul className="border rounded divide-y mb-5">
+            {locationsList.map((loc) => (
+              <li key={loc.id} className={`flex items-center gap-3 px-3 py-2 text-sm ${loc.archivedAt ? "bg-gray-50 opacity-70" : ""}`}>
+                <form action={renameLocationAction} className="flex-1 flex items-center gap-2">
+                  <input type="hidden" name="locationId" value={loc.id} />
+                  <input
+                    name="name"
+                    defaultValue={loc.name}
+                    className="input text-sm py-1 flex-1"
+                    disabled={!!loc.archivedAt}
+                  />
+                  {!loc.archivedAt && (
+                    <button type="submit" className="text-xs text-blue-600 hover:underline">Save</button>
+                  )}
+                </form>
+                {loc.archivedAt ? (
+                  <>
+                    <span className="text-xs text-gray-500 italic">Archived</span>
+                    <form action={unarchiveLocationAction}>
+                      <input type="hidden" name="locationId" value={loc.id} />
+                      <button type="submit" className="text-xs text-blue-600 hover:underline">Restore</button>
+                    </form>
+                  </>
+                ) : (
+                  <form action={archiveLocationAction}>
+                    <input type="hidden" name="locationId" value={loc.id} />
+                    <button
+                      type="submit"
+                      className="text-xs text-red-600 hover:underline"
+                      title="Archive this location (new events can't pick it, existing events keep it)"
+                    >
+                      Archive
+                    </button>
+                  </form>
+                )}
+              </li>
+            ))}
+            {locationsList.length === 0 && (
+              <li className="px-3 py-4 text-sm text-gray-500 italic text-center">
+                No locations yet. Add your first below.
+              </li>
+            )}
+          </ul>
+
+          <form action={addLocationAction} className="flex items-center gap-2">
+            <input
+              name="name"
+              placeholder="e.g. Los Angeles"
+              className="input text-sm py-1.5 flex-1"
+              required
+            />
+            <button type="submit" className="btn btn-primary text-sm">Add location</button>
+          </form>
         </section>
 
         {/* -------------------- Notifications -------------------- */}

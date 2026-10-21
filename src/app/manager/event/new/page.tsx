@@ -16,10 +16,27 @@ async function createEventAction(formData: FormData) {
   const eventId = nanoid();
   const date = String(formData.get("date"));
   const clientName = String(formData.get("clientName") ?? "").trim();
+  const locationId = String(formData.get("locationId") ?? "").trim() || null;
   if (!date || !clientName) throw new Error("Date and client name are required");
+  if (!locationId) throw new Error("Location is required");
+
+  // Guard: the manager can only pick a location they're assigned to
+  // (owners pass this freely).
+  const [me] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
+  const [loc] = await db.select().from(schema.locations).where(eq(schema.locations.id, locationId));
+  if (!loc || loc.companyId !== session.companyId) throw new Error("Invalid location");
+  if (!me?.isOwner) {
+    const myLocs = await db
+      .select({ id: schema.userLocations.locationId })
+      .from(schema.userLocations)
+      .where(eq(schema.userLocations.userId, session.userId));
+    if (!myLocs.some((l) => l.id === locationId)) {
+      throw new Error("You don't have access to that location");
+    }
+  }
 
   await db.insert(schema.events).values({
-    id: eventId, companyId: session.companyId, date, clientName,
+    id: eventId, companyId: session.companyId, locationId, date, clientName,
     clientContactInfo: str(formData.get("clientContactInfo")),
     venue: str(formData.get("venue")), city: str(formData.get("city")),
     eventType: str(formData.get("eventType")), planner: str(formData.get("planner")),
@@ -137,6 +154,27 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
   if (!user.isOwner && !user.canAccessCalendar) redirect("/manager?denied=calendar");
   const defaultDate = searchParams.date ?? new Date().toISOString().slice(0, 10);
 
+  // Locations this manager can create events for. Owners get all active
+  // locations; non-owner managers only see the ones they're assigned to.
+  const [currentUser] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
+  const allActiveLocations = await db
+    .select()
+    .from(schema.locations)
+    .where(eq(schema.locations.companyId, session.companyId))
+    .orderBy(asc(schema.locations.sortOrder));
+  const activeLocations = allActiveLocations.filter((l) => !l.archivedAt);
+  let locationOptions: typeof activeLocations;
+  if (currentUser?.isOwner) {
+    locationOptions = activeLocations;
+  } else {
+    const myLocRows = await db
+      .select({ id: schema.userLocations.locationId })
+      .from(schema.userLocations)
+      .where(eq(schema.userLocations.userId, session.userId));
+    const mySet = new Set(myLocRows.map((r) => r.id));
+    locationOptions = activeLocations.filter((l) => mySet.has(l.id));
+  }
+
   // Pull the role picklist from Settings → Roles so the dropdowns stay in sync
   // with whatever the owner currently has configured.
   const roleRows = await db
@@ -198,6 +236,20 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
         <h1 className="text-2xl font-semibold mt-2 mb-6">New event</h1>
         <form action={createEventAction} className="space-y-6" encType="multipart/form-data">
           <section className="grid md:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="locationId" className="label">Location <span className="text-red-500">*</span></label>
+              <select id="locationId" name="locationId" required className="input" defaultValue="">
+                <option value="" disabled>Pick a location…</option>
+                {locationOptions.map((l) => (
+                  <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+              </select>
+              {locationOptions.length === 0 && (
+                <p className="text-xs text-red-600 mt-1">
+                  You&apos;re not assigned to any locations. Ask the owner to add you to one.
+                </p>
+              )}
+            </div>
             {isEnabled("date") && (
               <Field label="Date" name="date" type="date" defaultValue={defaultDate} required={isRequired("date")} />
             )}

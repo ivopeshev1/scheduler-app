@@ -244,11 +244,22 @@ export default async function MonthView({ params }: { params: { month: string } 
 
   const startDate = `${parsed.year}-${String(parsed.month).padStart(2, "0")}-01`;
   const endDate = `${parsed.year}-${String(parsed.month).padStart(2, "0")}-${daysInMonth(parsed.year, parsed.month)}`;
-  const monthEvents = await db.select().from(schema.events).where(and(
+  const allMonthEvents = await db.select().from(schema.events).where(and(
     eq(schema.events.companyId, session.companyId),
     gte(schema.events.date, startDate),
     lte(schema.events.date, endDate),
   ));
+  // Location-scope: non-owner managers only see events at their locations.
+  // Legacy events (no locationId) stay visible to everyone.
+  let monthEvents = allMonthEvents;
+  if (!user.isOwner) {
+    const myLocs = await db
+      .select({ id: schema.userLocations.locationId })
+      .from(schema.userLocations)
+      .where(eq(schema.userLocations.userId, session.userId));
+    const myLocSet = new Set(myLocs.map((r) => r.id));
+    monthEvents = allMonthEvents.filter((ev) => ev.locationId == null || myLocSet.has(ev.locationId));
+  }
 
   const byDay = new Map<string, typeof monthEvents>();
   for (const ev of monthEvents) {
