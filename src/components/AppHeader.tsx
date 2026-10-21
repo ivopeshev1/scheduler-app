@@ -152,7 +152,7 @@ export async function AppHeader({
             photoUrl={avatarUrl}
             roleBadge={role === "staff" ? "Staff" : liveIsOwner ? "Owner" : "Manager"}
             profileHref={role === "manager" ? "/manager/onboard" : "/staff"}
-            mySettingsHref={role === "manager" ? "/manager/settings/me" : null}
+            mySettingsHref={role === "manager" ? "/manager/settings/me" : "/staff/settings"}
             companySettingsHref="/manager/settings"
             showCompanySettings={role === "manager" && !!liveIsOwner}
           />
