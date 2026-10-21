@@ -141,7 +141,10 @@ export async function AppHeader({
             </>
           )}
           {role === "staff" && (
-            <Link href="/staff" className="text-gray-700 hover:text-black">My shifts</Link>
+            <>
+              <Link href="/staff" className="text-gray-700 hover:text-black">My shifts</Link>
+              <Link href="/staff/calendar" className="text-gray-700 hover:text-black">Calendar</Link>
+            </>
           )}
           <UserMenu
             displayName={displayName ?? userEmail}

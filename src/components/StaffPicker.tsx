@@ -27,6 +27,10 @@ export type StaffOption = {
   currentIsOnCall: boolean;
   // If set, this staff member is already invited/accepted elsewhere - show but make un-selectable
   busyWith: { eventDate: string; clientName: string; role: string } | null;
+  // If set, this staff member has marked themselves unavailable for the
+  // event's date in their own calendar. Shows but locks the row the same
+  // way `busyWith` does.
+  unavailableReason?: string | null;
   // Manual rank from /manager/staff/compare. Lower = higher in picker.
   // Null means "not ranked" and sorts after all ranked staff.
   rankOrder: number | null;
@@ -295,7 +299,7 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                 // Lock rules:
                 //  - If staff is already on THIS position → always unlocked (manager needs to be able to remove them)
                 //  - Otherwise, lock if they're busy elsewhere on this date, or they rejected a prior invite here
-                const locked = !alreadyOnThisPosition && (!!s.busyWith || s.currentStatus === "rejected" || !!s.blockedForAge);
+                const locked = !alreadyOnThisPosition && (!!s.busyWith || s.currentStatus === "rejected" || !!s.blockedForAge || s.unavailableReason !== undefined && s.unavailableReason !== null);
                 const checked = tier !== null && tier !== undefined;
                 const assignedAddOns = addOnAssignments[s.userId] ?? new Map<string, string>();
                 const tChecked = travelChecked[s.userId] ?? false;
@@ -327,6 +331,11 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                           {!alreadyOnThisPosition && s.busyWith && (
                             <span className="ml-2 text-amber-700 font-medium">
                               Busy - {s.busyWith.clientName} ({s.busyWith.eventDate}) as {s.busyWith.role}
+                            </span>
+                          )}
+                          {!alreadyOnThisPosition && !s.busyWith && s.unavailableReason !== undefined && s.unavailableReason !== null && (
+                            <span className="ml-2 text-amber-700 font-medium">
+                              Marked unavailable{s.unavailableReason ? ` - ${s.unavailableReason}` : ""}
                             </span>
                           )}
                           {alreadyOnThisPosition && s.busyWith && (

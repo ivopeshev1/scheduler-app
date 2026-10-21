@@ -814,6 +814,15 @@ export default async function EventDetailPage({ params }: { params: { id: string
     }
   }
 
+  // Pre-fetch availability blocks any staffer set for THIS event's date.
+  // Staffers blocked on this date get flagged in the picker so the manager
+  // sees "Marked unavailable" and can't invite them.
+  const blocksForDate = await db
+    .select()
+    .from(schema.availabilityBlocks)
+    .where(eq(schema.availabilityBlocks.date, event.date));
+  const unavailableByUser = new Map(blocksForDate.map((b) => [b.userId, b.reason]));
+
   // Pre-fetch 21+ gating per role for this company so buildStaffOptions
   // can mark under-21 (and unknown-DOB) staff as blocked without
   // querying inside the loop.
@@ -872,6 +881,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
         currentRateOverrideMode: inv ? inv.rateOverrideMode ?? null : null,
         currentIsOnCall: inv ? !!inv.isOnCall : false,
         busyWith,
+        unavailableReason: unavailableByUser.has(r.user.id) ? (unavailableByUser.get(r.user.id) ?? "") : null,
         rankOrder: r.profile.rankOrder,
       };
     });
