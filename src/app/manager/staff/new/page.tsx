@@ -101,6 +101,15 @@ async function addStaffAction(formData: FormData) {
         position: primary.role,
         defaultRate: primary.rate,
         defaultRateType: primary.rateType,
+        // Null the self-entered personal fields so the resurrected staffer
+        // re-fills them during onboarding (they might even be a different
+        // person who happens to share the email).
+        phone: null,
+        dateOfBirth: null,
+        emergencyContactName: null,
+        emergencyContactPhone: null,
+        uniformSize: null,
+        photoUrl: null,
       })
       .where(eq(schema.staffProfiles.userId, userId));
   } else {
