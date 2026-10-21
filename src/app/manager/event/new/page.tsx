@@ -237,9 +237,26 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
         <form action={createEventAction} className="space-y-6" encType="multipart/form-data">
           <section className="grid md:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="locationId" className="label">Location <span className="text-red-500">*</span></label>
-              <select id="locationId" name="locationId" required className="input" defaultValue="">
-                <option value="" disabled>Pick a location…</option>
+              <label htmlFor="locationId" className="label">
+                Location <span className="text-red-500">*</span>
+                {locationOptions.length === 1 && (
+                  <span className="text-xs text-gray-500 font-normal ml-2">(auto-filled)</span>
+                )}
+              </label>
+              <select
+                id="locationId"
+                name="locationId"
+                required
+                className="input"
+                // Pre-fill with the first (or only) location the manager has
+                // access to so a single-location manager never has to touch
+                // this field. Multi-location managers still see the first
+                // option selected but can switch before submit.
+                defaultValue={locationOptions[0]?.id ?? ""}
+              >
+                {locationOptions.length === 0 && (
+                  <option value="" disabled>No locations available</option>
+                )}
                 {locationOptions.map((l) => (
                   <option key={l.id} value={l.id}>{l.name}</option>
                 ))}
