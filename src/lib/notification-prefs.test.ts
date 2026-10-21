@@ -32,9 +32,13 @@ describe("emailModeFor", () => {
     expect(emailModeFor({ inviteResponse: { email: true, sms: false, emailMode: "summary" } }, "inviteResponse")).toBe("summary");
     expect(emailModeFor({ inviteResponse: { email: true, sms: false, emailMode: "both" } }, "inviteResponse")).toBe("both");
   });
-  it("forces non-digestable channels to individual, no matter what's stored", () => {
-    expect(emailModeFor({ urgentOpenShifts: { email: true, sms: false, emailMode: "summary" } }, "urgentOpenShifts")).toBe("individual");
-    expect(emailModeFor({ staffCancellation: { email: true, sms: false, emailMode: "both" } }, "staffCancellation")).toBe("individual");
+  it("forces non-digestable channels (the digests themselves) to individual", () => {
+    expect(emailModeFor({ dailyDigest: { email: true, sms: false, emailMode: "summary" } }, "dailyDigest")).toBe("individual");
+    expect(emailModeFor({ weeklyDigest: { email: true, sms: false, emailMode: "both" } }, "weeklyDigest")).toBe("individual");
+  });
+  it("digestable urgency channels still read user's stored mode when they choose to override", () => {
+    expect(emailModeFor({ urgentOpenShifts: { email: true, sms: false, emailMode: "summary" } }, "urgentOpenShifts")).toBe("summary");
+    expect(emailModeFor({ staffCancellation: { email: true, sms: false, emailMode: "both" } }, "staffCancellation")).toBe("both");
   });
 });
 
@@ -46,8 +50,12 @@ describe("shouldSendImmediateEmail", () => {
   it("summary does NOT fire immediately", () => {
     expect(shouldSendImmediateEmail({ inviteResponse: { email: true, sms: false, emailMode: "summary" } }, "inviteResponse")).toBe(false);
   });
-  it("non-digestable channels always fire immediately regardless of stored mode", () => {
-    expect(shouldSendImmediateEmail({ urgentOpenShifts: { email: true, sms: false, emailMode: "summary" } }, "urgentOpenShifts")).toBe(true);
+  it("the digest channels themselves always fire immediately", () => {
+    expect(shouldSendImmediateEmail({ dailyDigest: { email: true, sms: false, emailMode: "summary" } }, "dailyDigest")).toBe(true);
+    expect(shouldSendImmediateEmail({ weeklyDigest: { email: true, sms: false, emailMode: "summary" } }, "weeklyDigest")).toBe(true);
+  });
+  it("digestable channels respect summary override", () => {
+    expect(shouldSendImmediateEmail({ urgentOpenShifts: { email: true, sms: false, emailMode: "summary" } }, "urgentOpenShifts")).toBe(false);
   });
 });
 
@@ -59,8 +67,11 @@ describe("shouldIncludeInDigest", () => {
   it("individual does NOT go into the digest", () => {
     expect(shouldIncludeInDigest({ inviteResponse: { email: true, sms: false, emailMode: "individual" } }, "inviteResponse")).toBe(false);
   });
-  it("non-digestable channels never go into the digest", () => {
-    expect(shouldIncludeInDigest({ urgentOpenShifts: { email: true, sms: false, emailMode: "summary" } }, "urgentOpenShifts")).toBe(false);
+  it("the digest channels themselves never go into another digest", () => {
+    expect(shouldIncludeInDigest({ dailyDigest: { email: true, sms: false, emailMode: "summary" } }, "dailyDigest")).toBe(false);
+  });
+  it("digestable channels get into the digest when user overrides to summary", () => {
+    expect(shouldIncludeInDigest({ urgentOpenShifts: { email: true, sms: false, emailMode: "summary" } }, "urgentOpenShifts")).toBe(true);
   });
 });
 
@@ -70,9 +81,9 @@ describe("resolvePreferences", () => {
     expect(r.inviteResponse).toEqual({ email: true, sms: false, emailMode: "individual" });
     expect(r.urgentOpenShifts).toEqual({ email: true, sms: false, emailMode: "individual" });
   });
-  it("non-digestable channels can't store a mode other than individual", () => {
-    const r = resolvePreferences({ urgentOpenShifts: { email: true, sms: true, emailMode: "summary" } });
-    expect(r.urgentOpenShifts).toEqual({ email: true, sms: true, emailMode: "individual" });
+  it("the digest channels themselves can't store a mode other than individual", () => {
+    const r = resolvePreferences({ dailyDigest: { email: true, sms: true, emailMode: "summary" } });
+    expect(r.dailyDigest).toEqual({ email: true, sms: true, emailMode: "individual" });
   });
   it("digestable channels keep stored mode", () => {
     const r = resolvePreferences({ newStaffJoined: { email: true, sms: false, emailMode: "both" } });
@@ -81,12 +92,13 @@ describe("resolvePreferences", () => {
 });
 
 describe("prefsFromFormData", () => {
-  it("manager: SMS reads form, mode reads form only for digestable channels", () => {
+  it("manager: SMS reads form, mode reads form on every digestable channel", () => {
     const checked = new Set(["pref_inviteResponse_sms", "pref_urgentOpenShifts_sms"]);
     const values: Record<string, string> = {
       pref_inviteResponse_mode: "summary",
       pref_newStaffJoined_mode: "both",
-      pref_urgentOpenShifts_mode: "summary", // ignored; not digestable
+      pref_urgentOpenShifts_mode: "summary",
+      pref_dailyDigest_mode: "summary", // ignored - digest channel itself
     };
     const getter = (k: string): FormDataEntryValue | null => {
       if (k in values) return values[k];
@@ -96,7 +108,8 @@ describe("prefsFromFormData", () => {
     const result = prefsFromFormData(getter, "manager");
     expect(result.inviteResponse).toEqual({ email: true, sms: true, emailMode: "summary" });
     expect(result.newStaffJoined).toEqual({ email: true, sms: false, emailMode: "both" });
-    expect(result.urgentOpenShifts).toEqual({ email: true, sms: true, emailMode: "individual" });
+    expect(result.urgentOpenShifts).toEqual({ email: true, sms: true, emailMode: "summary" });
+    expect(result.dailyDigest).toEqual({ email: true, sms: false, emailMode: "individual" });
   });
   it("every manager-audience channel appears in the result", () => {
     const r = prefsFromFormData(() => null, "manager");

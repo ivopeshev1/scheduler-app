@@ -70,14 +70,16 @@ export const NOTIFICATION_CHANNELS: readonly NotificationChannelMeta[] = [
   { key: "accountChange", label: "Account changes", description: "Your account was suspended, restored, or removed. Always on for security.", audience: "staff", alwaysOn: true },
   { key: "passwordReset", label: "Password reset", description: "Forgot-password email. Always on for security.", audience: "staff", alwaysOn: true },
 
-  // Manager
+  // Manager — every row supports Individual / Summary / Both. Time-sensitive
+  // channels default to Individual (and the description nudges you to keep
+  // them there), but you can override if your workflow calls for a digest.
   { key: "inviteResponse", label: "Invite responses", description: "A staffer accepted or declined an invite you sent.", audience: "manager", digestable: true },
-  { key: "staffCancellation", label: "Staff cancellations", description: "A staffer self-cancelled a confirmed shift. You need to know right away so you can replace them.", audience: "manager" },
-  { key: "backupPromoted", label: "Backup promoted to priority", description: "The cascade bumped a backup into a priority slot. Lets you know an open position just moved.", audience: "manager" },
-  { key: "urgentOpenShifts", label: "Urgent open-shift alerts", description: "An open shift crossed the urgent threshold with nobody booked. Time-sensitive — always individual.", audience: "manager" },
-  { key: "eventShortStaffed", label: "Short-staffed events", description: "Event date is getting close and some positions are still open. Time-sensitive — always individual.", audience: "manager" },
-  { key: "backupNudge", label: "Backup nudges", description: "Mid-window + last-call nudges to approve backup promotions on pending invites.", audience: "manager" },
-  { key: "staffBlockedConflict", label: "Blocked-day conflict", description: "A staffer blocked a day they're already booked on. Lets you reach out before it becomes a cancellation.", audience: "manager" },
+  { key: "staffCancellation", label: "Staff cancellations", description: "A staffer self-cancelled a confirmed shift. Usually worth keeping on Individual — digest means you find out next morning.", audience: "manager", digestable: true },
+  { key: "backupPromoted", label: "Backup promoted to priority", description: "The cascade bumped a backup into a priority slot.", audience: "manager", digestable: true },
+  { key: "urgentOpenShifts", label: "Urgent open-shift alerts", description: "An open shift crossed the urgent threshold with nobody booked. Usually worth keeping on Individual.", audience: "manager", digestable: true },
+  { key: "eventShortStaffed", label: "Short-staffed events", description: "Event date is getting close and some positions are still open. Usually worth keeping on Individual.", audience: "manager", digestable: true },
+  { key: "backupNudge", label: "Backup nudges", description: "Mid-window + last-call nudges to approve backup promotions on pending invites.", audience: "manager", digestable: true },
+  { key: "staffBlockedConflict", label: "Blocked-day conflict", description: "A staffer blocked a day they're already booked on. Lets you reach out before it becomes a cancellation.", audience: "manager", digestable: true },
   { key: "newStaffJoined", label: "New staffer onboarded", description: "An invited staffer completed onboarding and is ready to be booked.", audience: "manager", digestable: true },
   { key: "staffPendingOnboarding", label: "Pending onboarding reminders", description: "A staffer you invited still hasn't finished onboarding after a few days.", audience: "manager", digestable: true },
   { key: "staffLeft", label: "Staffer self-left", description: "A staffer soft-left the company from their own Settings page. Any accepted shifts are already cancelled; follow up if you want them back.", audience: "manager", digestable: true },
