@@ -76,10 +76,16 @@ export const DEFAULT_PREFS: Readonly<Record<NotificationKey, ChannelPrefs>> = Ob
  * Does this user currently want to receive this notification on this
  * channel? Pass whatever's stored on users.notification_preferences and
  * the (key, channel) being checked.
+ *
+ * Staff rule: email is always-on for every staff channel. If the user
+ * is staff, they can only opt out of SMS. The app's job is to tell
+ * them when they're invited / cancelled / changed - email is the
+ * floor. SMS is the extra.
  */
 export function userWantsNotification(stored: unknown, key: NotificationKey, delivery: Delivery = "email"): boolean {
   const meta = NOTIFICATION_CHANNELS.find((c) => c.key === key);
   if (meta?.alwaysOn) return true;
+  if (meta?.audience === "staff" && delivery === "email") return true;
   if (!stored || typeof stored !== "object") return DEFAULT_CHANNELS[delivery];
   const entry = (stored as Record<string, unknown>)[key];
   // Backward compat: older rows stored a plain boolean.
@@ -116,6 +122,8 @@ export function resolvePreferences(stored: unknown): Record<NotificationKey, Cha
         if (typeof sm === "boolean") out[meta.key].sms = sm;
       }
     }
+    // Staff rule: email is always on, no matter what's stored.
+    if (meta.audience === "staff") out[meta.key].email = true;
   }
   return out;
 }
@@ -127,7 +135,10 @@ export function prefsFromFormData(getter: (key: string) => FormDataEntryValue | 
     if (meta.audience !== audience) continue;
     if (meta.alwaysOn) continue;
     out[meta.key] = {
-      email: getter(`pref_${meta.key}_email`) !== null,
+      // Staff email is locked on - the form doesn't submit it as a
+      // checkbox at all, but we hardcode it true here so even a
+      // crafted submission can't drop below the floor.
+      email: audience === "staff" ? true : getter(`pref_${meta.key}_email`) !== null,
       sms: getter(`pref_${meta.key}_sms`) !== null,
     };
   }

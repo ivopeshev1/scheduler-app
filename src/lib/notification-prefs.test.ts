@@ -10,20 +10,28 @@ describe("userWantsNotification", () => {
     expect(userWantsNotification({}, "shiftReminder", "sms")).toBe(true);
     expect(userWantsNotification(undefined, "shiftReminder", "email")).toBe(true);
   });
-  it("respects per-channel stored values", () => {
-    const stored = { shiftReminder: { email: false, sms: true } };
-    expect(userWantsNotification(stored, "shiftReminder", "email")).toBe(false);
-    expect(userWantsNotification(stored, "shiftReminder", "sms")).toBe(true);
+  it("staff email is always on, regardless of what's stored", () => {
+    // Staff channel - stored false should NOT turn off email.
+    expect(userWantsNotification({ shiftReminder: { email: false, sms: false } }, "shiftReminder", "email")).toBe(true);
+    expect(userWantsNotification({ shiftReminder: false }, "shiftReminder", "email")).toBe(true);
+    // SMS still respects the stored value.
+    expect(userWantsNotification({ shiftReminder: { email: false, sms: false } }, "shiftReminder", "sms")).toBe(false);
+    expect(userWantsNotification({ shiftReminder: { email: true, sms: true } }, "shiftReminder", "sms")).toBe(true);
   });
-  it("falls back to default when only one channel is stored", () => {
-    const stored = { shiftReminder: { email: false } };
-    expect(userWantsNotification(stored, "shiftReminder", "email")).toBe(false);
-    expect(userWantsNotification(stored, "shiftReminder", "sms")).toBe(true);
+  it("manager email respects per-channel stored values", () => {
+    const stored = { dailyDigest: { email: false, sms: true } };
+    expect(userWantsNotification(stored, "dailyDigest", "email")).toBe(false);
+    expect(userWantsNotification(stored, "dailyDigest", "sms")).toBe(true);
   });
-  it("respects legacy boolean values", () => {
-    const stored = { shiftReminder: false };
-    expect(userWantsNotification(stored, "shiftReminder", "email")).toBe(false);
-    expect(userWantsNotification(stored, "shiftReminder", "sms")).toBe(false);
+  it("falls back to default when only one channel is stored on a manager key", () => {
+    const stored = { dailyDigest: { email: false } };
+    expect(userWantsNotification(stored, "dailyDigest", "email")).toBe(false);
+    expect(userWantsNotification(stored, "dailyDigest", "sms")).toBe(true);
+  });
+  it("respects legacy boolean values on manager keys", () => {
+    const stored = { dailyDigest: false };
+    expect(userWantsNotification(stored, "dailyDigest", "email")).toBe(false);
+    expect(userWantsNotification(stored, "dailyDigest", "sms")).toBe(false);
   });
   it("ignores stored prefs on alwaysOn channels", () => {
     expect(userWantsNotification({ shiftInvite: { email: false, sms: false } }, "shiftInvite", "email")).toBe(true);
@@ -33,10 +41,14 @@ describe("userWantsNotification", () => {
 });
 
 describe("resolvePreferences", () => {
-  it("fills defaults for missing keys / channels", () => {
-    const r = resolvePreferences({ shiftReminder: { email: false } });
-    expect(r.shiftReminder).toEqual({ email: false, sms: true });
-    expect(r.beoSent).toEqual({ email: true, sms: true });
+  it("staff email is always on, even if stored false", () => {
+    const r = resolvePreferences({ shiftReminder: { email: false, sms: false } });
+    expect(r.shiftReminder).toEqual({ email: true, sms: false });
+  });
+  it("fills defaults for missing keys / channels (manager)", () => {
+    const r = resolvePreferences({ dailyDigest: { email: false } });
+    expect(r.dailyDigest).toEqual({ email: false, sms: true });
+    expect(r.inviteResponse).toEqual({ email: true, sms: true });
   });
   it("forces alwaysOn keys to on", () => {
     const r = resolvePreferences({ shiftInvite: { email: false, sms: false } });
@@ -46,19 +58,23 @@ describe("resolvePreferences", () => {
     const r = resolvePreferences(null);
     expect(r.shiftReminder).toEqual({ email: true, sms: true });
   });
-  it("handles legacy boolean entries", () => {
+  it("legacy boolean entries carry through on manager keys", () => {
+    const r = resolvePreferences({ dailyDigest: false });
+    expect(r.dailyDigest).toEqual({ email: false, sms: false });
+  });
+  it("legacy boolean entries can't drop staff email below the floor", () => {
     const r = resolvePreferences({ shiftReminder: false });
-    expect(r.shiftReminder).toEqual({ email: false, sms: false });
+    expect(r.shiftReminder).toEqual({ email: true, sms: false });
   });
 });
 
 describe("prefsFromFormData", () => {
-  it("reads both channels for each toggleable staff channel", () => {
-    const checked = new Set(["pref_shiftReminder_email"]);
+  it("staff email is forced true, SMS reads from the form", () => {
+    const checked = new Set(["pref_shiftReminder_sms"]);
     const getter = (k: string): FormDataEntryValue | null => (checked.has(k) ? "on" : null);
     const result = prefsFromFormData(getter, "staff");
-    expect(result.shiftReminder).toEqual({ email: true, sms: false });
-    expect(result.beoSent).toEqual({ email: false, sms: false });
+    expect(result.shiftReminder).toEqual({ email: true, sms: true });
+    expect(result.beoSent).toEqual({ email: true, sms: false });
     expect("shiftInvite" in result).toBe(false); // alwaysOn omitted
     expect("inviteResponse" in result).toBe(false); // other audience
   });

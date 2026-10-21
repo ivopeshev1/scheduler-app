@@ -269,7 +269,7 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 }
 
 function PendingInviteCard({ row }: { row: Row }) {
-  const { inv, pos, evt, estPay } = row;
+  const { inv, pos, evt, rate, rateType } = row;
   return (
     <li className="border rounded-lg p-4 bg-yellow-50/60 border-yellow-200">
       <div className="flex items-baseline justify-between gap-3">
@@ -285,7 +285,7 @@ function PendingInviteCard({ row }: { row: Row }) {
         {inv.tier > 0 && <span className="ml-2 text-xs text-gray-500">(backup)</span>}
       </div>
       <div className="mt-1 text-sm text-gray-700">
-        Pay: <strong>${estPay.toFixed(2)}</strong>
+        Rate: {formatRate(rate, rateType)}
       </div>
       <div className="mt-3 flex items-center gap-3">
         <Link

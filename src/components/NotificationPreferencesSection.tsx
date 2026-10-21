@@ -37,7 +37,9 @@ export function NotificationPreferencesSection({
     <section className="border rounded-lg bg-white p-6">
       <h2 className="font-semibold text-lg mb-1">Notifications</h2>
       <p className="text-sm text-gray-600 mb-4">
-        Pick what you want and how. Changes save when you click the button at the bottom.
+        {audience === "staff"
+          ? "Email is always on so you never miss shift info. SMS is up to you — turn it on for the things you want texts about."
+          : "Pick what you want and how. Changes save when you click the button at the bottom."}
       </p>
       <div className="mb-5 border border-amber-200 bg-amber-50 rounded p-3 text-xs text-amber-900">
         SMS delivery is almost ready — the carrier approval is still in flight. Your SMS
@@ -59,14 +61,27 @@ export function NotificationPreferencesSection({
                   <p className="text-xs text-gray-600 mt-0.5">{c.description}</p>
                 </div>
                 <div className="flex justify-center items-start pt-0.5">
-                  <input
-                    type="checkbox"
-                    id={`pref_${c.key}_email`}
-                    name={`pref_${c.key}_email`}
-                    defaultChecked={resolved[c.key].email}
-                    className="w-5 h-5"
-                    aria-label={`${c.label} — email`}
-                  />
+                  {audience === "staff" ? (
+                    // Email is the floor for staff - locked on, no checkbox
+                    // submitted (server also hard-forces email: true for safety).
+                    <input
+                      type="checkbox"
+                      checked
+                      disabled
+                      className="w-5 h-5 opacity-60 cursor-not-allowed"
+                      aria-label={`${c.label} — email (always on)`}
+                      title="Email is always on so you don't miss shift info."
+                    />
+                  ) : (
+                    <input
+                      type="checkbox"
+                      id={`pref_${c.key}_email`}
+                      name={`pref_${c.key}_email`}
+                      defaultChecked={resolved[c.key].email}
+                      className="w-5 h-5"
+                      aria-label={`${c.label} — email`}
+                    />
+                  )}
                 </div>
                 <div className="flex justify-center items-start pt-0.5">
                   <input
