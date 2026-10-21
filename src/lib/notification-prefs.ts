@@ -85,12 +85,11 @@ export const DEFAULT_PREFS: Readonly<Record<NotificationKey, ChannelPrefs>> = Ob
  * floor. SMS is the extra.
  */
 export function userWantsNotification(stored: unknown, key: NotificationKey, delivery: Delivery = "email"): boolean {
-  const meta = NOTIFICATION_CHANNELS.find((c) => c.key === key);
-  // alwaysOn locks EMAIL only - "required" means we must email you about
-  // this; SMS stays your call because a 2am password-reset text would be
-  // worse than the email it duplicates.
-  if (meta?.alwaysOn && delivery === "email") return true;
-  if (meta?.audience === "staff" && delivery === "email") return true;
+  // Email is a floor for everyone - staff + manager. The audit trail
+  // through the inbox is the backstop when the app isn't open. SMS is
+  // always the user's call because a 2am text would be worse than the
+  // email it duplicates.
+  if (delivery === "email") return true;
   if (!stored || typeof stored !== "object") return DEFAULT_CHANNELS[delivery];
   const entry = (stored as Record<string, unknown>)[key];
   // Backward compat: older rows stored a plain boolean.
@@ -125,8 +124,8 @@ export function resolvePreferences(stored: unknown): Record<NotificationKey, Cha
         if (typeof sm === "boolean") out[meta.key].sms = sm;
       }
     }
-    // Email floor: alwaysOn + staff audience both lock email on.
-    if (meta.alwaysOn || meta.audience === "staff") out[meta.key].email = true;
+    // Email is a floor for everyone, always.
+    out[meta.key].email = true;
   }
   return out;
 }
@@ -136,12 +135,9 @@ export function prefsFromFormData(getter: (key: string) => FormDataEntryValue | 
   const out: NotificationPrefs = {};
   for (const meta of NOTIFICATION_CHANNELS) {
     if (meta.audience !== audience) continue;
-    // SMS is user-choosable on every channel (even alwaysOn). Email is
-    // locked on for staff + for every alwaysOn channel; otherwise reads
-    // the checkbox state.
-    const emailLocked = meta.alwaysOn || audience === "staff";
+    // Email is a floor for everyone, locked true. SMS reads the form.
     out[meta.key] = {
-      email: emailLocked ? true : getter(`pref_${meta.key}_email`) !== null,
+      email: true,
       sms: getter(`pref_${meta.key}_sms`) !== null,
     };
   }

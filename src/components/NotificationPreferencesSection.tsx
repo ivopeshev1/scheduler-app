@@ -35,9 +35,8 @@ export function NotificationPreferencesSection({
     <section className="border rounded-lg bg-white p-6">
       <h2 className="font-semibold text-lg mb-1">Notifications</h2>
       <p className="text-sm text-gray-600 mb-4">
-        {audience === "staff"
-          ? "Email is always on so you never miss shift info. SMS is up to you — turn it on for the things you want texts about."
-          : "Pick what you want and how. A few require the email (shown with a locked box) because missing them would break your workflow. SMS is always your call."}
+        Email is always on so you have an audit trail you can go back to. SMS is up to you —
+        turn it on for the things you actually want texts about.
       </p>
       <div className="mb-5 border border-amber-200 bg-amber-50 rounded p-3 text-xs text-amber-900">
         SMS delivery is almost ready — the carrier approval is still in flight. Your SMS
@@ -53,43 +52,24 @@ export function NotificationPreferencesSection({
           </div>
           <ul className="divide-y">
             {rows.map((c) => {
-              const emailLocked = c.alwaysOn || audience === "staff";
               return (
                 <li
                   key={c.key}
-                  className={`grid grid-cols-[1fr_60px_60px] items-start gap-2 px-4 py-3 ${c.alwaysOn ? "bg-gray-50" : ""}`}
+                  className="grid grid-cols-[1fr_60px_60px] items-start gap-2 px-4 py-3"
                 >
                   <div className="pr-2">
-                    <div className="font-medium text-sm flex items-center gap-2">
-                      {c.label}
-                      {c.alwaysOn && (
-                        <span className="text-[10px] uppercase tracking-wide bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded">
-                          Required
-                        </span>
-                      )}
-                    </div>
+                    <div className="font-medium text-sm">{c.label}</div>
                     <p className="text-xs text-gray-600 mt-0.5">{c.description}</p>
                   </div>
                   <div className="flex justify-center items-start pt-0.5">
-                    {emailLocked ? (
-                      <input
-                        type="checkbox"
-                        checked
-                        disabled
-                        className="w-5 h-5 opacity-60 cursor-not-allowed"
-                        aria-label={`${c.label} — email (always on)`}
-                        title={c.alwaysOn ? "This notification can't be turned off." : "Email is always on so you don't miss shift info."}
-                      />
-                    ) : (
-                      <input
-                        type="checkbox"
-                        id={`pref_${c.key}_email`}
-                        name={`pref_${c.key}_email`}
-                        defaultChecked={resolved[c.key].email}
-                        className="w-5 h-5"
-                        aria-label={`${c.label} — email`}
-                      />
-                    )}
+                    <input
+                      type="checkbox"
+                      checked
+                      disabled
+                      className="w-5 h-5 opacity-60 cursor-not-allowed"
+                      aria-label={`${c.label} — email (always on)`}
+                      title="Email is always on so you have an audit trail you can go back to."
+                    />
                   </div>
                   <div className="flex justify-center items-start pt-0.5">
                     <input

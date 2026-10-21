@@ -24,13 +24,13 @@ describe("userWantsNotification", () => {
     expect(userWantsNotification({ shiftReminder: { email: false, sms: true } }, "shiftReminder", "sms")).toBe(true);
     expect(userWantsNotification({ shiftReminder: false }, "shiftReminder", "sms")).toBe(false);
   });
-  it("manager email respects per-channel stored values", () => {
+  it("manager email is also always on, SMS still per-channel", () => {
     const stored = { dailyDigest: { email: false, sms: true } };
-    expect(userWantsNotification(stored, "dailyDigest", "email")).toBe(false);
+    expect(userWantsNotification(stored, "dailyDigest", "email")).toBe(true);
     expect(userWantsNotification(stored, "dailyDigest", "sms")).toBe(true);
   });
-  it("legacy boolean on manager key carries through on both channels", () => {
-    expect(userWantsNotification({ dailyDigest: false }, "dailyDigest", "email")).toBe(false);
+  it("legacy boolean false can't drop email below the floor on manager keys", () => {
+    expect(userWantsNotification({ dailyDigest: false }, "dailyDigest", "email")).toBe(true);
     expect(userWantsNotification({ dailyDigest: false }, "dailyDigest", "sms")).toBe(false);
   });
 });
@@ -47,9 +47,9 @@ describe("resolvePreferences", () => {
     const r2 = resolvePreferences({ shiftInvite: { email: false, sms: true } });
     expect(r2.shiftInvite).toEqual({ email: true, sms: true });
   });
-  it("manager optional respects stored", () => {
+  it("manager email always on, SMS respects stored", () => {
     const r = resolvePreferences({ dailyDigest: { email: false, sms: false } });
-    expect(r.dailyDigest).toEqual({ email: false, sms: false });
+    expect(r.dailyDigest).toEqual({ email: true, sms: false });
   });
   it("null input yields email-on + SMS-off defaults everywhere", () => {
     const r = resolvePreferences(null);
@@ -69,14 +69,14 @@ describe("prefsFromFormData", () => {
     expect(result.beoSent).toEqual({ email: true, sms: false });
     expect("inviteResponse" in result).toBe(false); // other audience
   });
-  it("manager: email forced true for alwaysOn, togglable otherwise", () => {
-    const checked = new Set(["pref_dailyDigest_email", "pref_staffCancellation_sms"]);
+  it("manager: email forced true everywhere, SMS reads form", () => {
+    const checked = new Set(["pref_staffCancellation_sms"]);
     const getter = (k: string): FormDataEntryValue | null => (checked.has(k) ? "on" : null);
     const result = prefsFromFormData(getter, "manager");
-    expect(result.staffCancellation).toEqual({ email: true, sms: true }); // email locked
-    expect(result.urgentOpenShifts).toEqual({ email: true, sms: false }); // email locked
+    expect(result.staffCancellation).toEqual({ email: true, sms: true });
+    expect(result.urgentOpenShifts).toEqual({ email: true, sms: false });
     expect(result.dailyDigest).toEqual({ email: true, sms: false });
-    expect(result.backupNudge).toEqual({ email: false, sms: false });
+    expect(result.backupNudge).toEqual({ email: true, sms: false });
   });
   it("every audience channel appears in the result", () => {
     const getter = (): FormDataEntryValue | null => null;
