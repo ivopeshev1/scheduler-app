@@ -369,9 +369,13 @@ export async function runMigrations(): Promise<void> {
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_owner BOOLEAN NOT NULL DEFAULT false`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS can_edit_settings BOOLEAN NOT NULL DEFAULT false`;
-  // Any pre-existing manager is also the company owner (there was only one per
-  // company before this feature existed). Idempotent on re-run.
-  await sql`UPDATE users SET is_owner = true, can_edit_settings = true WHERE role = 'manager' AND is_owner = false`;
+  // Historical note: this migration used to promote every manager with
+  // is_owner=false to is_owner=true, claiming "pre-existing single-manager
+  // companies are the owner." That ran on every cold start and silently
+  // re-promoted every freshly invited manager back to owner. Removed.
+  // Legacy single-manager companies have long since been through the
+  // "collapse multiple owners" migration below and the delta is behind
+  // us.
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS can_access_calendar BOOLEAN NOT NULL DEFAULT true`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS can_access_staff BOOLEAN NOT NULL DEFAULT true`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS can_access_log BOOLEAN NOT NULL DEFAULT true`;
