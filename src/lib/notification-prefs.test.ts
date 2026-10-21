@@ -1,86 +1,105 @@
 import { describe, it, expect } from "vitest";
 import {
   userWantsNotification, resolvePreferences, prefsFromFormData,
+  emailModeFor, shouldSendImmediateEmail, shouldIncludeInDigest,
   NOTIFICATION_CHANNELS,
 } from "./notification-prefs";
 
 describe("userWantsNotification", () => {
-  it("defaults: email on everywhere, SMS off everywhere", () => {
+  it("email is always on everywhere", () => {
     expect(userWantsNotification(null, "shiftReminder", "email")).toBe(true);
+    expect(userWantsNotification(null, "dailyDigest", "email")).toBe(true);
+    expect(userWantsNotification({ dailyDigest: { email: false, sms: false } }, "dailyDigest", "email")).toBe(true);
+    expect(userWantsNotification({ dailyDigest: false }, "dailyDigest", "email")).toBe(true);
+  });
+  it("SMS default off, respects stored value", () => {
     expect(userWantsNotification(null, "shiftReminder", "sms")).toBe(false);
-    expect(userWantsNotification(null, "shiftInvite", "email")).toBe(true);
-    expect(userWantsNotification(null, "shiftInvite", "sms")).toBe(false);
-    expect(userWantsNotification(null, "passwordReset", "sms")).toBe(false);
-    expect(userWantsNotification(null, "accountChange", "sms")).toBe(false);
-    expect(userWantsNotification(null, "beoSent", "sms")).toBe(false);
+    expect(userWantsNotification({ shiftReminder: { email: true, sms: true } }, "shiftReminder", "sms")).toBe(true);
+    expect(userWantsNotification({ shiftReminder: { email: true, sms: false } }, "shiftReminder", "sms")).toBe(false);
   });
-  it("alwaysOn forces email on, but SMS stays user-choice", () => {
-    expect(userWantsNotification({ shiftInvite: { email: false, sms: true } }, "shiftInvite", "email")).toBe(true);
-    expect(userWantsNotification({ shiftInvite: { email: false, sms: true } }, "shiftInvite", "sms")).toBe(true);
-    expect(userWantsNotification({ shiftInvite: { email: false, sms: false } }, "shiftInvite", "sms")).toBe(false);
-  });
-  it("staff email always on, SMS stays user-choice", () => {
-    expect(userWantsNotification({ shiftReminder: { email: false, sms: false } }, "shiftReminder", "email")).toBe(true);
-    expect(userWantsNotification({ shiftReminder: { email: false, sms: true } }, "shiftReminder", "sms")).toBe(true);
+  it("legacy boolean row read for SMS", () => {
+    expect(userWantsNotification({ shiftReminder: true }, "shiftReminder", "sms")).toBe(true);
     expect(userWantsNotification({ shiftReminder: false }, "shiftReminder", "sms")).toBe(false);
   });
-  it("manager email is also always on, SMS still per-channel", () => {
-    const stored = { dailyDigest: { email: false, sms: true } };
-    expect(userWantsNotification(stored, "dailyDigest", "email")).toBe(true);
-    expect(userWantsNotification(stored, "dailyDigest", "sms")).toBe(true);
+});
+
+describe("emailModeFor", () => {
+  it("defaults to individual", () => {
+    expect(emailModeFor(null, "inviteResponse")).toBe("individual");
+    expect(emailModeFor({}, "inviteResponse")).toBe("individual");
   });
-  it("legacy boolean false can't drop email below the floor on manager keys", () => {
-    expect(userWantsNotification({ dailyDigest: false }, "dailyDigest", "email")).toBe(true);
-    expect(userWantsNotification({ dailyDigest: false }, "dailyDigest", "sms")).toBe(false);
+  it("reads stored mode when digestable", () => {
+    expect(emailModeFor({ inviteResponse: { email: true, sms: false, emailMode: "summary" } }, "inviteResponse")).toBe("summary");
+    expect(emailModeFor({ inviteResponse: { email: true, sms: false, emailMode: "both" } }, "inviteResponse")).toBe("both");
+  });
+  it("forces non-digestable channels to individual, no matter what's stored", () => {
+    expect(emailModeFor({ urgentOpenShifts: { email: true, sms: false, emailMode: "summary" } }, "urgentOpenShifts")).toBe("individual");
+    expect(emailModeFor({ staffCancellation: { email: true, sms: false, emailMode: "both" } }, "staffCancellation")).toBe("individual");
+  });
+});
+
+describe("shouldSendImmediateEmail", () => {
+  it("individual + both fire immediately", () => {
+    expect(shouldSendImmediateEmail({ inviteResponse: { email: true, sms: false, emailMode: "individual" } }, "inviteResponse")).toBe(true);
+    expect(shouldSendImmediateEmail({ inviteResponse: { email: true, sms: false, emailMode: "both" } }, "inviteResponse")).toBe(true);
+  });
+  it("summary does NOT fire immediately", () => {
+    expect(shouldSendImmediateEmail({ inviteResponse: { email: true, sms: false, emailMode: "summary" } }, "inviteResponse")).toBe(false);
+  });
+  it("non-digestable channels always fire immediately regardless of stored mode", () => {
+    expect(shouldSendImmediateEmail({ urgentOpenShifts: { email: true, sms: false, emailMode: "summary" } }, "urgentOpenShifts")).toBe(true);
+  });
+});
+
+describe("shouldIncludeInDigest", () => {
+  it("summary + both go into the digest", () => {
+    expect(shouldIncludeInDigest({ inviteResponse: { email: true, sms: false, emailMode: "summary" } }, "inviteResponse")).toBe(true);
+    expect(shouldIncludeInDigest({ inviteResponse: { email: true, sms: false, emailMode: "both" } }, "inviteResponse")).toBe(true);
+  });
+  it("individual does NOT go into the digest", () => {
+    expect(shouldIncludeInDigest({ inviteResponse: { email: true, sms: false, emailMode: "individual" } }, "inviteResponse")).toBe(false);
+  });
+  it("non-digestable channels never go into the digest", () => {
+    expect(shouldIncludeInDigest({ urgentOpenShifts: { email: true, sms: false, emailMode: "summary" } }, "urgentOpenShifts")).toBe(false);
   });
 });
 
 describe("resolvePreferences", () => {
-  it("staff email always on", () => {
-    const r = resolvePreferences({ shiftReminder: { email: false, sms: false } });
-    expect(r.shiftReminder).toEqual({ email: true, sms: false });
-  });
-  it("required (alwaysOn) email on + SMS user-choice", () => {
-    const r = resolvePreferences({});
-    expect(r.shiftInvite).toEqual({ email: true, sms: false }); // default off
-    expect(r.passwordReset).toEqual({ email: true, sms: false });
-    const r2 = resolvePreferences({ shiftInvite: { email: false, sms: true } });
-    expect(r2.shiftInvite).toEqual({ email: true, sms: true });
-  });
-  it("manager email always on, SMS respects stored", () => {
-    const r = resolvePreferences({ dailyDigest: { email: false, sms: false } });
-    expect(r.dailyDigest).toEqual({ email: true, sms: false });
-  });
-  it("null input yields email-on + SMS-off defaults everywhere", () => {
+  it("fills defaults", () => {
     const r = resolvePreferences(null);
-    expect(r.shiftReminder).toEqual({ email: true, sms: false });
-    expect(r.shiftInvite).toEqual({ email: true, sms: false });
-    expect(r.beoSent).toEqual({ email: true, sms: false });
+    expect(r.inviteResponse).toEqual({ email: true, sms: false, emailMode: "individual" });
+    expect(r.urgentOpenShifts).toEqual({ email: true, sms: false, emailMode: "individual" });
+  });
+  it("non-digestable channels can't store a mode other than individual", () => {
+    const r = resolvePreferences({ urgentOpenShifts: { email: true, sms: true, emailMode: "summary" } });
+    expect(r.urgentOpenShifts).toEqual({ email: true, sms: true, emailMode: "individual" });
+  });
+  it("digestable channels keep stored mode", () => {
+    const r = resolvePreferences({ newStaffJoined: { email: true, sms: false, emailMode: "both" } });
+    expect(r.newStaffJoined).toEqual({ email: true, sms: false, emailMode: "both" });
   });
 });
 
 describe("prefsFromFormData", () => {
-  it("staff: email forced true, SMS reads form - even for required channels", () => {
-    const checked = new Set(["pref_shiftReminder_sms", "pref_shiftInvite_sms"]);
-    const getter = (k: string): FormDataEntryValue | null => (checked.has(k) ? "on" : null);
-    const result = prefsFromFormData(getter, "staff");
-    expect(result.shiftReminder).toEqual({ email: true, sms: true });
-    expect(result.shiftInvite).toEqual({ email: true, sms: true });
-    expect(result.beoSent).toEqual({ email: true, sms: false });
-    expect("inviteResponse" in result).toBe(false); // other audience
-  });
-  it("manager: email forced true everywhere, SMS reads form", () => {
-    const checked = new Set(["pref_staffCancellation_sms"]);
-    const getter = (k: string): FormDataEntryValue | null => (checked.has(k) ? "on" : null);
+  it("manager: SMS reads form, mode reads form only for digestable channels", () => {
+    const checked = new Set(["pref_inviteResponse_sms", "pref_urgentOpenShifts_sms"]);
+    const values: Record<string, string> = {
+      pref_inviteResponse_mode: "summary",
+      pref_newStaffJoined_mode: "both",
+      pref_urgentOpenShifts_mode: "summary", // ignored; not digestable
+    };
+    const getter = (k: string): FormDataEntryValue | null => {
+      if (k in values) return values[k];
+      if (checked.has(k)) return "on";
+      return null;
+    };
     const result = prefsFromFormData(getter, "manager");
-    expect(result.staffCancellation).toEqual({ email: true, sms: true });
-    expect(result.urgentOpenShifts).toEqual({ email: true, sms: false });
-    expect(result.dailyDigest).toEqual({ email: true, sms: false });
-    expect(result.backupNudge).toEqual({ email: true, sms: false });
+    expect(result.inviteResponse).toEqual({ email: true, sms: true, emailMode: "summary" });
+    expect(result.newStaffJoined).toEqual({ email: true, sms: false, emailMode: "both" });
+    expect(result.urgentOpenShifts).toEqual({ email: true, sms: true, emailMode: "individual" });
   });
-  it("every audience channel appears in the result", () => {
-    const getter = (): FormDataEntryValue | null => null;
-    const r = prefsFromFormData(getter, "manager");
+  it("every manager-audience channel appears in the result", () => {
+    const r = prefsFromFormData(() => null, "manager");
     const expected = NOTIFICATION_CHANNELS.filter((c) => c.audience === "manager").map((c) => c.key);
     for (const k of expected) expect(k in r).toBe(true);
   });
