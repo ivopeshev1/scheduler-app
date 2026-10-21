@@ -19,7 +19,7 @@ import { resolveRate, shiftPay } from "@/lib/shift-pay";
  * the system is holding behind the priority invitees - it's NOT a real offer
  * yet, so we filter those out of the Pending list.
  */
-export default async function StaffHomePage({ searchParams }: { searchParams: { welcome?: string } }) {
+export default async function StaffHomePage({ searchParams }: { searchParams: { welcome?: string; cancelled?: string } }) {
   const session = await getSession();
   if (!session) redirect("/login");
   if (session.role !== "staff") redirect("/manager");
@@ -97,6 +97,7 @@ export default async function StaffHomePage({ searchParams }: { searchParams: { 
   const nextShift = confirmed[0] ?? null;
 
   const showWelcome = searchParams.welcome === "1";
+  const showCancelled = searchParams.cancelled === "1";
 
   return (
     <div>
@@ -105,6 +106,11 @@ export default async function StaffHomePage({ searchParams }: { searchParams: { 
         {showWelcome && (
           <div className="border border-green-300 bg-green-50 rounded p-4 text-sm text-green-900">
             Welcome aboard, {profile?.firstName ?? "there"}! Your account is set up. Your manager can start sending you shift invites now.
+          </div>
+        )}
+        {showCancelled && (
+          <div className="border border-amber-300 bg-amber-50 rounded p-4 text-sm text-amber-900">
+            Shift cancelled. Your manager has been notified.
           </div>
         )}
 
@@ -205,7 +211,7 @@ function NextShiftCard({ row }: { row: Row }) {
     ? { label: "BEO sent — not yet acknowledged", tone: "warn" as const }
     : { label: "BEO not sent yet", tone: "muted" as const };
   return (
-    <div className="border-2 border-black rounded-lg p-5 bg-white">
+    <Link href={`/staff/shift/${inv.id}`} className="block border-2 border-black rounded-lg p-5 bg-white hover:bg-gray-50 transition-colors">
       <div className="flex items-baseline justify-between gap-3">
         <div className="text-xl font-semibold">{formatDate(evt.date)}</div>
         <div className="text-sm text-gray-600">
@@ -248,7 +254,8 @@ function NextShiftCard({ row }: { row: Row }) {
           {evt.staffNotes}
         </div>
       )}
-    </div>
+      <div className="mt-3 text-xs text-gray-500">Click for full details, roster, and cancel option →</div>
+    </Link>
   );
 }
 
@@ -304,16 +311,21 @@ function ConfirmedShiftRow({ row, isNext }: { row: Row; isNext: boolean }) {
   const { inv, pos, evt, rate, rateType } = row;
   if (isNext) return null; // already shown in Next shift card
   return (
-    <li className="border rounded-lg p-3 flex items-center justify-between gap-3 bg-white">
-      <div>
-        <div className="text-sm font-medium">{formatDate(evt.date)}</div>
-        <div className="text-xs text-gray-600">
-          {formatTime(evt.checkInTime)} – {formatTime(evt.endTime)} · {pos.role}
-          {evt.venue ? ` · ${evt.venue}` : ""}
-          {inv.isOnCall ? " · on-call" : ""}
+    <li>
+      <Link
+        href={`/staff/shift/${inv.id}`}
+        className="border rounded-lg p-3 flex items-center justify-between gap-3 bg-white hover:bg-gray-50 transition-colors"
+      >
+        <div>
+          <div className="text-sm font-medium">{formatDate(evt.date)}</div>
+          <div className="text-xs text-gray-600">
+            {formatTime(evt.checkInTime)} – {formatTime(evt.endTime)} · {pos.role}
+            {evt.venue ? ` · ${evt.venue}` : ""}
+            {inv.isOnCall ? " · on-call" : ""}
+          </div>
         </div>
-      </div>
-      <div className="text-sm text-gray-700 shrink-0">{formatRate(rate, rateType)}</div>
+        <div className="text-sm text-gray-700 shrink-0">{formatRate(rate, rateType)}</div>
+      </Link>
     </li>
   );
 }
