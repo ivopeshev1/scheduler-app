@@ -157,7 +157,7 @@ export async function AppHeader({
             profileHref={role === "manager" ? "/manager/onboard" : "/staff/profile"}
             mySettingsHref={role === "manager" ? "/manager/settings/me" : "/staff/settings"}
             companySettingsHref="/manager/settings"
-            showCompanySettings={role === "manager" && !!liveIsOwner}
+            showCompanySettings={role === "manager"}
           />
         </nav>
       </div>

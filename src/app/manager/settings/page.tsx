@@ -18,6 +18,7 @@ import { revalidatePath } from "next/cache";
 import { nanoid } from "nanoid";
 import { clearSession } from "@/lib/auth";
 import { DeleteCompanyButton } from "./DeleteCompanyButton";
+import { RequestChangesButton } from "./RequestChangesButton";
 
 // Max logo file size. 1 MB is plenty for a header icon and keeps the row
 // size reasonable even if we're storing the image inline as a data URL.
@@ -39,6 +40,63 @@ async function requireSettingsAccess() {
   // Per-user preferences live under /manager/onboard for everyone.)
   if (!me?.isOwner) throw new Error("Forbidden: only the company owner can edit company settings");
   return { session, me };
+}
+
+/**
+ * NON-OWNER MANAGERS. Email the owner(s) that this manager wants a change
+ * to a company-wide setting. Managers can see every setting but can only
+ * edit a handful (nothing in on-call, notifications, pay periods, add-ons,
+ * event fields - all of those stay owner-controlled). The owners get the
+ * manager's name, the section they're asking about, and a free-text
+ * message with what they want changed.
+ */
+async function requestSettingsChangesAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "manager") throw new Error("Unauthorized");
+  const section = String(formData.get("section") ?? "").trim();
+  const message = String(formData.get("message") ?? "").trim();
+  if (!section || !message) {
+    redirect("/manager/settings?error=" + encodeURIComponent("Tell the owner what you'd like changed."));
+  }
+  const [me] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
+  const [myProfile] = await db.select().from(schema.managerProfiles).where(eq(schema.managerProfiles.userId, session.userId));
+  const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
+  const owners = await db
+    .select()
+    .from(schema.users)
+    .where(and(eq(schema.users.companyId, session.companyId), eq(schema.users.role, "manager")));
+  const ownerList = owners.filter((u) => u.isOwner && !u.archivedAt);
+  const myName = myProfile ? `${myProfile.firstName} ${myProfile.lastName}` : me?.email ?? "Someone";
+  const companyName = company?.name ?? "the company";
+  const { sendEmail } = await import("@/lib/notifications");
+  const { shellWrap, greeting, paragraph, signoff, banner } = await import("@/lib/email-html");
+  const subject = `[${companyName}] ${myName} is requesting a settings change`;
+  for (const owner of ownerList) {
+    await sendEmail({
+      to: owner.email,
+      companyId: session.companyId,
+      userId: owner.id,
+      subject,
+      body:
+        `${myName} is asking you to update a company-wide setting.\n\n` +
+        `Section: ${section}\n\n` +
+        `What they'd like:\n${message}\n\n` +
+        `Open ${companyName} Settings to make the change (or reply to let them know).`,
+      html: shellWrap(
+        [
+          banner(`${myName} is asking you to update a setting`, "info"),
+          greeting(null, `Section: ${section}`),
+          paragraph(`What they'd like:`),
+          `<p style="margin:0 0 20px;white-space:pre-wrap;">${message.replace(/</g, "&lt;")}</p>`,
+          paragraph(`Open ${companyName} Settings to make the change — or just reply to let them know.`, { muted: true }),
+          signoff(companyName),
+        ].join("\n"),
+      ),
+    });
+  }
+  revalidatePath("/manager/settings");
+  redirect("/manager/settings?saved=change-requested");
 }
 
 /**
@@ -281,7 +339,14 @@ async function savePayPeriodAction(formData: FormData) {
 
 async function addRoleAction(formData: FormData) {
   "use server";
-  const { session } = await requireSettingsAccess();
+  // Any manager with Staff access can add to the role catalog - they're
+  // the ones hiring and hitting the "we need a role that isn't in the
+  // dropdown" case. Removing / reordering / toggling the 21+ gate stays
+  // owner-only (see the actions below).
+  const session = await getSession();
+  if (!session || session.role !== "manager") throw new Error("Unauthorized");
+  const [me] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
+  if (!me?.isOwner && !me?.canAccessStaff) throw new Error("Forbidden: Staff access required to add roles");
   const name = String(formData.get("name") ?? "").trim();
   // 21+ gating per role. Alcohol-service roles need it on; most others
   // leave it off ("open to all").
@@ -548,9 +613,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
 
   const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
   const [user] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
-  if (!user?.isOwner) {
-    redirect("/manager?denied=settings");
-  }
+  if (!user) redirect("/login");
+  // Non-owner managers can VIEW company settings now so they know what the
+  // rules are and can request changes. Mutating actions keep their own
+  // requireSettingsAccess guard, which still fails for non-owners.
+  const canEdit = !!user.isOwner;
 
   const roles = await db
     .select()
@@ -647,10 +714,15 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
         <div>
           <Link href="/manager" className="text-sm text-gray-500 hover:underline">← Back to calendar</Link>
           <h1 className="text-2xl font-semibold mt-2">Settings</h1>
-          <p className="text-sm text-gray-600">Company info, notification rules, roles, and more.</p>
+          <p className="text-sm text-gray-600">
+            {canEdit
+              ? "Company info, notification rules, roles, and more."
+              : "Here's how your company's set up. The owner is the only one who can change most of this — use the Request changes buttons to ping them. Your personal preferences live on My settings."}
+          </p>
         </div>
 
         {/* -------------------- Company setup -------------------- */}
+        {canEdit && (
         <section className="border rounded-lg bg-white p-6">
           <h2 className="text-lg font-semibold mb-1">Company setup</h2>
 
@@ -743,8 +815,10 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
             </div>
           )}
         </section>
+        )}
 
         {/* -------------------- Locations -------------------- */}
+        {canEdit && (
         <section className="border rounded-lg bg-white p-6">
           <h2 className="text-lg font-semibold mb-1">Locations</h2>
           <p className="text-sm text-gray-600 mb-5">
@@ -813,28 +887,71 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
             <button type="submit" className="btn btn-primary text-sm">Add location</button>
           </form>
         </section>
+        )}
 
         {/* -------------------- Notifications (company-wide) -------------------- */}
-        <CompanyNotificationsCard
-          initialSettings={mergeNotificationSettings(company.notificationSettings)}
-          initialAutoExpireDays={company.priorityExpireDays}
-          onSave={saveNotificationSettingsAction}
-        />
+        {canEdit ? (
+          <CompanyNotificationsCard
+            initialSettings={mergeNotificationSettings(company.notificationSettings)}
+            initialAutoExpireDays={company.priorityExpireDays}
+            onSave={saveNotificationSettingsAction}
+          />
+        ) : (
+          <section className="border rounded-lg bg-white p-6">
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="font-semibold text-lg">Notifications (company-wide)</h2>
+              <RequestChangesButton section="Notifications (company-wide)" action={requestSettingsChangesAction} />
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Company-wide — only the owner can change these. Your personal email / SMS / delivery
+              choices live on your <strong>My settings</strong> page.
+            </p>
+            <dl className="text-sm space-y-2 border rounded-lg p-4 bg-gray-50">
+              <ReadOnlyRow label="Urgent threshold" value={`${mergeNotificationSettings(company.notificationSettings).manager.urgentThresholdHours} hours`} />
+              <ReadOnlyRow label="Daily digest sent at" value={formatHour(mergeNotificationSettings(company.notificationSettings).manager.digestHourLocal)} />
+              <ReadOnlyRow label="Priority invite auto-expire" value={`${company.priorityExpireDays ?? 2} days`} />
+            </dl>
+          </section>
+        )}
 
         {/* -------------------- Roles -------------------- */}
         <section className="border rounded-lg bg-white p-6">
-          <h2 className="text-lg font-semibold mb-1">Roles</h2>
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-lg font-semibold">Roles</h2>
+            {!canEdit && (
+              <RequestChangesButton section="Roles — remove / reorder / 21+ gating" action={requestSettingsChangesAction} />
+            )}
+          </div>
           <p className="text-sm text-gray-600 mb-4">
-            The list of roles you can pick from when building an event. Removing a role here hides it from
-            future dropdowns, but past events that used it keep their original label.
+            The list of roles you can pick from when building an event.
+            {canEdit
+              ? " Removing a role here hides it from future dropdowns, but past events that used it keep their original label."
+              : " Any manager with Staff access can add new roles; removing / reordering / changing the 21+ gate is owner-only."}
           </p>
 
-          <RolesList
-            initialRoles={roles.map((r) => ({ id: r.id, name: r.name, requires21Plus: !!r.requires21Plus }))}
-            onReorder={reorderRolesAction}
-            onRemove={removeRoleByIdAction}
-            onToggleAgeGate={toggleRoleAgeGateAction}
-          />
+          {canEdit ? (
+            <RolesList
+              initialRoles={roles.map((r) => ({ id: r.id, name: r.name, requires21Plus: !!r.requires21Plus }))}
+              onReorder={reorderRolesAction}
+              onRemove={removeRoleByIdAction}
+              onToggleAgeGate={toggleRoleAgeGateAction}
+            />
+          ) : (
+            <ul className="divide-y border rounded-lg mb-4">
+              {roles.length === 0 ? (
+                <li className="px-4 py-3 text-sm text-gray-500 italic">No roles configured.</li>
+              ) : (
+                roles.map((r) => (
+                  <li key={r.id} className="px-4 py-3 text-sm flex items-center justify-between">
+                    <span className="font-medium">{r.name}</span>
+                    {r.requires21Plus && (
+                      <span className="text-xs text-amber-700 font-medium">21+</span>
+                    )}
+                  </li>
+                ))
+              )}
+            </ul>
+          )}
 
           <form action={addRoleAction} className="space-y-3">
             <div>
@@ -870,61 +987,101 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
 
         {/* -------------------- On-call standby fee -------------------- */}
         <section className="border rounded-lg bg-white p-6">
-          <h2 className="text-lg font-semibold mb-1">On-call standby fee</h2>
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-lg font-semibold">On-call standby fee</h2>
+            {!canEdit && (
+              <RequestChangesButton section="On-call standby fee" action={requestSettingsChangesAction} />
+            )}
+          </div>
           <p className="text-sm text-gray-600 mb-4">
             Flat $ amount paid to any on-call staffer for keeping their calendar open, regardless
             of whether they&apos;re activated into the shift. Leave blank to disable on-call.
           </p>
-          <form action={saveOnCallFeeAction} className="flex items-end gap-3 max-w-xs">
-            <div className="flex-1">
-              <label className="label" htmlFor="onCallFee">Standby fee ($)</label>
-              <input
-                id="onCallFee"
-                name="onCallFee"
-                type="number"
-                min={0}
-                step="0.01"
-                defaultValue={company.onCallFee ?? ""}
-                className="input"
-                placeholder="e.g. 50"
+          {canEdit ? (
+            <form action={saveOnCallFeeAction} className="flex items-end gap-3 max-w-xs">
+              <div className="flex-1">
+                <label className="label" htmlFor="onCallFee">Standby fee ($)</label>
+                <input
+                  id="onCallFee"
+                  name="onCallFee"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  defaultValue={company.onCallFee ?? ""}
+                  className="input"
+                  placeholder="e.g. 50"
+                />
+              </div>
+              <button type="submit" className="btn btn-secondary">Save</button>
+            </form>
+          ) : (
+            <dl className="text-sm border rounded-lg p-4 bg-gray-50">
+              <ReadOnlyRow
+                label="Standby fee"
+                value={company.onCallFee != null ? `$${company.onCallFee}` : "disabled"}
               />
-            </div>
-            <button type="submit" className="btn btn-secondary">Save</button>
-          </form>
+            </dl>
+          )}
         </section>
 
         {/* -------------------- Pay period -------------------- */}
         <section className="border rounded-lg bg-white p-6">
-          <h2 className="text-lg font-semibold mb-1">Pay period</h2>
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-lg font-semibold">Pay period</h2>
+            {!canEdit && (
+              <RequestChangesButton section="Pay period" action={requestSettingsChangesAction} />
+            )}
+          </div>
           <p className="text-sm text-gray-600 mb-4">
             How often you cut checks. Used by the Payroll tab to group shifts into the right period
             and let you flip Prev / Next between periods.
           </p>
-          <PayPeriodForm
-            action={savePayPeriodAction}
-            initialCadence={(company.payPeriodCadence as "weekly" | "biweekly" | "monthly" | null) ?? "weekly"}
-            initialAnchor={company.payPeriodAnchor ?? null}
-          />
+          {canEdit ? (
+            <PayPeriodForm
+              action={savePayPeriodAction}
+              initialCadence={(company.payPeriodCadence as "weekly" | "biweekly" | "monthly" | null) ?? "weekly"}
+              initialAnchor={company.payPeriodAnchor ?? null}
+            />
+          ) : (
+            <dl className="text-sm border rounded-lg p-4 bg-gray-50 space-y-2">
+              <ReadOnlyRow label="Cadence" value={company.payPeriodCadence ?? "weekly"} />
+              <ReadOnlyRow label="Anchor" value={company.payPeriodAnchor ?? "not set"} />
+            </dl>
+          )}
         </section>
 
         {/* -------------------- Event fields -------------------- */}
         <section className="border rounded-lg bg-white p-6">
-          <h2 className="text-lg font-semibold mb-1">Event fields</h2>
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-lg font-semibold">Event fields</h2>
+            {!canEdit && (
+              <RequestChangesButton section="Event fields" action={requestSettingsChangesAction} />
+            )}
+          </div>
           <p className="text-sm text-gray-600 mb-4">
             Which fields appear on the event setup page, whether they&apos;re required, which ones go in
             staff invite emails, and which trigger a change notification when edited.
           </p>
 
-          <EventFieldsEditor
-            initialRows={fieldRows}
-            onSave={saveEventFieldsAction}
-            onAddCustom={addCustomEventFieldAction}
-          />
+          {canEdit ? (
+            <EventFieldsEditor
+              initialRows={fieldRows}
+              onSave={saveEventFieldsAction}
+              onAddCustom={addCustomEventFieldAction}
+            />
+          ) : (
+            <ReadOnlyFieldList rows={fieldRows} />
+          )}
         </section>
 
         {/* -------------------- Add-on tasks -------------------- */}
         <section className="border rounded-lg bg-white p-6">
-          <h2 className="text-lg font-semibold mb-1">Add-on tasks</h2>
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-lg font-semibold">Add-on tasks</h2>
+            {!canEdit && (
+              <RequestChangesButton section="Add-on tasks" action={requestSettingsChangesAction} />
+            )}
+          </div>
           <p className="text-sm text-gray-600 mb-4">
             Additional tasks you can tack onto a team member per event (van driver, early arrival,
             equipment pickup, teardown lead, on-site content, ice run, etc.). Anything you add here shows up
@@ -932,50 +1089,73 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
             person and set their extra pay.
           </p>
 
-          <AddOnsList
-            initialAddOns={addOns.map((a) => ({
-              id: a.id,
-              name: a.name,
-              includeDescription: a.includeDescription,
-            }))}
-            onReorder={reorderAddOnsAction}
-            onRemove={removeAddOnByIdAction}
-          />
-
-          <form action={addAddOnAction} className="space-y-3 border-t pt-4">
-            <div className="text-sm font-medium">Add a new add-on</div>
-            <div>
-              <label htmlFor="new-addon-name" className="label">Name</label>
-              <input
-                id="new-addon-name"
-                name="name"
-                type="text"
-                required
-                maxLength={60}
-                placeholder="e.g. Van driver, Setup crew, Early arrival"
-                className="input"
+          {canEdit ? (
+            <>
+              <AddOnsList
+                initialAddOns={addOns.map((a) => ({
+                  id: a.id,
+                  name: a.name,
+                  includeDescription: a.includeDescription,
+                }))}
+                onReorder={reorderAddOnsAction}
+                onRemove={removeAddOnByIdAction}
               />
-            </div>
-            <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" name="includeDescription" className="w-4 h-4" />
-              <span>Include a description box on the event page (e.g. for driving directions).</span>
-            </label>
-            <div>
-              <button type="submit" className="btn btn-secondary">Add add-on</button>
-            </div>
-          </form>
 
-          {addOnsSavedMsg && (
-            <div className="mt-4 p-3 border border-green-300 bg-green-50 text-green-800 text-sm rounded">
-              {addOnsSavedMsg}
-            </div>
-          )}
-          {addOnsErrorMsg && (
-            <div className="mt-4 p-3 border border-red-300 bg-red-50 text-red-800 text-sm rounded">
-              {addOnsErrorMsg}
-            </div>
+              <form action={addAddOnAction} className="space-y-3 border-t pt-4">
+                <div className="text-sm font-medium">Add a new add-on</div>
+                <div>
+                  <label htmlFor="new-addon-name" className="label">Name</label>
+                  <input
+                    id="new-addon-name"
+                    name="name"
+                    type="text"
+                    required
+                    maxLength={60}
+                    placeholder="e.g. Van driver, Setup crew, Early arrival"
+                    className="input"
+                  />
+                </div>
+                <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" name="includeDescription" className="w-4 h-4" />
+                  <span>Include a description box on the event page (e.g. for driving directions).</span>
+                </label>
+                <div>
+                  <button type="submit" className="btn btn-secondary">Add add-on</button>
+                </div>
+              </form>
+
+              {addOnsSavedMsg && (
+                <div className="mt-4 p-3 border border-green-300 bg-green-50 text-green-800 text-sm rounded">
+                  {addOnsSavedMsg}
+                </div>
+              )}
+              {addOnsErrorMsg && (
+                <div className="mt-4 p-3 border border-red-300 bg-red-50 text-red-800 text-sm rounded">
+                  {addOnsErrorMsg}
+                </div>
+              )}
+            </>
+          ) : addOns.length === 0 ? (
+            <p className="text-sm text-gray-500 italic">No add-ons configured.</p>
+          ) : (
+            <ul className="divide-y border rounded-lg">
+              {addOns.map((a) => (
+                <li key={a.id} className="px-4 py-3 text-sm flex items-center justify-between">
+                  <span className="font-medium">{a.name}</span>
+                  {a.includeDescription && (
+                    <span className="text-xs text-gray-500">has description box</span>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
         </section>
+
+        {!canEdit && saved === "change-requested" && (
+          <div className="border border-green-300 bg-green-50 text-green-800 text-sm rounded p-3">
+            Request sent to the owner.
+          </div>
+        )}
 
         {/* --------- Danger zone: delete company --------- */}
         {user.isOwner && (
@@ -991,4 +1171,43 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
       </main>
     </div>
   );
+}
+
+/** Compact label/value row used in read-only sections for non-owners. */
+function ReadOnlyRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt className="text-gray-500 text-xs uppercase tracking-wide">{label}</dt>
+      <dd className="text-gray-800">{value}</dd>
+    </div>
+  );
+}
+
+/** Read-only list of enabled event fields for non-owners on the Event fields card. */
+function ReadOnlyFieldList({ rows }: { rows: FieldRow[] }) {
+  const enabled = rows.filter((r) => r.enabled);
+  if (enabled.length === 0) {
+    return <p className="text-sm text-gray-500 italic">No fields enabled.</p>;
+  }
+  return (
+    <ul className="divide-y border rounded-lg">
+      {enabled.map((r) => (
+        <li key={r.fieldKey} className="px-4 py-3 text-sm flex items-center justify-between gap-3">
+          <span className="font-medium">{r.label}</span>
+          <span className="flex items-center gap-3 text-xs text-gray-500">
+            {r.required && <span>required</span>}
+            {r.shareWithStaff && <span>shared with staff</span>}
+            {r.notifyOnChange && <span>notifies on change</span>}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function formatHour(h: number): string {
+  if (h === 0) return "12 AM";
+  if (h < 12) return `${h} AM`;
+  if (h === 12) return "12 PM";
+  return `${h - 12} PM`;
 }
