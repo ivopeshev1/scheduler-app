@@ -30,8 +30,15 @@ async function archiveStaffAction(formData: FormData) {
 
   // Silently cancel any pending invitations (no emails - same-day they might have gotten an
   // invite but if we're archiving them, they're no longer part of the roster).
+  // Hard-deleting would trip the notifications.related_invitation_id FK, so
+  // null that FK first on any notification that pointed at the invite we're
+  // about to drop, then delete.
   for (const inv of invites) {
     if (inv.status === "pending") {
+      await db
+        .update(schema.notifications)
+        .set({ relatedInvitationId: null })
+        .where(eq(schema.notifications.relatedInvitationId, inv.id));
       await db.delete(schema.invitations).where(eq(schema.invitations.id, inv.id));
     }
   }
