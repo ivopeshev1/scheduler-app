@@ -163,6 +163,12 @@ export const staffProfiles = pgTable("staff_profiles", {
   // IANA timezone (e.g. America/Los_Angeles). Reminders + "today" math
   // use this. Browser auto-fills it on profile save.
   timezone: text("timezone"),
+  // Shift-reminder lead-time preferences. Null = that reminder is off.
+  // Hour-of-day in the staffer's local tz when the reminder fires:
+  //   reminderDayBeforeHour = 18 → reminder at 6pm the day before the shift
+  //   reminderMorningOfHour = 7  → reminder at 7am the day of the shift
+  reminderDayBeforeHour: integer("reminder_day_before_hour"),
+  reminderMorningOfHour: integer("reminder_morning_of_hour"),
   // Manual rank set from the Compare page; drives StaffPicker display order
   // (lower number = higher in the list). Null → sorts after ranked staff.
   rankOrder: integer("rank_order"),

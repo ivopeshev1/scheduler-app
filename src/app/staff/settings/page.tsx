@@ -11,6 +11,7 @@ import { NotificationPreferencesSection } from "@/components/NotificationPrefere
 import { prefsFromFormData } from "@/lib/notification-prefs";
 import { revalidatePath } from "next/cache";
 import { QuietHoursSection } from "@/components/QuietHoursSection";
+import { ReminderTimesSection } from "@/components/ReminderTimesSection";
 
 /**
  * Staff "Settings" page — account preferences, not personal details.
@@ -60,6 +61,27 @@ async function saveNotificationPrefsAction(formData: FormData) {
   redirect("/staff/settings?saved=notifications");
 }
 
+async function saveReminderTimesAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "staff") throw new Error("Unauthorized");
+  const dbOn = formData.get("dayBeforeOn") !== null;
+  const moOn = formData.get("morningOfOn") !== null;
+  const dbHour = Number(formData.get("dayBeforeHour") ?? 18);
+  const moHour = Number(formData.get("morningOfHour") ?? 7);
+  const okDb = dbOn && Number.isInteger(dbHour) && dbHour >= 0 && dbHour <= 23 ? dbHour : null;
+  const okMo = moOn && Number.isInteger(moHour) && moHour >= 0 && moHour <= 23 ? moHour : null;
+  await db
+    .update(schema.staffProfiles)
+    .set({
+      reminderDayBeforeHour: okDb,
+      reminderMorningOfHour: okMo,
+    })
+    .where(eq(schema.staffProfiles.userId, session.userId));
+  revalidatePath("/staff/settings");
+  redirect("/staff/settings?saved=reminders");
+}
+
 async function saveQuietHoursAction(formData: FormData) {
   "use server";
   const session = await getSession();
@@ -94,6 +116,7 @@ export default async function StaffSettingsPage({
   const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
   const [user] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
   if (!user) redirect("/login");
+  const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, session.userId));
 
   const err = searchParams.err;
   const errMessage =
@@ -165,6 +188,13 @@ export default async function StaffSettingsPage({
           storedPrefs={user.notificationPreferences}
           formAction={saveNotificationPrefsAction}
           saved={searchParams.saved === "notifications"}
+        />
+
+        <ReminderTimesSection
+          dayBefore={profile?.reminderDayBeforeHour ?? null}
+          morningOf={profile?.reminderMorningOfHour ?? null}
+          formAction={saveReminderTimesAction}
+          saved={searchParams.saved === "reminders"}
         />
 
         <QuietHoursSection
