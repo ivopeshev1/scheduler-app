@@ -642,10 +642,12 @@ export default async function TeamPage({ searchParams }: { searchParams: { err?:
                             {suspended ? "Restore access" : "Suspend"}
                           </button>
                         </form>
-                        <form action={removeManagerAction}>
-                          <input type="hidden" name="userId" value={u.id} />
-                          <button type="submit" className="text-sm text-red-600 hover:underline">Remove</button>
-                        </form>
+                        {!u.isOwner && (
+                          <form action={removeManagerAction}>
+                            <input type="hidden" name="userId" value={u.id} />
+                            <button type="submit" className="text-sm text-red-600 hover:underline">Remove</button>
+                          </form>
+                        )}
                         <HardDeleteButton
                           action={hardDeleteManagerAction}
                           userId={u.id}

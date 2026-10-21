@@ -38,7 +38,11 @@ export function canModifyManager(actor: Actor, target: ManagerTarget): boolean {
   if (!actor.isOwner) return false;
   if (actor.companyId !== target.companyId) return false;
   if (target.role !== "manager") return false;
-  if (target.isOwner) return false;
+  // The actor (an owner) can modify any other manager row, including a
+  // duplicate-owner row left over from legacy data. The owner can never
+  // modify their own row through this flow (would lock themselves out),
+  // and the hard-delete action itself still refuses to touch the
+  // earliest-created / primary owner.
   if (actor.id === target.id) return false;
   return true;
 }
