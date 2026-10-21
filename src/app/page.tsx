@@ -25,8 +25,11 @@ export default async function HomePage() {
           </p>
           <div className="mt-6 flex gap-3">
             <Link href="/signup" className="btn btn-primary">Create your company</Link>
-            <Link href="/login" className="btn btn-secondary">Manager login</Link>
+            <Link href="/login" className="btn btn-secondary">Log in</Link>
           </div>
+          <p className="text-xs text-gray-500 mt-3">
+            Owners, managers, and staff all log in from the same place.
+          </p>
         </div>
 
         <div className="border rounded-lg p-6 bg-gray-50">
@@ -41,10 +44,6 @@ export default async function HomePage() {
           </ul>
         </div>
       </section>
-
-      <footer className="mt-20 pt-8 border-t text-sm text-gray-500">
-        Staff received an invite? <Link href="/login" className="underline">Sign in</Link>
-      </footer>
     </main>
   );
 }
