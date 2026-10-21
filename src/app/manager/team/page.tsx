@@ -560,9 +560,13 @@ export default async function TeamPage({ searchParams }: { searchParams: { err?:
                 <div className="flex-1 min-w-0">
                   <div className="font-medium flex items-center gap-2 flex-wrap">
                     {u.email}
-                    {u.isOwner && (
+                    {u.isOwner ? (
                       <span className="text-[10px] uppercase tracking-wide bg-gray-900 text-white px-1.5 py-0.5 rounded">
                         Owner
+                      </span>
+                    ) : (
+                      <span className="text-[10px] uppercase tracking-wide bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">
+                        Manager
                       </span>
                     )}
                     {suspended && (
