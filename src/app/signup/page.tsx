@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { db, schema } from "@/db/client";
 import { createSession, hashPassword } from "@/lib/auth";
+import { PasswordInput } from "@/components/PasswordInput";
 import { nanoid } from "nanoid";
 import Link from "next/link";
 import { eq } from "drizzle-orm";
@@ -76,7 +77,7 @@ export default function SignupPage() {
       <form action={signupAction} className="mt-8 space-y-4">
         <div><label htmlFor="companyName" className="label">Company name</label><input id="companyName" name="companyName" className="input" placeholder="Your company name" required /></div>
         <div><label htmlFor="email" className="label">Your email</label><input id="email" name="email" type="email" className="input" placeholder="you@yourcompany.com" required /></div>
-        <div><label htmlFor="password" className="label">Password</label><input id="password" name="password" type="password" className="input" minLength={8} placeholder="At least 8 characters" required /></div>
+        <div><label htmlFor="password" className="label">Password</label><PasswordInput id="password" name="password" minLength={8} placeholder="At least 8 characters" required autoComplete="new-password" /></div>
         <button type="submit" className="btn btn-primary w-full justify-center">Create company</button>
       </form>
       <p className="text-sm text-gray-500 mt-6">Already have an account? <Link href="/login" className="underline">Log in</Link></p>

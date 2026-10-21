@@ -4,6 +4,7 @@ import { db, schema } from "@/db/client";
 import { eq } from "drizzle-orm";
 import { createSession, hashPassword } from "@/lib/auth";
 import { ProfilePhotoField } from "@/components/ProfilePhotoField";
+import { PasswordInput } from "@/components/PasswordInput";
 import { checkOnboardInvite, validateOnboardForm } from "@/lib/staff-onboarding";
 
 /**
@@ -170,12 +171,12 @@ export default async function StaffOnboardPage({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label htmlFor="password" className="label text-sm">Password <span className="text-red-500">*</span></label>
-              <input id="password" name="password" type="password" required minLength={8} className="input" />
+              <PasswordInput id="password" name="password" required minLength={8} autoComplete="new-password" />
               <p className="text-xs text-gray-500 mt-1">At least 8 characters.</p>
             </div>
             <div>
               <label htmlFor="confirm" className="label text-sm">Confirm password <span className="text-red-500">*</span></label>
-              <input id="confirm" name="confirm" type="password" required minLength={8} className="input" />
+              <PasswordInput id="confirm" name="confirm" required minLength={8} autoComplete="new-password" />
             </div>
           </div>
         </section>

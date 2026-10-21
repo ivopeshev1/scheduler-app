@@ -8,6 +8,7 @@ import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import { validateNewPassword } from "@/lib/password-reset";
 import { mergeUiPreferences, type UiPreferences } from "@/lib/ui-prefs";
+import { PasswordInput } from "@/components/PasswordInput";
 
 /**
  * Personal settings for the signed-in manager (owner or regular). Any
@@ -118,15 +119,15 @@ export default async function MySettingsPage({ searchParams }: { searchParams: {
           <form action={changePasswordAction} className="space-y-4">
             <div>
               <label htmlFor="current" className="label">Current password</label>
-              <input id="current" name="current" type="password" required className="input" />
+              <PasswordInput id="current" name="current" required autoComplete="current-password" />
             </div>
             <div>
               <label htmlFor="next" className="label">New password</label>
-              <input id="next" name="next" type="password" required minLength={8} className="input" />
+              <PasswordInput id="next" name="next" required minLength={8} autoComplete="new-password" />
             </div>
             <div>
               <label htmlFor="confirm" className="label">Confirm new password</label>
-              <input id="confirm" name="confirm" type="password" required minLength={8} className="input" />
+              <PasswordInput id="confirm" name="confirm" required minLength={8} autoComplete="new-password" />
             </div>
             {pwErrMessage && (
               <div className="border border-red-300 bg-red-50 text-red-800 text-sm rounded p-3">{pwErrMessage}</div>

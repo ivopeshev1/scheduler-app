@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/db/client";
+import { PasswordInput } from "@/components/PasswordInput";
 import { eq } from "drizzle-orm";
 import { hashPassword } from "@/lib/auth";
 import { checkResetToken, validateNewPassword } from "@/lib/password-reset";
@@ -96,11 +97,11 @@ export default async function ResetPasswordPage({
         <input type="hidden" name="token" value={params.token} />
         <div>
           <label htmlFor="password" className="label">New password</label>
-          <input id="password" name="password" type="password" required minLength={8} className="input" />
+          <PasswordInput id="password" name="password" required minLength={8} autoComplete="new-password" />
         </div>
         <div>
           <label htmlFor="confirm" className="label">Confirm new password</label>
-          <input id="confirm" name="confirm" type="password" required minLength={8} className="input" />
+          <PasswordInput id="confirm" name="confirm" required minLength={8} autoComplete="new-password" />
         </div>
         {errMessage && (
           <div className="border border-red-300 bg-red-50 text-red-800 text-sm rounded p-3">{errMessage}</div>

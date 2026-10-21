@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { signInWithPassword } from "@/lib/auth";
+import { PasswordInput } from "@/components/PasswordInput";
 
 async function loginAction(formData: FormData) {
   "use server";
@@ -30,7 +31,7 @@ export default function LoginPage({ searchParams }: { searchParams: { reset?: st
             <label htmlFor="password" className="label">Password</label>
             <Link href="/forgot-password" className="text-xs text-gray-500 hover:underline">Forgot?</Link>
           </div>
-          <input id="password" name="password" type="password" className="input" required />
+          <PasswordInput id="password" name="password" required autoComplete="current-password" />
         </div>
         <button type="submit" className="btn btn-primary w-full justify-center">Sign in</button>
       </form>
