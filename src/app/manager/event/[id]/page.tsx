@@ -8,7 +8,7 @@ import { summarizePosition } from "@/lib/status";
 import { sendEmail, escapeHtml } from "@/lib/notifications";
 import { invitationBlocksDay } from "@/lib/availability";
 import { formatTime, formatDate } from "@/lib/format";
-import { notifyCancellation } from "@/lib/event-notifications";
+import { notifyCancellation, notifyPayChanged, describeRate } from "@/lib/event-notifications";
 import { shellWrap, kvRow, kvTable, greeting, banner, paragraph, signoff } from "@/lib/email-html";
 import { StaffPicker, type StaffOption } from "@/components/StaffPicker";
 import { RemoveStaffButton } from "@/components/RemoveStaffButton";
@@ -167,6 +167,32 @@ async function saveInvitations(formData: FormData) {
       // the email staff already received - the manager just wants to adjust
       // what the person is paid or will see on their dashboard).
       const newTravel = userId in travelRates ? travelRates[userId] : current.travelRate ?? null;
+
+      // Pay-change notice. If the staffer has already seen this invite
+      // (sent + accepted), surface rate / travel changes as a pay-change
+      // email so they know their earnings are different from what they
+      // committed to. Pending-unsent drafts don't need it - the invite
+      // email they'll eventually get carries the new numbers already.
+      const payChangeNotes: Array<{ label: string; before: string; after: string }> = [];
+      const rateChanged =
+        (current.rateOverrideAmount ?? null) !== nextOverrideAmount ||
+        (current.rateOverrideMode ?? null) !== nextOverrideMode;
+      if (rateChanged) {
+        payChangeNotes.push({
+          label: "Rate",
+          before: describeRate(current.rateOverrideAmount ?? null, current.rateOverrideMode ?? null),
+          after: describeRate(nextOverrideAmount, nextOverrideMode),
+        });
+      }
+      const travelChanged = (current.travelRate ?? null) !== (newTravel ?? null);
+      if (travelChanged) {
+        payChangeNotes.push({
+          label: "Travel comp",
+          before: current.travelRate != null ? `$${current.travelRate.toFixed(2)}` : "none",
+          after: newTravel != null ? `$${newTravel.toFixed(2)}` : "none",
+        });
+      }
+
       if (current.status === "pending" && !current.sentAt) {
         // Can still change tier on unsent drafts
         await db.update(schema.invitations)
@@ -187,6 +213,11 @@ async function saveInvitations(formData: FormData) {
             rateOverrideMode: nextOverrideMode,
           })
           .where(eq(schema.invitations.id, current.id));
+
+        if (payChangeNotes.length > 0) {
+          const notes = payChangeNotes.map((n) => `${n.label}: ${n.before} → ${n.after}`);
+          await notifyPayChanged(userId, event, position, notes, session.companyId);
+        }
       }
     } else {
       // Guard: skip inserting if the same staff is already active on a different position on this date

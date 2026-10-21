@@ -9,8 +9,8 @@ import { nanoid } from "nanoid";
 import { PRESET_BY_KEY } from "@/lib/event-fields";
 import {
   notifyEventDetailsChanged,
-  notifyPositionChanged,
   notifyPositionRemoved,
+  notifyPayChanged,
 } from "@/lib/event-notifications";
 import { sendEmail } from "@/lib/notifications";
 import { formatDate } from "@/lib/format";
@@ -261,9 +261,21 @@ async function saveEventEditAction(formData: FormData) {
     const pos = finalPositions.find((p) => p.id === notif.positionId);
     if (!pos) continue;
     if (notif.changes.length === 0) continue;
-    if (updatedEvent) {
-      // Van-instructions param is null now that the UI no longer owns it.
-      await notifyPositionChanged(updatedEvent, pos, notif.changes, null, session.companyId);
+    if (!updatedEvent) continue;
+    // Base-rate changes are pay changes, not event changes - send through
+    // notifyPayChanged so staffers who muted eventChanged still find out
+    // their earnings dropped (or jumped) from what they committed to.
+    // We fan out per accepted/pending-sent invitee here because the
+    // base rate only applies when the per-invitee override is unset.
+    const invites = await db
+      .select()
+      .from(schema.invitations)
+      .where(eq(schema.invitations.positionId, pos.id));
+    for (const inv of invites) {
+      if (inv.status !== "pending" && inv.status !== "accepted") continue;
+      if (!inv.sentAt) continue;
+      if (inv.rateOverrideAmount != null) continue; // their per-invitee override wins; base-rate change doesn't affect them
+      await notifyPayChanged(inv.userId, updatedEvent, pos, notif.changes, session.companyId);
     }
   }
 

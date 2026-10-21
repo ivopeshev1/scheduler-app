@@ -235,6 +235,89 @@ export async function notifyPositionChanged(
 }
 
 /**
+ * Describe a rate pair as a one-liner for a change email. Null-safe,
+ * handles the "standard" (use onboarded rate) mode too.
+ */
+function describeRate(amount: number | null, mode: string | null): string {
+  if (mode === "standard" || mode == null) return "Standard (your onboarded rate)";
+  if (mode === "flat") return `$${(amount ?? 0).toFixed(2)} flat`;
+  if (mode === "hourly") return `$${(amount ?? 0).toFixed(2)}/hr`;
+  return `$${(amount ?? 0).toFixed(2)}`;
+}
+
+/**
+ * Notify a single staffer that something about their pay on an accepted
+ * shift changed. The notes array is a list of "<label>: <before> → <after>"
+ * strings so we can bundle a bunch of changes in one email (rate +
+ * travel at the same time, for example).
+ */
+export async function notifyPayChanged(
+  userId: string,
+  event: EventRow,
+  position: typeof schema.positions.$inferSelect,
+  notes: string[],
+  companyId: string,
+): Promise<void> {
+  if (notes.length === 0) return;
+  const [u] = await db.select().from(schema.users).where(eq(schema.users.id, userId));
+  if (!u) return;
+  const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, userId));
+  const [inv] = await db
+    .select()
+    .from(schema.invitations)
+    .where(eq(schema.invitations.userId, userId));
+  const companyName = await getCompanyName(companyId);
+  const prettyDate = formatDate(event.date);
+  const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
+
+  const textBody = [
+    `Hi ${profile?.firstName ?? "there"},`, ``,
+    `Your pay on an accepted shift was updated:`, ``,
+    ...notes.map((n) => `• ${n}`), ``,
+    `Shift details:`,
+    `Role:   ${position.role}`,
+    `Date:   ${prettyDate}`,
+    venue ? `Venue:  ${venue}` : "",
+    `Client: ${event.clientName}`, ``,
+    `If this doesn't look right, reach out to your manager at ${companyName} before the shift.`, ``,
+    `– ${companyName}`,
+  ].filter(Boolean).join("\n");
+
+  const notesHtml = `<ul style="margin:0 0 20px;padding-left:20px;color:#111;">${notes
+    .map((n) => `<li style="margin:0 0 6px;">${n}</li>`)
+    .join("")}</ul>`;
+
+  const htmlBody = shellWrap([
+    banner("Your pay on a confirmed shift changed", "info"),
+    greeting(profile?.firstName, `Your manager at ${companyName} updated the pay on a shift you've already accepted.`),
+    `<p style="margin:0 0 8px;font-weight:600;">What changed</p>`,
+    notesHtml,
+    `<p style="margin:0 0 8px;font-weight:600;">Shift details</p>`,
+    kvTable([
+      kvRow("Role", position.role),
+      kvRow("Date", prettyDate),
+      venue ? kvRow("Venue", venue) : "",
+      kvRow("Client", event.clientName),
+    ]),
+    paragraph(`If this doesn't look right, reach out to your manager at ${companyName} before the shift.`, { muted: true }),
+    signoff(companyName),
+  ].join("\n"));
+
+  await sendEmail({
+    to: u.email,
+    subject: `Shift pay updated: ${event.clientName} on ${prettyDate}`,
+    body: textBody,
+    html: htmlBody,
+    companyId,
+    userId,
+    relatedInvitationId: inv?.id,
+    notificationKey: "payChanged",
+  });
+}
+
+export { describeRate };
+
+/**
  * Notify staff invited/accepted on a specific position that the position was removed from the event.
  */
 export async function notifyPositionRemoved(
