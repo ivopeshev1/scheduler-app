@@ -75,6 +75,30 @@ async function addStaffAction(formData: FormData) {
 
   // Dedupe + persist every role the manager configured. Primary already
   // lives on the profile as a fallback; the real list is here.
+  // First, make sure any brand-new role names (typed via the "+ Add new role"
+  // option in the dropdown) are added to the company's role catalog, so they
+  // show up for future staffers too.
+  const catalog = await db
+    .select()
+    .from(schema.roles)
+    .where(eq(schema.roles.companyId, session.companyId));
+  const catalogNames = new Set(catalog.map((r) => r.name.toLowerCase()));
+  const maxSortOrder = catalog.reduce((m, r) => Math.max(m, r.sortOrder ?? 0), 0);
+  let nextOrder = maxSortOrder;
+  const addedThisTurn = new Set<string>();
+  for (const r of roleRows) {
+    const key = r.role.toLowerCase();
+    if (catalogNames.has(key) || addedThisTurn.has(key)) continue;
+    nextOrder += 10;
+    await db.insert(schema.roles).values({
+      id: nanoid(),
+      companyId: session.companyId,
+      name: r.role,
+      sortOrder: nextOrder,
+    });
+    addedThisTurn.add(key);
+  }
+
   const seen = new Set<string>();
   for (const r of roleRows) {
     if (seen.has(r.role)) continue;

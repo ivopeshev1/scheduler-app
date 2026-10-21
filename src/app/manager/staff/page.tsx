@@ -8,6 +8,7 @@ import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { sendEmail } from "@/lib/notifications";
 import { shellWrap, greeting, paragraph, signoff } from "@/lib/email-html";
+import { RemoveStaffMemberButton } from "@/components/RemoveStaffMemberButton";
 
 async function archiveStaffAction(formData: FormData) {
   "use server";
@@ -93,6 +94,16 @@ export default async function ManagerStaffPage() {
     const list = rolesByUser.get(r.userId) ?? [];
     list.push({ role: r.role, rate: r.rate, rateType: r.rateType as "hourly" | "flat" });
     rolesByUser.set(r.userId, list);
+  }
+  // Pre-compute accepted-shift counts so the Remove button can show a
+  // friendly modal explaining why the staffer is still booked, instead
+  // of the server action throwing a stack-trace-looking error.
+  const allInvites = await db.select().from(schema.invitations);
+  const acceptedByUser = new Map<string, number>();
+  for (const inv of allInvites) {
+    if (inv.status === "accepted") {
+      acceptedByUser.set(inv.userId, (acceptedByUser.get(inv.userId) ?? 0) + 1);
+    }
   }
   staffRows.sort((a, b) => {
     const aName = a.profile?.firstName ?? a.user.email;
@@ -205,16 +216,12 @@ export default async function ManagerStaffPage() {
                           Modify
                         </Link>
                       )}
-                      <form action={archiveStaffAction}>
-                        <input type="hidden" name="userId" value={user.id} />
-                        <button
-                          type="submit"
-                          className="text-sm text-red-600 hover:underline"
-                          title="Remove this staff member (soft-delete)"
-                        >
-                          Remove
-                        </button>
-                      </form>
+                      <RemoveStaffMemberButton
+                        userId={user.id}
+                        staffName={profile ? `${profile.firstName} ${profile.lastName}` : user.email}
+                        acceptedShifts={acceptedByUser.get(user.id) ?? 0}
+                        action={archiveStaffAction}
+                      />
                     </div>
                   </td>
                 </tr>

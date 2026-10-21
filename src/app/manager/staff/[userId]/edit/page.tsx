@@ -71,6 +71,28 @@ async function saveStaffAction(formData: FormData) {
     defaultRateType: primary.rateType,
   }).where(eq(schema.staffProfiles.userId, userId));
 
+  // Upsert any brand-new role names (typed via "+ Add new role" in the
+  // dropdown) into the company's role catalog before saving.
+  const catalog = await db
+    .select()
+    .from(schema.roles)
+    .where(eq(schema.roles.companyId, session.companyId));
+  const catalogNames = new Set(catalog.map((r) => r.name.toLowerCase()));
+  let nextOrder = catalog.reduce((m, r) => Math.max(m, r.sortOrder ?? 0), 0);
+  const addedThisTurn = new Set<string>();
+  for (const r of roleRows) {
+    const key = r.role.toLowerCase();
+    if (catalogNames.has(key) || addedThisTurn.has(key)) continue;
+    nextOrder += 10;
+    await db.insert(schema.roles).values({
+      id: nanoid(),
+      companyId: session.companyId,
+      name: r.role,
+      sortOrder: nextOrder,
+    });
+    addedThisTurn.add(key);
+  }
+
   // Replace-style sync of staff_roles. Simplest + safest for a small
   // list: delete every existing row then insert what the form sent.
   await db.delete(schema.staffRoles).where(eq(schema.staffRoles.userId, userId));
