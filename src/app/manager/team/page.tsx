@@ -149,37 +149,37 @@ async function addManagerAction(formData: FormData) {
   const existing = await db.select().from(schema.users).where(
     and(eq(schema.users.companyId, session.companyId), eq(schema.users.email, email)),
   );
-  const archivedPrior = existing.find((u) => u.archivedAt && u.role === "manager" && !u.isOwner);
   const activePrior = existing.find((u) => !u.archivedAt);
-  // Email is unique per company across both staff and managers (the
-  // underlying unique index on users doesn't care about role). If an
-  // archived staff account owns this email, resurrecting as a manager
-  // would be surprising - tell the owner to pick a different email.
-  const archivedCrossRole = existing.find((u) => u.archivedAt && (u.role !== "manager" || !!u.isOwner));
   if (activePrior) {
     redirect("/manager/team?err=" + encodeURIComponent(`A user with email ${email} already exists in your company.`));
   }
-  if (!archivedPrior && archivedCrossRole) {
-    redirect(
-      "/manager/team?err=" +
-        encodeURIComponent(`That email was used before by a removed ${archivedCrossRole.role} account. Pick a different email for this manager.`),
-    );
-  }
+  // Any archived prior row (manager, staff, or former owner) gets
+  // resurrected and converted into a fresh manager with the new flags.
+  const archivedPrior = existing.find((u) => u.archivedAt);
 
   const userId = archivedPrior ? archivedPrior.id : nanoid();
   const inviteToken = makeInviteToken();
   if (archivedPrior) {
+    // Force role back to manager + clear owner flag + wipe any
+    // staff-specific state so a former staff member becomes a clean
+    // manager on resurrect.
     await db
       .update(schema.users)
       .set({
         archivedAt: null,
         suspendedAt: null,
+        role: "manager",
+        isOwner: false,
         inviteToken,
         inviteAcceptedAt: null,
         passwordHash: null,
         ...flags,
       })
       .where(eq(schema.users.id, userId));
+    // Clear any lingering staff-side rows if the archived account used to
+    // be a staffer. Manager profile is upserted below.
+    await db.delete(schema.staffProfiles).where(eq(schema.staffProfiles.userId, userId));
+    await db.delete(schema.staffRoles).where(eq(schema.staffRoles.userId, userId));
   } else {
     await db.insert(schema.users).values({
       id: userId,
