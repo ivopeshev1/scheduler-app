@@ -15,6 +15,7 @@ import {
   phoneChanged,
 } from "@/lib/phone-verification";
 import { TimezoneField } from "@/components/TimezoneField";
+import { inArray } from "drizzle-orm";
 
 /**
  * Staff "My profile" page. Covers everything the staffer entered during
@@ -179,6 +180,22 @@ export default async function StaffProfilePage({
   if (!user) redirect("/login");
   const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, session.userId));
 
+  // Roles + per-role rates assigned to this staffer (read-only - changes
+  // come from the manager side).
+  const myRoles = await db
+    .select()
+    .from(schema.staffRoles)
+    .where(eq(schema.staffRoles.userId, session.userId));
+  // Locations this staffer is assigned to (via user_locations). Empty =
+  // not assigned anywhere - manager still needs to add them.
+  const myLocationIds = (await db
+    .select({ id: schema.userLocations.locationId })
+    .from(schema.userLocations)
+    .where(eq(schema.userLocations.userId, session.userId))).map((r) => r.id);
+  const myLocations = myLocationIds.length
+    ? (await db.select().from(schema.locations).where(inArray(schema.locations.id, myLocationIds))).filter((l) => !l.archivedAt)
+    : [];
+
   const err = searchParams.err;
   const errMessage =
     !err ? null
@@ -282,6 +299,50 @@ export default async function StaffProfilePage({
             )}
           </section>
         )}
+
+        {/* --------- Read-only: My roles & rates --------- */}
+        <section className="border rounded-lg bg-white p-6">
+          <h2 className="font-semibold text-lg mb-1">My roles &amp; rates</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            What the manager has you set up to work and your rate for each. Need a change? Message your manager.
+          </p>
+          {myRoles.length === 0 ? (
+            <p className="text-sm text-gray-500">No roles configured yet.</p>
+          ) : (
+            <ul className="divide-y border rounded-lg">
+              {myRoles.map((r) => (
+                <li key={r.role} className="px-4 py-3 flex items-center justify-between gap-3 text-sm">
+                  <span className="font-medium">{r.role}</span>
+                  <span className="text-gray-700">
+                    ${r.rate}
+                    {r.rateType === "hourly" ? "/hr" : " flat"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {/* --------- Read-only: My locations --------- */}
+        <section className="border rounded-lg bg-white p-6">
+          <h2 className="font-semibold text-lg mb-1">My locations</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Which locations you can be invited to shifts at. You&apos;ll only see events at these locations in your calendar.
+          </p>
+          {myLocations.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              Not assigned to any locations yet. Message your manager to get added.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {myLocations.map((l) => (
+                <span key={l.id} className="text-xs bg-gray-100 border rounded px-2 py-1">
+                  {l.name}
+                </span>
+              ))}
+            </div>
+          )}
+        </section>
 
         <section className="border rounded-lg bg-white p-6">
           <form action={saveProfileAction} className="space-y-5">

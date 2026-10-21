@@ -173,6 +173,10 @@ export const staffProfiles = pgTable("staff_profiles", {
   //   reminderMorningOfHour = 7  → reminder at 7am the day of the shift
   reminderDayBeforeHour: integer("reminder_day_before_hour"),
   reminderMorningOfHour: integer("reminder_morning_of_hour"),
+  // UI preferences blob - time + date format. Same shape as the
+  // manager-side ui-prefs, but a smaller subset (no landing-tab,
+  // calendar-view defaults because the staff UI is simpler).
+  uiPreferences: jsonb("ui_preferences"),
   // Manual rank set from the Compare page; drives StaffPicker display order
   // (lower number = higher in the list). Null → sorts after ranked staff.
   rankOrder: integer("rank_order"),

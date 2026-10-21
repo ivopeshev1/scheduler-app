@@ -15,6 +15,8 @@ import { ReminderTimesSection } from "@/components/ReminderTimesSection";
 import { LeaveAccountButton } from "./LeaveAccountButton";
 import { clearSession } from "@/lib/auth";
 import { LanguageSection } from "@/components/LanguageSection";
+import { StaffUiPrefsSection } from "@/components/StaffUiPrefsSection";
+import { mergeStaffUiPreferences, type StaffUiPreferences } from "@/lib/staff-ui-prefs";
 
 /**
  * Staff "Settings" page — account preferences, not personal details.
@@ -116,6 +118,22 @@ async function saveReminderTimesAction(formData: FormData) {
     .where(eq(schema.staffProfiles.userId, session.userId));
   revalidatePath("/staff/settings");
   redirect("/staff/settings?saved=reminders");
+}
+
+async function saveUiPrefsAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "staff") throw new Error("Unauthorized");
+  const next: StaffUiPreferences = {
+    timeFormat: (String(formData.get("timeFormat") ?? "12h") as StaffUiPreferences["timeFormat"]),
+    dateFormat: (String(formData.get("dateFormat") ?? "mdy") as StaffUiPreferences["dateFormat"]),
+  };
+  await db
+    .update(schema.staffProfiles)
+    .set({ uiPreferences: next })
+    .where(eq(schema.staffProfiles.userId, session.userId));
+  revalidatePath("/staff/settings");
+  redirect("/staff/settings?saved=display");
 }
 
 async function saveLanguageAction(formData: FormData) {
@@ -278,6 +296,12 @@ export default async function StaffSettingsPage({
           current={user.language}
           formAction={saveLanguageAction}
           saved={searchParams.saved === "language"}
+        />
+
+        <StaffUiPrefsSection
+          prefs={mergeStaffUiPreferences(profile?.uiPreferences ?? null)}
+          formAction={saveUiPrefsAction}
+          saved={searchParams.saved === "display"}
         />
       </main>
     </div>

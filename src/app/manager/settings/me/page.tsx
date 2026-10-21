@@ -13,6 +13,9 @@ import { NotificationPreferencesSection } from "@/components/NotificationPrefere
 import { prefsFromFormData } from "@/lib/notification-prefs";
 import { QuietHoursSection } from "@/components/QuietHoursSection";
 import { LanguageSection } from "@/components/LanguageSection";
+import { clearSession } from "@/lib/auth";
+import { LeaveCompanyButton } from "./LeaveCompanyButton";
+import { inArray } from "drizzle-orm";
 
 /**
  * Personal settings for the signed-in manager (owner or regular). Any
@@ -99,6 +102,22 @@ async function saveQuietHoursAction(formData: FormData) {
   redirect("/manager/settings/me?saved=quiet");
 }
 
+async function leaveCompanyAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "manager") throw new Error("Unauthorized");
+  const confirm = String(formData.get("confirm") ?? "").trim().toUpperCase();
+  if (confirm !== "LEAVE") redirect("/manager/settings/me?err=confirm-leave");
+
+  const [me] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
+  if (!me) throw new Error("Not found");
+  if (me.isOwner) redirect("/manager/settings/me?err=owner-cannot-leave");
+
+  await db.update(schema.users).set({ archivedAt: new Date() }).where(eq(schema.users.id, session.userId));
+  await clearSession();
+  redirect("/?left=1");
+}
+
 async function saveUiPrefsAction(formData: FormData) {
   "use server";
   const session = await getSession();
@@ -140,6 +159,24 @@ export default async function MySettingsPage({ searchParams }: { searchParams: {
 
   const prefs = mergeUiPreferences(profile?.uiPreferences ?? null);
 
+  // Load the locations this manager can see for the Access summary. Owners
+  // implicitly see every location; non-owners only see what they're in via
+  // user_locations.
+  const allLocations = user.isOwner
+    ? await db.select().from(schema.locations).where(eq(schema.locations.companyId, session.companyId))
+    : [];
+  const myLocationIds = user.isOwner
+    ? allLocations.filter((l) => !l.archivedAt).map((l) => l.id)
+    : (await db
+        .select({ id: schema.userLocations.locationId })
+        .from(schema.userLocations)
+        .where(eq(schema.userLocations.userId, session.userId))).map((r) => r.id);
+  const myLocations = user.isOwner
+    ? allLocations.filter((l) => !l.archivedAt)
+    : myLocationIds.length
+      ? (await db.select().from(schema.locations).where(inArray(schema.locations.id, myLocationIds))).filter((l) => !l.archivedAt)
+      : [];
+
   const pwErr = searchParams.err;
   const pwErrMessage =
     !pwErr ? null
@@ -161,6 +198,42 @@ export default async function MySettingsPage({ searchParams }: { searchParams: {
             Personal account settings. Everything on this page applies to <strong>your login only</strong> — other managers in {company.name} have their own.
           </p>
         </div>
+
+        {/* -------------------- Access summary -------------------- */}
+        <section className="border rounded-lg bg-white p-6">
+          <h2 className="font-semibold text-lg mb-1">Your access</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            {user.isOwner
+              ? <>You&apos;re the <strong>owner</strong> — you have full access to everything in {company.name}.</>
+              : <>What you can see and do in {company.name}. Need more? Ask the owner.</>}
+          </p>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+            <AccessRow label="Calendar" granted={!!user.isOwner || !!user.canAccessCalendar} />
+            <AccessRow label="Staff" granted={!!user.isOwner || !!user.canAccessStaff} />
+            <AccessRow label="Log" granted={!!user.isOwner || !!user.canAccessLog} />
+            <AccessRow label="Team" granted={!!user.isOwner || !!user.canAccessTeam} />
+            <AccessRow label="Payroll" granted={!!user.isOwner || !!user.canAccessPayroll} />
+            <AccessRow label="Company settings" granted={!!user.isOwner || !!user.canEditSettings} />
+          </div>
+          <div className="mt-5 border-t pt-4">
+            <div className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-2">
+              Assigned locations
+            </div>
+            {myLocations.length === 0 ? (
+              <p className="text-sm text-gray-500">
+                No locations assigned yet. Ask the owner to add you to one on the Team page.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {myLocations.map((l) => (
+                  <span key={l.id} className="text-xs bg-gray-100 border rounded px-2 py-1">
+                    {l.name}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
 
         {/* -------------------- Change password -------------------- */}
         <section className="border rounded-lg bg-white p-6">
@@ -268,7 +341,42 @@ export default async function MySettingsPage({ searchParams }: { searchParams: {
           formAction={saveLanguageAction}
           saved={searchParams.saved === "language"}
         />
+
+        {!user.isOwner && (
+          <section className="border border-red-200 rounded-lg bg-white p-6">
+            <h2 className="font-semibold text-lg mb-1 text-red-700">Leave {company.name}</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              Soft-leaves your manager account. You won&apos;t be able to log back in. The owner can
+              re-add you from the Team page later. Historical actions you took (events, invites) stay on the record.
+            </p>
+            {searchParams.err === "confirm-leave" && (
+              <div className="mb-3 border border-red-300 bg-red-50 text-red-800 text-sm rounded p-3">
+                You need to type LEAVE exactly to confirm.
+              </div>
+            )}
+            {searchParams.err === "owner-cannot-leave" && (
+              <div className="mb-3 border border-red-300 bg-red-50 text-red-800 text-sm rounded p-3">
+                Owners can&apos;t self-leave. Transfer ownership first (that flow isn&apos;t built yet — reach out to support).
+              </div>
+            )}
+            <LeaveCompanyButton companyName={company.name} action={leaveCompanyAction} />
+          </section>
+        )}
       </main>
+    </div>
+  );
+}
+
+/** Compact "label — ✓ / —" row for the Your access card. */
+function AccessRow({ label, granted }: { label: string; granted: boolean }) {
+  return (
+    <div className="flex items-center justify-between py-1">
+      <span>{label}</span>
+      {granted ? (
+        <span className="text-green-700 font-medium text-sm">✓ Yes</span>
+      ) : (
+        <span className="text-gray-400 text-sm">— No</span>
+      )}
     </div>
   );
 }
