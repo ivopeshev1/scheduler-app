@@ -69,7 +69,7 @@ export const NOTIFICATION_CHANNELS: readonly NotificationChannelMeta[] = [
   { key: "shiftReminder", label: "Shift reminders", description: "Automatic reminder the day before + morning of each shift you've accepted.", audience: "staff" },
   { key: "beoSent", label: "BEO sent / updated", description: "The manager sent or updated the BEO (banquet event order) for a shift you're on.", audience: "staff" },
   { key: "eventChanged", label: "Event changes", description: "The date, time, or venue of a shift you're on changed.", audience: "staff" },
-  { key: "payChanged", label: "Pay changes", description: "The rate or pay structure on a shift you've accepted changed (base rate, per-shift override, or travel comp).", audience: "staff" },
+  { key: "payChanged", label: "Pay changes", description: "The rate or pay structure on a shift you've accepted changed. Can't be turned off — you need to know what you're being paid.", audience: "staff", alwaysOn: true },
   { key: "eventCancelled", label: "Event cancelled", description: "A shift you were confirmed for was cancelled by the manager.", audience: "staff" },
   { key: "paidReceipt", label: "Payment receipts", description: "You were marked paid for a shift.", audience: "staff" },
   { key: "accountChange", label: "Account changes", description: "Your account was suspended, restored, or removed. Always on for security.", audience: "staff", alwaysOn: true },
