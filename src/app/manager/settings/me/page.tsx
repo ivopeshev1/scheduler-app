@@ -12,6 +12,7 @@ import { PasswordInput } from "@/components/PasswordInput";
 import { NotificationPreferencesSection } from "@/components/NotificationPreferencesSection";
 import { prefsFromFormData } from "@/lib/notification-prefs";
 import { QuietHoursSection } from "@/components/QuietHoursSection";
+import { LanguageSection } from "@/components/LanguageSection";
 
 /**
  * Personal settings for the signed-in manager (owner or regular). Any
@@ -63,6 +64,17 @@ async function saveNotificationPrefsAction(formData: FormData) {
     .where(eq(schema.users.id, session.userId));
   revalidatePath("/manager/settings/me");
   redirect("/manager/settings/me?saved=notifications");
+}
+
+async function saveLanguageAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "manager") throw new Error("Unauthorized");
+  const lang = String(formData.get("language") ?? "en").trim();
+  const ok = /^[a-z]{2}$/.test(lang) ? lang : "en";
+  await db.update(schema.users).set({ language: ok }).where(eq(schema.users.id, session.userId));
+  revalidatePath("/manager/settings/me");
+  redirect("/manager/settings/me?saved=language");
 }
 
 async function saveQuietHoursAction(formData: FormData) {
@@ -249,6 +261,12 @@ export default async function MySettingsPage({ searchParams }: { searchParams: {
           currentTz={user.quietHoursTz}
           formAction={saveQuietHoursAction}
           saved={searchParams.saved === "quiet"}
+        />
+
+        <LanguageSection
+          current={user.language}
+          formAction={saveLanguageAction}
+          saved={searchParams.saved === "language"}
         />
       </main>
     </div>

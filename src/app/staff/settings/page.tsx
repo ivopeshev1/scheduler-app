@@ -14,6 +14,7 @@ import { QuietHoursSection } from "@/components/QuietHoursSection";
 import { ReminderTimesSection } from "@/components/ReminderTimesSection";
 import { LeaveAccountButton } from "./LeaveAccountButton";
 import { clearSession } from "@/lib/auth";
+import { LanguageSection } from "@/components/LanguageSection";
 
 /**
  * Staff "Settings" page — account preferences, not personal details.
@@ -115,6 +116,17 @@ async function saveReminderTimesAction(formData: FormData) {
     .where(eq(schema.staffProfiles.userId, session.userId));
   revalidatePath("/staff/settings");
   redirect("/staff/settings?saved=reminders");
+}
+
+async function saveLanguageAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "staff") throw new Error("Unauthorized");
+  const lang = String(formData.get("language") ?? "en").trim();
+  const ok = /^[a-z]{2}$/.test(lang) ? lang : "en";
+  await db.update(schema.users).set({ language: ok }).where(eq(schema.users.id, session.userId));
+  revalidatePath("/staff/settings");
+  redirect("/staff/settings?saved=language");
 }
 
 async function saveQuietHoursAction(formData: FormData) {
@@ -260,6 +272,12 @@ export default async function StaffSettingsPage({
           currentTz={user.quietHoursTz}
           formAction={saveQuietHoursAction}
           saved={searchParams.saved === "quiet"}
+        />
+
+        <LanguageSection
+          current={user.language}
+          formAction={saveLanguageAction}
+          saved={searchParams.saved === "language"}
         />
       </main>
     </div>

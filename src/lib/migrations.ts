@@ -188,6 +188,7 @@ export async function runMigrations(): Promise<void> {
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS quiet_hours_start TEXT`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS quiet_hours_end TEXT`;
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS quiet_hours_tz TEXT`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS language TEXT`;
   await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS industry TEXT`;
   await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS timezone TEXT`;
   await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS country TEXT`;

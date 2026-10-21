@@ -89,6 +89,10 @@ export const users = pgTable(
     quietHoursStart: text("quiet_hours_start"),
     quietHoursEnd: text("quiet_hours_end"),
     quietHoursTz: text("quiet_hours_tz"),
+    // Preferred UI + email language. ISO 639-1 code ("en", "es", ...).
+    // Null = fall back to English. Translations roll out in a dedicated
+    // pass; saving the preference now so the UX doesn't change later.
+    language: text("language"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
