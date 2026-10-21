@@ -65,8 +65,10 @@ export const NOTIFICATION_CHANNELS: readonly NotificationChannelMeta[] = [
 export type ChannelPrefs = { email: boolean; sms: boolean };
 export type NotificationPrefs = Partial<Record<NotificationKey, Partial<ChannelPrefs>>>;
 
-/** All optional notifications default to on across both channels. */
-const DEFAULT_CHANNELS: Readonly<ChannelPrefs> = Object.freeze({ email: true, sms: true });
+/** Defaults: email on everywhere, SMS off everywhere. SMS has to be
+ *  explicitly opted into per channel so a staffer doesn't start getting
+ *  texts for every event change just because they filled in a phone. */
+const DEFAULT_CHANNELS: Readonly<ChannelPrefs> = Object.freeze({ email: true, sms: false });
 
 export const DEFAULT_PREFS: Readonly<Record<NotificationKey, ChannelPrefs>> = Object.freeze(
   Object.fromEntries(NOTIFICATION_CHANNELS.map((c) => [c.key, DEFAULT_CHANNELS])) as Record<NotificationKey, ChannelPrefs>,
@@ -89,12 +91,7 @@ export function userWantsNotification(stored: unknown, key: NotificationKey, del
   // worse than the email it duplicates.
   if (meta?.alwaysOn && delivery === "email") return true;
   if (meta?.audience === "staff" && delivery === "email") return true;
-  if (!stored || typeof stored !== "object") {
-    // SMS defaults to OFF for required channels (opt-in) and ON for
-    // regular channels. Email defaults to ON everywhere.
-    if (meta?.alwaysOn && delivery === "sms") return false;
-    return DEFAULT_CHANNELS[delivery];
-  }
+  if (!stored || typeof stored !== "object") return DEFAULT_CHANNELS[delivery];
   const entry = (stored as Record<string, unknown>)[key];
   // Backward compat: older rows stored a plain boolean.
   if (typeof entry === "boolean") return entry;
@@ -102,7 +99,6 @@ export function userWantsNotification(stored: unknown, key: NotificationKey, del
     const v = (entry as Record<string, unknown>)[delivery];
     if (typeof v === "boolean") return v;
   }
-  if (meta?.alwaysOn && delivery === "sms") return false;
   return DEFAULT_CHANNELS[delivery];
 }
 
@@ -114,10 +110,10 @@ export function userWantsNotification(stored: unknown, key: NotificationKey, del
 export function resolvePreferences(stored: unknown): Record<NotificationKey, ChannelPrefs> {
   const out = {} as Record<NotificationKey, ChannelPrefs>;
   for (const meta of NOTIFICATION_CHANNELS) {
-    // Email default: on everywhere.
-    // SMS default: on for optional channels, OFF for required channels
-    // (user has to explicitly opt in to midnight password-reset texts).
-    out[meta.key] = { email: true, sms: meta.alwaysOn ? false : true };
+    // Email on everywhere; SMS off everywhere by default. Users opt in
+    // per channel so a phone number on the profile doesn't start blasting
+    // texts the moment it's saved.
+    out[meta.key] = { email: true, sms: false };
     if (stored && typeof stored === "object") {
       const entry = (stored as Record<string, unknown>)[meta.key];
       if (typeof entry === "boolean") {

@@ -5,13 +5,14 @@ import {
 } from "./notification-prefs";
 
 describe("userWantsNotification", () => {
-  it("defaults: email on, SMS on for optional, SMS off for required", () => {
+  it("defaults: email on everywhere, SMS off everywhere", () => {
     expect(userWantsNotification(null, "shiftReminder", "email")).toBe(true);
-    expect(userWantsNotification(null, "shiftReminder", "sms")).toBe(true);
+    expect(userWantsNotification(null, "shiftReminder", "sms")).toBe(false);
     expect(userWantsNotification(null, "shiftInvite", "email")).toBe(true);
     expect(userWantsNotification(null, "shiftInvite", "sms")).toBe(false);
     expect(userWantsNotification(null, "passwordReset", "sms")).toBe(false);
     expect(userWantsNotification(null, "accountChange", "sms")).toBe(false);
+    expect(userWantsNotification(null, "beoSent", "sms")).toBe(false);
   });
   it("alwaysOn forces email on, but SMS stays user-choice", () => {
     expect(userWantsNotification({ shiftInvite: { email: false, sms: true } }, "shiftInvite", "email")).toBe(true);
@@ -50,10 +51,11 @@ describe("resolvePreferences", () => {
     const r = resolvePreferences({ dailyDigest: { email: false, sms: false } });
     expect(r.dailyDigest).toEqual({ email: false, sms: false });
   });
-  it("null input yields full defaults", () => {
+  it("null input yields email-on + SMS-off defaults everywhere", () => {
     const r = resolvePreferences(null);
-    expect(r.shiftReminder).toEqual({ email: true, sms: true });
+    expect(r.shiftReminder).toEqual({ email: true, sms: false });
     expect(r.shiftInvite).toEqual({ email: true, sms: false });
+    expect(r.beoSent).toEqual({ email: true, sms: false });
   });
 });
 
