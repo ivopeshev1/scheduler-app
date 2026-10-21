@@ -6,6 +6,9 @@ import { eq, and } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { StaffRolesEditor } from "@/components/StaffRolesEditor";
 import { nanoid } from "nanoid";
+import { headers } from "next/headers";
+import { sendEmail } from "@/lib/notifications";
+import { shellWrap, greeting, paragraph, signoff } from "@/lib/email-html";
 
 async function addStaffAction(formData: FormData) {
   "use server";
@@ -192,6 +195,40 @@ async function addStaffAction(formData: FormData) {
   for (const locId of toAssign) {
     await db.insert(schema.userLocations).values({ userId, locationId: locId });
   }
+
+  // Send the welcome / onboarding email with the invite link so the
+  // manager doesn't have to copy-paste it. The link on the Staff page
+  // is still there as a fallback if the email bounces or the staffer
+  // deletes it.
+  const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
+  const companyName = company?.name ?? "Scheduler";
+  const h = headers();
+  const host = h.get("host") ?? "localhost:3000";
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  const inviteUrl = `${proto}://${host}/invite/${inviteToken}`;
+  await sendEmail({
+    to: email,
+    companyId: session.companyId,
+    userId,
+    subject: `Welcome to ${companyName} - finish setting up your account`,
+    body:
+      `Hi ${firstName},\n\n` +
+      `Your manager at ${companyName} added you to the staffing roster. ` +
+      `Click the link below to finish setting up your account (pick a password, ` +
+      `add your phone + emergency contact):\n\n` +
+      `${inviteUrl}\n\n` +
+      `This link is personal to you - don't share it.\n\n` +
+      `- ${companyName}`,
+    html: shellWrap(
+      [
+        greeting(firstName, `Your manager at ${companyName} added you to the staffing roster. Click below to finish setting up your account.`),
+        `<p style="margin:0 0 20px;"><a href="${inviteUrl}" style="background:#111;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block;">Finish setting up my account</a></p>`,
+        paragraph(`Or paste this link into your browser: ${inviteUrl}`, { muted: true }),
+        paragraph(`This link is personal to you — please don't share it.`, { muted: true }),
+        signoff(companyName),
+      ].join("\n"),
+    ),
+  });
 
   redirect("/manager/staff");
 }

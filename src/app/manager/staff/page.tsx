@@ -72,10 +72,39 @@ async function resendInviteAction(formData: FormData) {
   if (!target || target.companyId !== session.companyId) throw new Error("Not found");
   if (target.inviteAcceptedAt) throw new Error("Staff already onboarded - nothing to resend");
 
-  // Generate a new token, invalidating any prior link. Manager copies the new
-  // URL from the staff page and shares it however they want (email, text, etc).
+  // Generate a new token, invalidating any prior link, and re-send the
+  // welcome email with the fresh URL. Manager also sees it on the Staff
+  // page as a fallback if the email doesn't land.
   const newToken = makeInviteToken();
   await db.update(schema.users).set({ inviteToken: newToken }).where(eq(schema.users.id, userId));
+  const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, userId));
+  const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
+  const companyName = company?.name ?? "Scheduler";
+  const h = headers();
+  const host = h.get("host") ?? "localhost:3000";
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  const inviteUrl = `${proto}://${host}/invite/${newToken}`;
+  await sendEmail({
+    to: target.email,
+    companyId: session.companyId,
+    userId,
+    subject: `Welcome to ${companyName} - finish setting up your account`,
+    body:
+      `Hi ${profile?.firstName ?? "there"},\n\n` +
+      `Here's a fresh link to finish setting up your ${companyName} account:\n\n` +
+      `${inviteUrl}\n\n` +
+      `This link is personal to you - don't share it.\n\n` +
+      `- ${companyName}`,
+    html: shellWrap(
+      [
+        greeting(profile?.firstName ?? null, `Here's a fresh link to finish setting up your ${companyName} account.`),
+        `<p style="margin:0 0 20px;"><a href="${inviteUrl}" style="background:#111;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block;">Finish setting up my account</a></p>`,
+        paragraph(`Or paste this link into your browser: ${inviteUrl}`, { muted: true }),
+        paragraph(`This link is personal to you — please don't share it.`, { muted: true }),
+        signoff(companyName),
+      ].join("\n"),
+    ),
+  });
   revalidatePath("/manager/staff");
 }
 
