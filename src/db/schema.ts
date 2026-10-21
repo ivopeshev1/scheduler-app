@@ -134,6 +134,9 @@ export const staffProfiles = pgTable("staff_profiles", {
   emergencyContactName: text("emergency_contact_name"),
   emergencyContactPhone: text("emergency_contact_phone"),
   uniformSize: text("uniform_size"),
+  // Base64 data URL for the avatar. Collected by the staffer during
+  // onboarding (manager-side Add Staff only captures the essentials).
+  photoUrl: text("photo_url"),
   // Manual rank set from the Compare page; drives StaffPicker display order
   // (lower number = higher in the list). Null → sorts after ranked staff.
   rankOrder: integer("rank_order"),

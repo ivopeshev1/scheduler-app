@@ -182,6 +182,7 @@ export async function runMigrations(): Promise<void> {
   // they finish the wizard.
   await sql`UPDATE companies SET onboarded_at = created_at WHERE onboarded_at IS NULL AND created_at IS NOT NULL`;
   await sql`ALTER TABLE manager_profiles ADD COLUMN IF NOT EXISTS ui_preferences JSONB`;
+  await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS photo_url TEXT`;
 
   // ────────── Multi-location: locations + user_locations + events.location_id ──────────
   await sql`CREATE TABLE IF NOT EXISTS locations (
