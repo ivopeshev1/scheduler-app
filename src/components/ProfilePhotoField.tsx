@@ -125,48 +125,35 @@ function CropModal({
   onConfirm: (dataUrl: string) => void;
   onCancel: () => void;
 }) {
-  // Zoom = fraction of the natural image shown inside the viewport side.
-  // zoom=1 means the shorter image side fits exactly inside the viewport
-  // (classic "cover"-style fit); zoom=2 means we're showing half of it.
-  // We use display-pixel dimensions: scaledSide = PREVIEW_PX * zoom.
+  // Base image size (zoom=1): fit the shorter side exactly to the viewport
+  // ("cover" behavior) so there are no empty bars at zoom=1 regardless of
+  // the source orientation.
   const minImgSide = Math.min(image.naturalWidth, image.naturalHeight);
+  const baseW = (image.naturalWidth / minImgSide) * PREVIEW_PX;
+  const baseH = (image.naturalHeight / minImgSide) * PREVIEW_PX;
+
   const [zoom, setZoom] = useState(1);
-  // Offset of the image's center from the viewport center, in display pixels.
-  // (0,0) means the image is centered in the viewport.
+  // Pan offset, in displayed CSS pixels (POST-scale). (0,0) = image centered.
   const [offset, setOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const draggingRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
 
-  // Image dimensions in display pixels at the current zoom.
-  const dispW = (image.naturalWidth / minImgSide) * PREVIEW_PX * zoom;
-  const dispH = (image.naturalHeight / minImgSide) * PREVIEW_PX * zoom;
-
-  // Clamp offsets so the user can't drag the image off-viewport (we must
-  // keep the full circular crop frame covered by image pixels).
-  function clamp(nx: number, ny: number) {
-    const maxX = Math.max(0, (dispW - PREVIEW_PX) / 2);
-    const maxY = Math.max(0, (dispH - PREVIEW_PX) / 2);
+  // Max pan allowed at the current zoom so the crop square stays covered.
+  function clampAt(nx: number, ny: number, z: number) {
+    const maxX = Math.max(0, (baseW * z - PREVIEW_PX) / 2);
+    const maxY = Math.max(0, (baseH * z - PREVIEW_PX) / 2);
     return {
       x: Math.min(maxX, Math.max(-maxX, nx)),
       y: Math.min(maxY, Math.max(-maxY, ny)),
     };
   }
 
-  // Zoom keeps the viewport-center source-pixel locked. If we naively left
-  // offset alone when zoom changes, the image would appear to drift because
-  // display pixels per source pixel changed under the same offset. Scaling
-  // offset by (newZoom / oldZoom) keeps whatever's under the center of the
-  // crop circle sitting under it after the zoom.
   function changeZoom(next: number) {
-    const factor = next / zoom;
-    setOffset((o) => clamp(o.x * factor, o.y * factor));
+    // Image scales around its own center (CSS transform origin = center),
+    // so the visual pan in display pixels stays correct across zoom changes.
+    // We only need to re-clamp against the new, larger/smaller bounds.
     setZoom(next);
+    setOffset((o) => clampAt(o.x, o.y, next));
   }
-
-  // After a zoom change, re-clamp (needed if zooming out past current pan).
-  useEffect(() => {
-    setOffset((o) => clamp(o.x, o.y));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoom]);
 
   function onPointerDown(e: React.PointerEvent) {
     (e.target as Element).setPointerCapture(e.pointerId);
@@ -177,25 +164,31 @@ function CropModal({
     if (!d) return;
     const nx = d.origX + (e.clientX - d.startX);
     const ny = d.origY + (e.clientY - d.startY);
-    setOffset(clamp(nx, ny));
+    setOffset(clampAt(nx, ny, zoom));
   }
   function onPointerUp(e: React.PointerEvent) {
-    (e.target as Element).releasePointerCapture(e.pointerId);
+    try { (e.target as Element).releasePointerCapture(e.pointerId); } catch {}
     draggingRef.current = null;
   }
 
   function confirm() {
-    // Convert display-pixel state into source-image-pixel coordinates and
-    // draw the visible crop square into a TARGET_PX canvas as JPEG.
-    const scale = minImgSide / (PREVIEW_PX * zoom); // src px per display px
-    const viewportSrcSide = PREVIEW_PX * scale;
-    // Center of the viewport in source-image coords:
-    const srcCenterX = image.naturalWidth / 2 - offset.x * scale;
-    const srcCenterY = image.naturalHeight / 2 - offset.y * scale;
-    const sx = Math.max(0, srcCenterX - viewportSrcSide / 2);
-    const sy = Math.max(0, srcCenterY - viewportSrcSide / 2);
-    const sw = Math.min(image.naturalWidth - sx, viewportSrcSide);
-    const sh = Math.min(image.naturalHeight - sy, viewportSrcSide);
+    // Visible displayed image dimensions in CSS pixels.
+    const dispW = baseW * zoom;
+    const dispH = baseH * zoom;
+    // Source pixels per display pixel at current zoom.
+    const srcPerDisp = image.naturalWidth / dispW; // same ratio for height
+    // Viewport side in source-image pixels:
+    const viewSrcSide = PREVIEW_PX * srcPerDisp;
+    // Image center in source coords is at (naturalW/2, naturalH/2). The
+    // pan `offset` in display pixels shifts the image rightward/downward
+    // visually, which is equivalent to the viewport sitting LEFT/UP by the
+    // same amount in source coords.
+    const srcCenterX = image.naturalWidth / 2 - offset.x * srcPerDisp;
+    const srcCenterY = image.naturalHeight / 2 - offset.y * srcPerDisp;
+    const sx = Math.max(0, srcCenterX - viewSrcSide / 2);
+    const sy = Math.max(0, srcCenterY - viewSrcSide / 2);
+    const sw = Math.min(image.naturalWidth - sx, viewSrcSide);
+    const sh = Math.min(image.naturalHeight - sy, viewSrcSide);
     const canvas = document.createElement("canvas");
     canvas.width = TARGET_PX;
     canvas.height = TARGET_PX;
@@ -234,13 +227,19 @@ function CropModal({
               draggable={false}
               style={{
                 position: "absolute",
-                width: dispW,
-                height: dispH,
-                left: PREVIEW_PX / 2 - dispW / 2 + offset.x,
-                top: PREVIEW_PX / 2 - dispH / 2 + offset.y,
+                width: baseW,
+                height: baseH,
+                left: "50%",
+                top: "50%",
+                // Center the base image, then pan (display px) then zoom
+                // from its own center. Order matters: translate must come
+                // BEFORE scale so pan is applied in display pixels.
+                transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
+                transformOrigin: "center center",
                 cursor: "grab",
                 userSelect: "none",
                 pointerEvents: "none",
+                willChange: "transform",
               }}
             />
             {/* Circular crop mask overlay */}
