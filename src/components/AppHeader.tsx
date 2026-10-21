@@ -75,10 +75,13 @@ export async function AppHeader({
       }
     } else if (session.role === "staff") {
       const [p] = await db
-        .select({ firstName: schema.staffProfiles.firstName, lastName: schema.staffProfiles.lastName })
+        .select({ firstName: schema.staffProfiles.firstName, lastName: schema.staffProfiles.lastName, photoUrl: schema.staffProfiles.photoUrl })
         .from(schema.staffProfiles)
         .where(eq(schema.staffProfiles.userId, session.userId));
-      if (p) displayName = `${p.firstName} ${p.lastName}`.trim();
+      if (p) {
+        avatarUrl = p.photoUrl;
+        displayName = `${p.firstName} ${p.lastName}`.trim();
+      }
     }
   }
   const isManager = role === "manager";
@@ -151,7 +154,7 @@ export async function AppHeader({
             email={userEmail}
             photoUrl={avatarUrl}
             roleBadge={role === "staff" ? "Staff" : liveIsOwner ? "Owner" : "Manager"}
-            profileHref={role === "manager" ? "/manager/onboard" : "/staff"}
+            profileHref={role === "manager" ? "/manager/onboard" : "/staff/profile"}
             mySettingsHref={role === "manager" ? "/manager/settings/me" : "/staff/settings"}
             companySettingsHref="/manager/settings"
             showCompanySettings={role === "manager" && !!liveIsOwner}

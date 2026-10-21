@@ -178,7 +178,7 @@ export default async function ManagerStaffPage() {
                 <tr key={user.id} className="border-b">
                   <td className="py-3">
                     <div className="flex items-center gap-3">
-                      <StaffAvatar firstName={profile?.firstName} lastName={profile?.lastName} email={user.email} />
+                      <StaffAvatar firstName={profile?.firstName} lastName={profile?.lastName} email={user.email} photoUrl={profile?.photoUrl ?? null} />
                       <div>
                         {profile ? (
                           <>
@@ -266,14 +266,24 @@ export default async function ManagerStaffPage() {
 }
 
 /**
- * Circular avatar for a staff row. For now shows the staffer's initials
- * on a soft colored background derived from their name - gives each
- * person a stable, distinct look at a glance. When upload-your-photo
- * ships during onboarding, swap in <img src={profile.photoUrl}>.
+ * Circular avatar for a staff row. Shows the uploaded profile photo when
+ * one exists; falls back to initials on a soft colored background derived
+ * from their name so each un-photo'd person still gets a stable, distinct
+ * look at a glance.
  */
-function StaffAvatar({ firstName, lastName, email }: { firstName?: string | null; lastName?: string | null; email: string }) {
+function StaffAvatar({ firstName, lastName, email, photoUrl }: { firstName?: string | null; lastName?: string | null; email: string; photoUrl?: string | null }) {
   const first = (firstName ?? "").trim();
   const last = (lastName ?? "").trim();
+  if (photoUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={photoUrl}
+        alt=""
+        className="w-10 h-10 rounded-full object-cover shrink-0 bg-gray-100"
+      />
+    );
+  }
   const initials = (
     (first[0] ?? "") + (last[0] ?? "")
   ).toUpperCase() || email[0]?.toUpperCase() || "?";
