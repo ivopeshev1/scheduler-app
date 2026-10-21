@@ -24,7 +24,8 @@ export type EmailMode = "individual" | "summary" | "both";
 export type NotificationKey =
   // ---------------- Staff-facing ----------------
   | "shiftInvite" // alwaysOn email: the whole point - staff must know when invited
-  | "shiftReminder" // Day-before + morning-of reminder
+  | "invitationNudge" // Friendly nudge when you haven't responded to a pending invite
+  | "shiftReminder" // Day-before + morning-of reminder on confirmed shifts
   | "beoSent" // BEO document sent / updated for your shift
   | "eventChanged" // Date / time / venue change on a shift you're on
   | "eventCancelled" // Manager cancelled the event
@@ -34,16 +35,14 @@ export type NotificationKey =
 
   // ---------------- Manager-facing ----------------
   | "inviteResponse" // Any accept / decline on an invite you sent
-  | "staffCancellation" // A staffer self-cancelled a confirmed shift (individual-only, time-sensitive)
+  | "staffCancellation" // A staffer self-cancelled a confirmed shift
   | "dailyDigest" // Daily digest itself
-  | "urgentOpenShifts" // Open shift crossed the urgent threshold (individual-only)
-  | "backupNudge" // Mid-window + last-call nudges on your pending invites
+  | "urgentOpenShifts" // Open shift / event approaching date with uncovered positions
   | "newStaffJoined" // A staffer completed onboarding
   | "staffPendingOnboarding" // An invited staffer hasn't onboarded in N days
-  | "eventShortStaffed" // Event date getting close with open slots (individual-only)
-  | "backupPromoted" // A backup was promoted to priority (individual-only)
+  | "backupPromoted" // A backup was promoted to priority
   | "staffLeft" // A staffer soft-left the company
-  | "staffBlockedConflict" // A staffer blocked a day they're already booked on (individual-only)
+  | "staffBlockedConflict" // A staffer blocked a day they're already booked on
   | "eventEdited" // Another manager edited an event
   | "weeklyDigest"; // Weekly summary roll-up
 
@@ -65,7 +64,8 @@ export type NotificationChannelMeta = {
 export const NOTIFICATION_CHANNELS: readonly NotificationChannelMeta[] = [
   // Staff
   { key: "shiftInvite", label: "Shift invites", description: "A manager invited you to a new shift. Can't be turned off — this is how work gets to you.", audience: "staff", alwaysOn: true },
-  { key: "shiftReminder", label: "Shift reminders", description: "Automatic reminder the day before + morning of each shift.", audience: "staff" },
+  { key: "invitationNudge", label: "Please-respond nudges", description: "Friendly reminder when you haven't answered a shift invite yet. Fires mid-window and ~3h before the invite expires.", audience: "staff" },
+  { key: "shiftReminder", label: "Shift reminders", description: "Automatic reminder the day before + morning of each shift you've accepted.", audience: "staff" },
   { key: "beoSent", label: "BEO sent / updated", description: "The manager sent or updated the BEO (banquet event order) for a shift you're on.", audience: "staff" },
   { key: "eventChanged", label: "Event changes", description: "The date, time, or venue of a shift you're on changed.", audience: "staff" },
   { key: "eventCancelled", label: "Event cancelled", description: "A shift you were confirmed for was cancelled by the manager.", audience: "staff" },
@@ -79,9 +79,7 @@ export const NOTIFICATION_CHANNELS: readonly NotificationChannelMeta[] = [
   { key: "inviteResponse", label: "Invite responses", description: "A staffer accepted or declined an invite you sent.", audience: "manager", digestable: true },
   { key: "staffCancellation", label: "Staff cancellations", description: "A staffer self-cancelled a confirmed shift. Usually worth keeping on Individual — digest means you find out next morning.", audience: "manager", digestable: true },
   { key: "backupPromoted", label: "Backup promoted to priority", description: "The cascade bumped a backup into a priority slot.", audience: "manager", digestable: true, defaultMode: "summary" },
-  { key: "urgentOpenShifts", label: "Urgent open-shift alerts", description: "An open shift crossed the urgent threshold with nobody booked. Usually worth keeping on Individual.", audience: "manager", digestable: true },
-  { key: "eventShortStaffed", label: "Short-staffed events", description: "Event date is getting close and some positions are still open. Usually worth keeping on Individual.", audience: "manager", digestable: true },
-  { key: "backupNudge", label: "Backup nudges", description: "Mid-window + last-call nudges to approve backup promotions on pending invites.", audience: "manager", digestable: true },
+  { key: "urgentOpenShifts", label: "Urgent / short-staffed events", description: "An event is approaching the urgent threshold with uncovered positions. Set the threshold on Company settings → Notifications. Usually worth keeping on Individual.", audience: "manager", digestable: true },
   { key: "staffBlockedConflict", label: "Blocked-day conflict", description: "A staffer blocked a day they're already booked on. Lets you reach out before it becomes a cancellation.", audience: "manager", digestable: true },
   { key: "newStaffJoined", label: "New staffer onboarded", description: "An invited staffer completed onboarding and is ready to be booked.", audience: "manager", digestable: true, defaultMode: "summary" },
   { key: "staffPendingOnboarding", label: "Pending onboarding reminders", description: "A staffer you invited still hasn't finished onboarding after a few days.", audience: "manager", digestable: true, defaultMode: "summary" },

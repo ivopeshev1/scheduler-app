@@ -340,7 +340,7 @@ async function sendPriorityNudgeEmail(
     html: htmlBody,
     companyId,
     userId: u.id,
-    notificationKey: "shiftInvite",
+    notificationKey: "invitationNudge",
   });
 }
 
