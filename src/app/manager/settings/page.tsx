@@ -4,7 +4,7 @@ import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
 import { eq, and, asc, desc } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
-import { NotificationsEditor } from "@/components/NotificationsEditor";
+import { CompanyNotificationsCard } from "@/components/CompanyNotificationsCard";
 import { RolesList } from "@/components/RolesList";
 import { AddOnsList } from "@/components/AddOnsList";
 import { EventFieldsEditor, type FieldRow } from "@/components/EventFieldsEditor";
@@ -16,6 +16,8 @@ import {
 } from "@/lib/notification-settings";
 import { revalidatePath } from "next/cache";
 import { nanoid } from "nanoid";
+import { clearSession } from "@/lib/auth";
+import { DeleteCompanyButton } from "./DeleteCompanyButton";
 
 // Max logo file size. 1 MB is plenty for a header icon and keeps the row
 // size reasonable even if we're storing the image inline as a data URL.
@@ -37,6 +39,29 @@ async function requireSettingsAccess() {
   // Per-user preferences live under /manager/onboard for everyone.)
   if (!me?.isOwner) throw new Error("Forbidden: only the company owner can edit company settings");
   return { session, me };
+}
+
+/**
+ * OWNER-ONLY. Permanently delete this company and everything it owns.
+ * All FK references cascade via onDelete: "cascade" on company_id in
+ * the schema, so deleting the companies row wipes users, events,
+ * positions, slots, invitations, locations, roles, add-ons,
+ * availability_blocks, notifications, autocomplete_values - the lot.
+ *
+ * Confirmed in the UI by typing the company name exactly.
+ */
+async function deleteCompanyAction(formData: FormData) {
+  "use server";
+  const { session } = await requireSettingsAccess();
+  const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
+  if (!company) throw new Error("Not found");
+  const confirm = String(formData.get("confirm") ?? "").trim();
+  if (confirm !== company.name.trim()) {
+    redirect("/manager/settings?error=" + encodeURIComponent("Type the company name exactly to confirm."));
+  }
+  await db.delete(schema.companies).where(eq(schema.companies.id, session.companyId));
+  await clearSession();
+  redirect("/?deleted=1");
 }
 
 /** Owner-only. Add a new physical location to the company's roster. */
@@ -789,16 +814,12 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
           </form>
         </section>
 
-        {/* -------------------- Notifications -------------------- */}
-        <section className="border rounded-lg bg-white p-6">
-          <h2 className="text-lg font-semibold mb-3">Notifications</h2>
-
-          <NotificationsEditor
-            initialSettings={mergeNotificationSettings(company.notificationSettings)}
-            initialAutoExpireDays={company.priorityExpireDays}
-            onSave={saveNotificationSettingsAction}
-          />
-        </section>
+        {/* -------------------- Notifications (company-wide) -------------------- */}
+        <CompanyNotificationsCard
+          initialSettings={mergeNotificationSettings(company.notificationSettings)}
+          initialAutoExpireDays={company.priorityExpireDays}
+          onSave={saveNotificationSettingsAction}
+        />
 
         {/* -------------------- Roles -------------------- */}
         <section className="border rounded-lg bg-white p-6">
@@ -955,6 +976,18 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
             </div>
           )}
         </section>
+
+        {/* --------- Danger zone: delete company --------- */}
+        {user.isOwner && (
+          <section className="border-2 border-red-300 rounded-lg bg-white p-6 mt-10">
+            <h2 className="font-semibold text-lg mb-1 text-red-700">Danger zone</h2>
+            <p className="text-sm text-gray-700 mb-4">
+              Permanently delete <strong>{company.name}</strong> and everything in it — events, staff, managers,
+              roles, locations, history, audit log. This cannot be undone.
+            </p>
+            <DeleteCompanyButton companyName={company.name} action={deleteCompanyAction} />
+          </section>
+        )}
       </main>
     </div>
   );

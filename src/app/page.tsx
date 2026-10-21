@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 
-export default async function HomePage({ searchParams }: { searchParams: { left?: string } }) {
+export default async function HomePage({ searchParams }: { searchParams: { left?: string; deleted?: string } }) {
   const session = await getSession();
   if (session) {
     if (session.role === "manager") redirect("/manager");
@@ -10,12 +10,18 @@ export default async function HomePage({ searchParams }: { searchParams: { left?
   }
 
   const left = searchParams.left === "1";
+  const deleted = searchParams.deleted === "1";
 
   return (
     <main className="max-w-4xl mx-auto px-6 py-16">
       {left && (
         <div className="mb-10 border border-amber-300 bg-amber-50 rounded p-4 text-sm text-amber-900">
           You&apos;ve left your staffing company. If that was a mistake, reach out to your manager and they can re-add you.
+        </div>
+      )}
+      {deleted && (
+        <div className="mb-10 border border-red-300 bg-red-50 rounded p-4 text-sm text-red-900">
+          Company deleted. Everything&apos;s wiped. Thanks for using Scheduler — you can create a new company any time.
         </div>
       )}
       <header className="mb-16">

@@ -55,6 +55,7 @@ export function validateOnboardForm(input: {
   dob: string;
   emergencyName: string;
   emergencyPhone: string;
+  photoUrl?: string | null;
 }): string | null {
   if (input.password !== input.confirm) return "The two passwords don't match.";
   if (input.password.length < 8) return "Password must be at least 8 characters.";
@@ -64,5 +65,8 @@ export function validateOnboardForm(input: {
   if (age < 16) return "You must be at least 16 to sign up.";
   if (!input.emergencyName.trim()) return "Emergency contact name is required.";
   if (!input.emergencyPhone.trim()) return "Emergency contact phone is required.";
+  // Photo is required so managers + teammates can recognize staffers on
+  // event day. (Optional for managers - they're inside-the-app only.)
+  if (!input.photoUrl || !input.photoUrl.trim()) return "A profile photo is required so your manager and teammates can recognize you at the event.";
   return null;
 }

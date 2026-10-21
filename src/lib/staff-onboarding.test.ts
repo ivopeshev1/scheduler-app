@@ -61,6 +61,7 @@ describe("validateOnboardForm", () => {
     dob: "1995-01-01",
     emergencyName: "Mom",
     emergencyPhone: "555-999-0000",
+    photoUrl: "data:image/jpeg;base64,AAA",
   };
 
   it("accepts a fully filled form", () => {
@@ -90,5 +91,10 @@ describe("validateOnboardForm", () => {
   it("rejects missing emergency contact", () => {
     expect(validateOnboardForm({ ...good, emergencyName: "" })).toMatch(/Emergency contact name/);
     expect(validateOnboardForm({ ...good, emergencyPhone: "" })).toMatch(/Emergency contact phone/);
+  });
+
+  it("rejects missing profile photo", () => {
+    expect(validateOnboardForm({ ...good, photoUrl: "" })).toMatch(/profile photo is required/);
+    expect(validateOnboardForm({ ...good, photoUrl: null })).toMatch(/profile photo is required/);
   });
 });

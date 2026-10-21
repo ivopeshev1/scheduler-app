@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getSession, hashPassword } from "@/lib/auth";
+import { getSession, hashPassword, makeInviteToken } from "@/lib/auth";
 import { db, schema } from "@/db/client";
 import { eq, and } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
@@ -79,54 +79,45 @@ async function requireOwner() {
  * Includes their email, the starting password, a link to /login, and the list of
  * sections they have access to so they know what to expect.
  */
-async function sendWelcomeManagerEmail({
+async function sendManagerInviteEmail({
   toEmail,
-  password,
+  firstName,
   companyId,
   companyName,
-  loginUrl,
+  inviteUrl,
   flags,
 }: {
   toEmail: string;
-  password: string;
+  firstName: string;
   companyId: string;
   companyName: string;
-  loginUrl: string;
+  inviteUrl: string;
   flags: AccessFlags;
 }) {
   const scopeNote = `Your access includes: ${accessSummary(flags)}.`;
-
   const textBody = [
-    `Welcome!`, ``,
-    `${companyName} has given you a manager login to its scheduling app.`, ``,
-    `Sign in at: ${loginUrl}`,
-    `Email:      ${toEmail}`,
-    `Password:   ${password}`, ``,
+    `Hi ${firstName},`, ``,
+    `${companyName} added you as a manager on its scheduling app.`,
+    `Open the link below to finish setting up your account — you'll pick your own password.`, ``,
+    inviteUrl, ``,
     scopeNote, ``,
-    `Keep this email - password changes from inside the app aren't available yet,`,
-    `so you'll continue using this password for now.`, ``,
+    `This link is personal to you - don't share it.`, ``,
     `– ${companyName}`,
   ].join("\n");
 
   const htmlBody = shellWrap([
-    greeting(null, `${companyName} has given you a manager login to its scheduling app.`),
-    `<p style="margin:0 0 8px;font-weight:600;">Your credentials</p>`,
-    kvTable([
-      kvRow("Sign in at", loginUrl),
-      kvRow("Email", toEmail),
-      kvRow("Password", password),
-    ]),
-    paragraph(scopeNote),
-    paragraph(
-      "Keep this email - password changes from inside the app aren't available yet, so you'll continue using this password for now.",
-      { muted: true },
-    ),
+    greeting(firstName, `${companyName} added you as a manager on its scheduling app.`),
+    paragraph(`Click the button below to finish setting up your account. You'll pick your own password.`),
+    `<p style="margin:12px 0 20px;"><a href="${inviteUrl}" style="background:#111;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block;">Finish setting up my account</a></p>`,
+    paragraph(`Or paste this link into your browser: ${inviteUrl}`, { muted: true }),
+    paragraph(scopeNote, { muted: true }),
+    paragraph(`This link is personal to you — please don't share it.`, { muted: true }),
     signoff(companyName),
   ].join("\n"));
 
   await sendEmail({
     to: toEmail,
-    subject: `${companyName} - your manager login`,
+    subject: `Welcome to ${companyName} - finish setting up your manager account`,
     body: textBody,
     html: htmlBody,
     companyId,
@@ -136,11 +127,11 @@ async function sendWelcomeManagerEmail({
 async function addManagerAction(formData: FormData) {
   "use server";
   const { session } = await requireOwner();
+  const firstName = String(formData.get("firstName") ?? "").trim();
+  const lastName = String(formData.get("lastName") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
-  const password = String(formData.get("password") ?? "");
   const flags = readAccessFlags(formData);
-  if (!email || !password) throw new Error("Email and password are required");
-  if (password.length < 8) throw new Error("Password must be at least 8 characters");
+  if (!firstName || !lastName || !email) throw new Error("First name, last name, and email are required");
 
   const dup = await db.select().from(schema.users).where(
     and(eq(schema.users.companyId, session.companyId), eq(schema.users.email, email)),
@@ -148,24 +139,30 @@ async function addManagerAction(formData: FormData) {
   if (dup.length > 0) throw new Error(`A user with email ${email} already exists in your company`);
 
   const userId = nanoid();
+  const inviteToken = makeInviteToken();
   await db.insert(schema.users).values({
     id: userId,
     companyId: session.companyId,
     email,
-    passwordHash: hashPassword(password),
     role: "manager",
     isOwner: false,
     ...flags,
-    // Intentionally null - inviteAcceptedAt gets set on their first successful
-    // login. Until then the Team page shows "Pending first login."
+    inviteToken,
     inviteAcceptedAt: null,
+  });
+
+  // Stash the name so the invite page can greet them properly and so the
+  // Team roster shows "Jane Doe" instead of just the email.
+  await db.insert(schema.managerProfiles).values({
+    userId,
+    firstName,
+    lastName,
   });
 
   // Location assignments. Owner picks which locations this manager can
   // access via a multi-select. At least one is required.
   const locationIds = formData.getAll("locationIds").map(String).filter(Boolean);
   if (locationIds.length === 0) throw new Error("Pick at least one location for this manager.");
-  // Validate they all belong to this company.
   const companyLocations = await db
     .select({ id: schema.locations.id })
     .from(schema.locations)
@@ -180,13 +177,13 @@ async function addManagerAction(formData: FormData) {
   const h = headers();
   const host = h.get("host") ?? "localhost:3000";
   const proto = h.get("x-forwarded-proto") ?? "https";
-  const loginUrl = `${proto}://${host}/login`;
-  await sendWelcomeManagerEmail({
+  const inviteUrl = `${proto}://${host}/invite/${inviteToken}`;
+  await sendManagerInviteEmail({
     toEmail: email,
-    password,
+    firstName,
     companyId: session.companyId,
     companyName: company?.name ?? "Your company",
-    loginUrl,
+    inviteUrl,
     flags,
   });
 
@@ -201,28 +198,31 @@ async function resendWelcomeAction(formData: FormData) {
   "use server";
   const { session } = await requireOwner();
   const userId = String(formData.get("userId"));
-  const newPassword = String(formData.get("newPassword") ?? "");
-  if (newPassword.length < 8) throw new Error("New password must be at least 8 characters");
 
   const [target] = await db.select().from(schema.users).where(eq(schema.users.id, userId));
   if (!target || target.companyId !== session.companyId || target.role !== "manager") throw new Error("Not found");
   if (target.isOwner) throw new Error("Can't reset the owner's credentials here");
 
+  // Regenerate the invite token so the old link stops working, and (if the
+  // manager had already set a password) clear it so they must go through
+  // the invite flow again. Parallels staff Resend invite.
+  const newToken = makeInviteToken();
   await db.update(schema.users)
-    .set({ passwordHash: hashPassword(newPassword), inviteAcceptedAt: null })
+    .set({ inviteToken: newToken, inviteAcceptedAt: null, passwordHash: null })
     .where(eq(schema.users.id, userId));
 
+  const [profile] = await db.select().from(schema.managerProfiles).where(eq(schema.managerProfiles.userId, userId));
   const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
   const h = headers();
   const host = h.get("host") ?? "localhost:3000";
   const proto = h.get("x-forwarded-proto") ?? "https";
-  const loginUrl = `${proto}://${host}/login`;
-  await sendWelcomeManagerEmail({
+  const inviteUrl = `${proto}://${host}/invite/${newToken}`;
+  await sendManagerInviteEmail({
     toEmail: target.email,
-    password: newPassword,
+    firstName: profile?.firstName ?? "there",
     companyId: session.companyId,
     companyName: company?.name ?? "Your company",
-    loginUrl,
+    inviteUrl,
     flags: {
       canAccessCalendar: !!target.canAccessCalendar,
       canAccessStaff: !!target.canAccessStaff,
@@ -499,34 +499,18 @@ export default async function TeamPage() {
                         </div>
                       </form>
 
-                      <details>
-                        <summary className="text-xs text-gray-500 cursor-pointer underline">
-                          {pending
-                            ? "Re-send welcome email with a new password"
-                            : "Reset their password & re-send login email"}
-                        </summary>
-                        <form action={resendWelcomeAction} className="mt-2 flex items-end gap-2">
-                          <input type="hidden" name="userId" value={u.id} />
-                          <div className="flex-1">
-                            <label className="label text-xs" htmlFor={`newpw-${u.id}`}>New starting password</label>
-                            <input
-                              id={`newpw-${u.id}`}
-                              name="newPassword"
-                              type="text"
-                              minLength={8}
-                              required
-                              className="input text-sm"
-                              placeholder="At least 8 chars"
-                            />
-                          </div>
-                          <button type="submit" className="btn btn-secondary text-sm">Send</button>
-                        </form>
-                        {!pending && (
-                          <p className="text-xs text-gray-500 mt-1">
-                            This overwrites their current password. They&apos;ll need to use the new one you set here.
-                          </p>
-                        )}
-                      </details>
+                      <form action={resendWelcomeAction}>
+                        <input type="hidden" name="userId" value={u.id} />
+                        <button
+                          type="submit"
+                          className="text-xs text-gray-600 underline hover:text-black"
+                          title={pending
+                            ? "Email them a fresh invite link (the old one stops working)"
+                            : "Reset their password and email them a fresh invite link"}
+                        >
+                          {pending ? "Resend invite" : "Reset password & resend invite"}
+                        </button>
+                      </form>
 
                       <div className="flex items-center gap-4 pt-3 border-t">
                         <form action={toggleSuspendAction}>
@@ -558,20 +542,23 @@ export default async function TeamPage() {
         <section className="mt-10 border rounded-lg bg-white p-5">
           <h2 className="font-semibold mb-1">Add a manager</h2>
           <p className="text-sm text-gray-600 mb-4">
-            Creates a login for one of your employees and <strong>emails them</strong> their login URL + credentials.
-            Tick the sections they&apos;re allowed to access - Calendar, Staff, and Log are checked by default.
+            Same shape as adding a staff member — you fill in the basics, we email them an invite link.
+            They set their own password when they open it. Tick which sections they can see; Calendar, Staff, Log, and Payroll are on by default.
           </p>
           <form action={addManagerAction} className="space-y-4">
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="firstName" className="label">First name</label>
+                <input id="firstName" name="firstName" required className="input" />
+              </div>
+              <div>
+                <label htmlFor="lastName" className="label">Last name</label>
+                <input id="lastName" name="lastName" required className="input" />
+              </div>
+            </div>
             <div>
               <label htmlFor="email" className="label">Email</label>
               <input id="email" name="email" type="email" required className="input" placeholder="employee@yourcompany.com" />
-            </div>
-            <div>
-              <label htmlFor="password" className="label">Starting password</label>
-              <input id="password" name="password" type="text" required minLength={8} className="input" placeholder="At least 8 characters" />
-              <p className="text-xs text-gray-500 mt-1">
-                You set it, we email it. In-app password changes aren&apos;t built yet, so they&apos;ll keep using this one.
-              </p>
             </div>
             <div>
               <div className="label mb-2">Access</div>
@@ -600,7 +587,7 @@ export default async function TeamPage() {
               </div>
             </div>
             <div className="pt-2">
-              <button type="submit" className="btn btn-primary">Add a manager</button>
+              <button type="submit" className="btn btn-primary">Send invite</button>
             </div>
           </form>
         </section>

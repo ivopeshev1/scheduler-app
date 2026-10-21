@@ -30,6 +30,31 @@ async function finishOnboardingAction(formData: FormData) {
 
   const password = String(formData.get("password") ?? "");
   const confirm = String(formData.get("confirm") ?? "");
+
+  // Manager invite flow is lighter: password + optional phone + optional
+  // photo. Staff invite still collects DOB, emergency contact, and uniform
+  // so the manager has the booking info they need.
+  if (target.role === "manager") {
+    const phone = String(formData.get("phone") ?? "").trim() || null;
+    const photoUrl = String(formData.get("photoUrl") ?? "").trim() || null;
+    if (password !== confirm) redirect(`/invite/${token}?err=${encodeURIComponent("The two passwords don't match.")}`);
+    if (password.length < 8) redirect(`/invite/${token}?err=${encodeURIComponent("Password must be at least 8 characters.")}`);
+    await db
+      .update(schema.users)
+      .set({
+        passwordHash: hashPassword(password),
+        inviteAcceptedAt: new Date(),
+        inviteToken: null,
+      })
+      .where(eq(schema.users.id, target.id));
+    await db
+      .update(schema.managerProfiles)
+      .set({ phone, photoUrl })
+      .where(eq(schema.managerProfiles.userId, target.id));
+    await createSession({ userId: target.id, companyId: target.companyId, role: target.role });
+    redirect("/manager?welcome=1");
+  }
+
   const phone = String(formData.get("phone") ?? "").trim();
   const dob = String(formData.get("dob") ?? "").trim();
   const emergencyName = String(formData.get("emergencyName") ?? "").trim();
@@ -44,6 +69,7 @@ async function finishOnboardingAction(formData: FormData) {
     dob,
     emergencyName,
     emergencyPhone,
+    photoUrl,
   });
   if (err) {
     redirect(`/invite/${token}?err=${encodeURIComponent(err)}`);
@@ -123,17 +149,26 @@ export default async function StaffOnboardPage({
     );
   }
 
-  const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, user!.id));
+  const isManager = user!.role === "manager";
+  const [staffProfile] = isManager
+    ? [null]
+    : await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, user!.id));
+  const [managerProfile] = isManager
+    ? await db.select().from(schema.managerProfiles).where(eq(schema.managerProfiles.userId, user!.id))
+    : [null];
+  const profile = isManager ? managerProfile : staffProfile;
   const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, user!.companyId));
   const companyName = company?.name ?? "Scheduler";
   const errMessage = searchParams.err;
+  const introLine = isManager
+    ? `You've been added as a manager at ${companyName}. Pick a password below and you're in — you can round out the rest of your profile from Settings.`
+    : `Your manager at ${companyName} set up your account. Finish the few details below and you're in.`;
 
   return (
     <main className="max-w-xl mx-auto px-6 py-10">
       <h1 className="text-3xl font-semibold">Welcome to {companyName}</h1>
       <p className="text-gray-600 mt-2">
-        Hi {profile?.firstName ?? "there"} — your manager at {companyName} set up your account.
-        Finish the few details below and you&apos;re in.
+        Hi {profile?.firstName ?? "there"} — {introLine}
       </p>
 
       <form action={finishOnboardingAction} className="mt-8 space-y-5">
@@ -161,7 +196,7 @@ export default async function StaffOnboardPage({
             </div>
           </div>
           <p className="text-xs text-gray-500">
-            Name + email are set by your manager. Reach out to them if either needs to change.
+            Name + email are set by {isManager ? "the owner" : "your manager"}. Reach out to them if either needs to change.
           </p>
         </section>
 
@@ -181,62 +216,84 @@ export default async function StaffOnboardPage({
           </div>
         </section>
 
-        {/* -------- Contact info -------- */}
-        <section className="border rounded-lg bg-white p-5 space-y-3">
-          <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold">Contact info</h2>
-          <div>
-            <label htmlFor="phone" className="label text-sm">Phone <span className="text-red-500">*</span></label>
-            <input id="phone" name="phone" type="tel" required defaultValue={profile?.phone ?? ""} placeholder="(555) 555-5555" className="input" />
-            <p className="text-xs text-gray-500 mt-1">We use this for shift reminders and urgent updates. SMS support coming soon.</p>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="dob" className="label text-sm">Date of birth <span className="text-red-500">*</span></label>
-              <input id="dob" name="dob" type="date" required defaultValue={profile?.dateOfBirth ?? ""} className="input" />
-              <p className="text-xs text-gray-500 mt-1">Required so your manager can confirm you&apos;re old enough for 21+ roles.</p>
-            </div>
-            <div>
-              <label htmlFor="uniformSize" className="label text-sm">Uniform size</label>
-              <select id="uniformSize" name="uniformSize" defaultValue={profile?.uniformSize ?? ""} className="input">
-                <option value="">Prefer not to say</option>
-                <option value="XS">XS</option>
-                <option value="S">S</option>
-                <option value="M">M</option>
-                <option value="L">L</option>
-                <option value="XL">XL</option>
-                <option value="XXL">XXL</option>
-              </select>
-            </div>
-          </div>
-        </section>
+        {isManager ? (
+          <>
+            {/* Manager: optional phone + optional photo. Everything else lives on their Settings page. */}
+            <section className="border rounded-lg bg-white p-5 space-y-3">
+              <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold">Contact (optional)</h2>
+              <div>
+                <label htmlFor="phone" className="label text-sm">Phone</label>
+                <input id="phone" name="phone" type="tel" defaultValue={managerProfile?.phone ?? ""} placeholder="(555) 555-5555" className="input" />
+                <p className="text-xs text-gray-500 mt-1">You can add this later from Settings.</p>
+              </div>
+            </section>
 
-        {/* -------- Emergency contact -------- */}
-        <section className="border rounded-lg bg-white p-5 space-y-3">
-          <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold">
-            Emergency contact
-          </h2>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="emergencyName" className="label text-sm">Name <span className="text-red-500">*</span></label>
-              <input id="emergencyName" name="emergencyName" required defaultValue={profile?.emergencyContactName ?? ""} className="input" />
-            </div>
-            <div>
-              <label htmlFor="emergencyPhone" className="label text-sm">Phone <span className="text-red-500">*</span></label>
-              <input id="emergencyPhone" name="emergencyPhone" type="tel" required defaultValue={profile?.emergencyContactPhone ?? ""} className="input" />
-            </div>
-          </div>
-        </section>
+            <section className="border rounded-lg bg-white p-5 space-y-3">
+              <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold">Profile photo (optional)</h2>
+              <p className="text-sm text-gray-600">Shows up as your avatar across the app.</p>
+              <ProfilePhotoField initialDataUrl={managerProfile?.photoUrl ?? null} />
+            </section>
+          </>
+        ) : (
+          <>
+            {/* -------- Contact info -------- */}
+            <section className="border rounded-lg bg-white p-5 space-y-3">
+              <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold">Contact info</h2>
+              <div>
+                <label htmlFor="phone" className="label text-sm">Phone <span className="text-red-500">*</span></label>
+                <input id="phone" name="phone" type="tel" required defaultValue={staffProfile?.phone ?? ""} placeholder="(555) 555-5555" className="input" />
+                <p className="text-xs text-gray-500 mt-1">We use this for shift reminders and urgent updates. SMS support coming soon.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="dob" className="label text-sm">Date of birth <span className="text-red-500">*</span></label>
+                  <input id="dob" name="dob" type="date" required defaultValue={staffProfile?.dateOfBirth ?? ""} className="input" />
+                  <p className="text-xs text-gray-500 mt-1">Required so your manager can confirm you&apos;re old enough for 21+ roles.</p>
+                </div>
+                <div>
+                  <label htmlFor="uniformSize" className="label text-sm">Uniform size</label>
+                  <select id="uniformSize" name="uniformSize" defaultValue={staffProfile?.uniformSize ?? ""} className="input">
+                    <option value="">Prefer not to say</option>
+                    <option value="XS">XS</option>
+                    <option value="S">S</option>
+                    <option value="M">M</option>
+                    <option value="L">L</option>
+                    <option value="XL">XL</option>
+                    <option value="XXL">XXL</option>
+                  </select>
+                </div>
+              </div>
+            </section>
 
-        {/* -------- Profile photo -------- */}
-        <section className="border rounded-lg bg-white p-5 space-y-3">
-          <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold">
-            Profile photo
-          </h2>
-          <p className="text-sm text-gray-600">
-            Optional. Shows up as your avatar across the app so your manager + teammates can put a face to the name.
-          </p>
-          <ProfilePhotoField initialDataUrl={profile?.photoUrl ?? null} />
-        </section>
+            {/* -------- Emergency contact -------- */}
+            <section className="border rounded-lg bg-white p-5 space-y-3">
+              <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold">
+                Emergency contact
+              </h2>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="emergencyName" className="label text-sm">Name <span className="text-red-500">*</span></label>
+                  <input id="emergencyName" name="emergencyName" required defaultValue={staffProfile?.emergencyContactName ?? ""} className="input" />
+                </div>
+                <div>
+                  <label htmlFor="emergencyPhone" className="label text-sm">Phone <span className="text-red-500">*</span></label>
+                  <input id="emergencyPhone" name="emergencyPhone" type="tel" required defaultValue={staffProfile?.emergencyContactPhone ?? ""} className="input" />
+                </div>
+              </div>
+            </section>
+
+            {/* -------- Profile photo -------- */}
+            <section className="border rounded-lg bg-white p-5 space-y-3">
+              <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold">
+                Profile photo <span className="text-red-500">*</span>
+              </h2>
+              <p className="text-sm text-gray-600">
+                Required. Shows up as your avatar across the app so your manager and teammates can recognize you at the event.
+              </p>
+              <ProfilePhotoField initialDataUrl={staffProfile?.photoUrl ?? null} />
+            </section>
+          </>
+        )}
 
         <div className="pt-2">
           <button type="submit" className="btn btn-primary w-full justify-center">
