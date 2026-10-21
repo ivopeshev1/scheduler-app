@@ -211,17 +211,23 @@ export default async function MySettingsPage({ searchParams }: { searchParams: {
             <AccessRow label="Calendar" granted={!!user.isOwner || !!user.canAccessCalendar} />
             <AccessRow label="Staff" granted={!!user.isOwner || !!user.canAccessStaff} />
             <AccessRow label="Log" granted={!!user.isOwner || !!user.canAccessLog} />
-            <AccessRow label="Team" granted={!!user.isOwner || !!user.canAccessTeam} />
+            <AccessRow label="Admin" granted={!!user.isOwner || !!user.canAccessTeam} />
             <AccessRow label="Payroll" granted={!!user.isOwner || !!user.canAccessPayroll} />
-            <AccessRow label="Company settings" granted={!!user.isOwner || !!user.canEditSettings} />
           </div>
+          {!user.isOwner && (
+            <p className="text-xs text-gray-500 mt-3">
+              <strong>Company settings</strong> is open to every manager (click your avatar → Company settings).
+              You can view everything and request changes; only the owner can edit most of it. Any manager
+              with Staff access can add new roles from there directly.
+            </p>
+          )}
           <div className="mt-5 border-t pt-4">
             <div className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-2">
               Assigned locations
             </div>
             {myLocations.length === 0 ? (
               <p className="text-sm text-gray-500">
-                No locations assigned yet. Ask the owner to add you to one on the Team page.
+                No locations assigned yet. Ask the owner to add you to one on the Admin page.
               </p>
             ) : (
               <div className="flex flex-wrap gap-2">
