@@ -10,6 +10,7 @@ import { headers } from "next/headers";
 import { sendEmail } from "@/lib/notifications";
 import { shellWrap, kvRow, kvTable, greeting, paragraph, signoff } from "@/lib/email-html";
 import { canModifyManager, canAddManager } from "@/lib/permissions";
+import { HardDeleteButton } from "./HardDeleteButton";
 
 type AccessFlags = {
   canAccessCalendar: boolean;
@@ -225,6 +226,11 @@ async function addManagerAction(formData: FormData) {
     await db.insert(schema.userLocations).values({ userId, locationId: locId });
   }
 
+  // Safety belt: no code path above sets isOwner, but if something ever
+  // regressed, force isOwner=false here so a new invite can never, under
+  // any circumstance, become a second company owner.
+  await db.update(schema.users).set({ isOwner: false }).where(eq(schema.users.id, userId));
+
   const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
   const h = headers();
   const host = h.get("host") ?? "localhost:3000";
@@ -315,6 +321,56 @@ async function removeManagerAction(formData: FormData) {
   await db.update(schema.users).set({ archivedAt: new Date() }).where(eq(schema.users.id, userId));
   await sendAccountChangeEmail(target.email, session.companyId, "removed");
   revalidatePath("/manager/team");
+}
+
+/**
+ * HARD delete a manager row and everything that cascaded off it. Unlike
+ * the normal soft Remove above, this nukes the DB row entirely so the
+ * owner can re-add the same email as a 100% fresh invite (no resurrect
+ * path, no legacy flags lingering). Required for safely cleaning up
+ * stuck test data - clients should never have to see "collapse owners."
+ *
+ * Three non-cascading FKs reference users.id - events.created_by,
+ * slots.accepted_user_id, notifications.user_id - all nullable. Null
+ * them first, then delete the user. Owners can't be hard-deleted; this
+ * is a cleanup tool, not a nuclear option against the account that
+ * owns the company.
+ */
+async function hardDeleteManagerAction(formData: FormData) {
+  "use server";
+  const { session } = await requireOwner();
+  const userId = String(formData.get("userId"));
+  const confirm = String(formData.get("confirm") ?? "").trim();
+  if (confirm !== "DELETE") {
+    redirect("/manager/team?err=" + encodeURIComponent("Type DELETE to confirm permanent removal."));
+  }
+  const [target] = await db.select().from(schema.users).where(eq(schema.users.id, userId));
+  if (!target || target.companyId !== session.companyId) throw new Error("Not found");
+  // Owner-safety: only let a duplicate owner (not the earliest-created) be
+  // hard-deleted. The earliest owner is the company's "real" owner and
+  // deleting them would orphan the company. Legacy test data where
+  // multiple rows got isOwner=true can be cleaned up row-by-row here.
+  if (target.isOwner) {
+    const allOwners = await db
+      .select()
+      .from(schema.users)
+      .where(and(eq(schema.users.companyId, session.companyId), eq(schema.users.role, "manager")));
+    const activeOwners = allOwners.filter((u) => u.isOwner && !u.archivedAt);
+    activeOwners.sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0));
+    const primary = activeOwners[0];
+    if (!primary || primary.id === userId) {
+      redirect("/manager/team?err=" + encodeURIComponent("Can't delete the company's primary owner."));
+    }
+  }
+
+  // Null out non-cascading references so the final DELETE doesn't FK-fail.
+  await db.update(schema.events).set({ createdBy: null }).where(eq(schema.events.createdBy, userId));
+  await db.update(schema.slots).set({ acceptedUserId: null, acceptedAt: null }).where(eq(schema.slots.acceptedUserId, userId));
+  await db.update(schema.notifications).set({ userId: null }).where(eq(schema.notifications.userId, userId));
+  // Cascades remove: managerProfiles, staffProfiles, userLocations, invitations, staffRoles, availabilityBlocks, passwordResetTokens.
+  await db.delete(schema.users).where(eq(schema.users.id, userId));
+  revalidatePath("/manager/team");
+  redirect("/manager/team?saved=hard-deleted");
 }
 
 /**
@@ -590,6 +646,11 @@ export default async function TeamPage({ searchParams }: { searchParams: { err?:
                           <input type="hidden" name="userId" value={u.id} />
                           <button type="submit" className="text-sm text-red-600 hover:underline">Remove</button>
                         </form>
+                        <HardDeleteButton
+                          action={hardDeleteManagerAction}
+                          userId={u.id}
+                          label={u.email}
+                        />
                       </div>
                     </div>
                   </details>
