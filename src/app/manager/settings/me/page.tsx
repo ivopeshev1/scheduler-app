@@ -9,6 +9,8 @@ import bcrypt from "bcryptjs";
 import { validateNewPassword } from "@/lib/password-reset";
 import { mergeUiPreferences, type UiPreferences } from "@/lib/ui-prefs";
 import { PasswordInput } from "@/components/PasswordInput";
+import { NotificationPreferencesSection } from "@/components/NotificationPreferencesSection";
+import { prefsFromFormData } from "@/lib/notification-prefs";
 
 /**
  * Personal settings for the signed-in manager (owner or regular). Any
@@ -47,6 +49,19 @@ async function changePasswordAction(formData: FormData) {
     .set({ passwordHash: hashPassword(next) })
     .where(eq(schema.users.id, session.userId));
   redirect("/manager/settings/me?saved=password");
+}
+
+async function saveNotificationPrefsAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "manager") throw new Error("Unauthorized");
+  const next = prefsFromFormData((k) => formData.get(k), "manager");
+  await db
+    .update(schema.users)
+    .set({ notificationPreferences: next })
+    .where(eq(schema.users.id, session.userId));
+  revalidatePath("/manager/settings/me");
+  redirect("/manager/settings/me?saved=notifications");
 }
 
 async function saveUiPrefsAction(formData: FormData) {
@@ -198,13 +213,12 @@ export default async function MySettingsPage({ searchParams }: { searchParams: {
           </button>
         </section>
 
-        {/* -------------------- Notification preferences placeholder -------------------- */}
-        <section className="border rounded-lg bg-white p-6">
-          <h2 className="font-semibold text-lg mb-1">Notification preferences</h2>
-          <p className="text-sm text-gray-600 mb-3">
-            Currently company-wide — set by the owner in <Link href="/manager/settings" className="underline">Company settings</Link>. Moving these to per-user soon so each manager can tune their own digest.
-          </p>
-        </section>
+        <NotificationPreferencesSection
+          audience="manager"
+          storedPrefs={user.notificationPreferences}
+          formAction={saveNotificationPrefsAction}
+          saved={searchParams.saved === "notifications"}
+        />
       </main>
     </div>
   );

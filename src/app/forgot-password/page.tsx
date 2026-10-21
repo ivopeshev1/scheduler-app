@@ -77,6 +77,7 @@ async function requestResetAction(formData: FormData) {
       ].join("\n")),
       companyId: user.companyId,
       userId: user.id,
+      notificationKey: "passwordReset",
     });
   }
 

@@ -66,6 +66,7 @@ export async function notifyCancellation(event: EventRow, companyId: string) {
         companyId,
         userId: inv.userId,
         relatedInvitationId: inv.id,
+        notificationKey: "eventCancelled",
       });
     }
   }
@@ -148,6 +149,7 @@ export async function notifyEventDetailsChanged(
         companyId,
         userId: inv.userId,
         relatedInvitationId: inv.id,
+        notificationKey: "eventChanged",
       });
     }
   }
@@ -227,6 +229,7 @@ export async function notifyPositionChanged(
       companyId,
       userId: inv.userId,
       relatedInvitationId: inv.id,
+      notificationKey: "eventChanged",
     });
   }
 }
@@ -278,6 +281,7 @@ export async function notifyPositionRemoved(
       companyId,
       userId: inv.userId,
       relatedInvitationId: inv.id,
+      notificationKey: "eventChanged",
     });
   }
 }
@@ -339,6 +343,7 @@ export async function notifyPositionFilled(
       companyId,
       userId: inv.userId,
       relatedInvitationId: inv.id,
+      notificationKey: "eventChanged",
     });
   }
 }

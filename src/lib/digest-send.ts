@@ -214,6 +214,7 @@ export async function runManagerDigests(): Promise<{ sent: number; skipped: numb
         html: perManagerHtml,
         companyId: c.id,
         userId: m.user.id,
+        notificationKey: "dailyDigest",
       });
       sent++;
     }

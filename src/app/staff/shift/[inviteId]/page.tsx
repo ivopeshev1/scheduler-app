@@ -73,6 +73,7 @@ async function cancelShiftAction(formData: FormData) {
       to: mgr.email,
       companyId: session.companyId,
       userId: mgr.id,
+      notificationKey: "staffCancellation",
       subject,
       body: bodyLines.join("\n\n"),
       html: shellWrap(

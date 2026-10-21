@@ -7,6 +7,9 @@ import { AppHeader } from "@/components/AppHeader";
 import bcrypt from "bcryptjs";
 import { validateNewPassword } from "@/lib/password-reset";
 import { PasswordInput } from "@/components/PasswordInput";
+import { NotificationPreferencesSection } from "@/components/NotificationPreferencesSection";
+import { prefsFromFormData } from "@/lib/notification-prefs";
+import { revalidatePath } from "next/cache";
 
 /**
  * Staff "Settings" page — account preferences, not personal details.
@@ -41,6 +44,19 @@ async function changePasswordAction(formData: FormData) {
     .set({ passwordHash: hashPassword(next) })
     .where(eq(schema.users.id, session.userId));
   redirect("/staff/settings?saved=password");
+}
+
+async function saveNotificationPrefsAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "staff") throw new Error("Unauthorized");
+  const next = prefsFromFormData((k) => formData.get(k), "staff");
+  await db
+    .update(schema.users)
+    .set({ notificationPreferences: next })
+    .where(eq(schema.users.id, session.userId));
+  revalidatePath("/staff/settings");
+  redirect("/staff/settings?saved=notifications");
 }
 
 export default async function StaffSettingsPage({
@@ -121,21 +137,12 @@ export default async function StaffSettingsPage({
           </button>
         </section>
 
-        {/* -------------------- Notifications placeholder -------------------- */}
-        <section className="border rounded-lg bg-white p-6">
-          <h2 className="font-semibold text-lg mb-1">Notifications</h2>
-          <p className="text-sm text-gray-600 mb-3">
-            Choose which emails and texts you get — shift invites, reminders, BEO updates,
-            cancellations. Currently every staffer gets every notification; per-person
-            opt-outs are coming soon.
-          </p>
-          <ul className="text-sm text-gray-600 space-y-1 ml-4 list-disc">
-            <li>Shift invite emails</li>
-            <li>Shift reminders (day before + morning of)</li>
-            <li>BEO sent / updated</li>
-            <li>Event cancelled</li>
-          </ul>
-        </section>
+        <NotificationPreferencesSection
+          audience="staff"
+          storedPrefs={user.notificationPreferences}
+          formAction={saveNotificationPrefsAction}
+          saved={searchParams.saved === "notifications"}
+        />
       </main>
     </div>
   );

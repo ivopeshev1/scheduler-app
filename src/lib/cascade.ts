@@ -174,6 +174,7 @@ export async function sendInvitationEmail(
     companyId,
     userId: inv.userId,
     relatedInvitationId: inv.id,
+    notificationKey: "shiftInvite",
   });
   await db.update(schema.invitations).set({ sentAt: new Date() }).where(eq(schema.invitations.id, inv.id));
 }
@@ -221,6 +222,7 @@ async function notifyManagerNoBackup(event: EventRow, position: PositionRow, exp
       html: htmlBody,
       companyId,
       userId: m.id,
+      notificationKey: "urgentOpenShifts",
     });
   }
 }
@@ -265,6 +267,7 @@ async function sendInviteExpiredEmail(
     companyId,
     userId: inv.userId,
     relatedInvitationId: inv.id,
+    notificationKey: "shiftInvite",
   });
 }
 
@@ -337,6 +340,7 @@ async function sendPriorityNudgeEmail(
     html: htmlBody,
     companyId,
     userId: u.id,
+    notificationKey: "shiftInvite",
   });
 }
 

@@ -94,6 +94,7 @@ async function sendPaymentReceiptEmail(invitationId: string, companyId: string) 
     companyId,
     userId: inv.userId,
     relatedInvitationId: inv.id,
+    notificationKey: "paidReceipt",
   });
 }
 

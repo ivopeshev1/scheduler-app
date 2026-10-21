@@ -146,6 +146,7 @@ async function saveInvitations(formData: FormData) {
               html: htmlBody,
               companyId: session.companyId,
               userId,
+              notificationKey: "eventChanged",
             });
           }
         }
@@ -322,6 +323,7 @@ async function removeStaffFromPositionAction(formData: FormData) {
         html: shellWrap(htmlParts.join("\n")),
         companyId: session.companyId,
         userId: inv.userId,
+        notificationKey: "eventChanged",
       });
     }
   }
@@ -396,6 +398,7 @@ async function activateOnCallAction(formData: FormData) {
       companyId: session.companyId,
       userId: inv.userId,
       relatedInvitationId: inv.id,
+      notificationKey: "shiftInvite",
     });
   }
   await db.update(schema.invitations)
@@ -659,6 +662,7 @@ async function sendPendingInvitations(formData: FormData) {
         companyId: session.companyId,
         userId: inv.userId,
         relatedInvitationId: inv.id,
+        notificationKey: "shiftInvite",
       });
       await db.update(schema.invitations).set({ sentAt: new Date() }).where(eq(schema.invitations.id, inv.id));
       sentCount += 1;

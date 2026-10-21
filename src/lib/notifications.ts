@@ -1,5 +1,7 @@
 import { db, schema } from "@/db/client";
+import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { userWantsNotification, type NotificationKey } from "./notification-prefs";
 
 type SendEmailAttachment = {
   filename: string;
@@ -15,11 +17,38 @@ type SendEmailInput = {
   companyId: string;
   userId?: string;
   relatedInvitationId?: string;
+  // Which notification channel this falls under. When set together with
+  // userId, we honor the recipient's per-user opt-out: if they muted this
+  // channel, we skip the send entirely and log a notifications row with
+  // status "muted" for the audit trail. alwaysOn keys ignore the pref.
+  notificationKey?: NotificationKey;
   // Optional file attachments (BEO PDFs, Word docs, images, etc).
   attachments?: SendEmailAttachment[];
 };
 
 export async function sendEmail(input: SendEmailInput) {
+  // Honor per-user notification preferences when the caller supplied both
+  // the recipient's userId and the channel key.
+  if (input.userId && input.notificationKey) {
+    const [u] = await db
+      .select({ prefs: schema.users.notificationPreferences })
+      .from(schema.users)
+      .where(eq(schema.users.id, input.userId));
+    if (u && !userWantsNotification(u.prefs, input.notificationKey)) {
+      await db.insert(schema.notifications).values({
+        id: nanoid(),
+        companyId: input.companyId,
+        userId: input.userId,
+        channel: "email",
+        subject: input.subject,
+        body: input.body,
+        status: "muted",
+        relatedInvitationId: input.relatedInvitationId,
+      });
+      return { ok: true as const, muted: true as const };
+    }
+  }
+
   const hasResend = !!process.env.RESEND_API_KEY;
 
   if (!hasResend) {

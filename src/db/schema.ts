@@ -76,6 +76,11 @@ export const users = pgTable(
     // and keeps their history, but login is rejected. Owner can clear this
     // to restore access.
     suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+    // Per-user notification opt-outs. JSON map of channel-key -> boolean.
+    // Missing or null = defaults from DEFAULT_NOTIFICATION_PREFERENCES.
+    // Account-safety notifications (password reset, account suspended,
+    // account removed) are always sent regardless of this.
+    notificationPreferences: jsonb("notification_preferences"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
@@ -527,7 +532,7 @@ export const notifications = pgTable("notifications", {
   channel: text("channel", { enum: ["email", "sms"] }).notNull(),
   subject: text("subject"),
   body: text("body").notNull(),
-  status: text("status", { enum: ["queued", "sent", "failed", "dev-logged"] }).notNull(),
+  status: text("status", { enum: ["queued", "sent", "failed", "dev-logged", "muted"] }).notNull(),
   errorMessage: text("error_message"),
   relatedInvitationId: text("related_invitation_id").references(() => invitations.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
