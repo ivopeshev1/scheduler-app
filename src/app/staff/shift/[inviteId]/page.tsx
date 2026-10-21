@@ -216,6 +216,21 @@ export default async function ShiftDetailPage({ params }: { params: { inviteId: 
           )}
         </div>
 
+        {evt.checkInTime && evt.endTime && !cancelled && (
+          <div>
+            <a
+              href={`/staff/shift/${inv.id}/ics`}
+              className="btn btn-secondary text-sm inline-flex items-center gap-2"
+              download
+            >
+              📅 Add to calendar
+            </a>
+            <p className="text-xs text-gray-500 mt-2">
+              Downloads a calendar file. Opens in Apple Calendar, Google Calendar, Outlook, or whatever you use.
+            </p>
+          </div>
+        )}
+
         <section className="border rounded-lg p-5 bg-white">
           <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-3">Shift details</h2>
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
