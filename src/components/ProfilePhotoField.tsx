@@ -151,8 +151,18 @@ function CropModal({
     };
   }
 
-  // Re-clamp when zoom changes so a zoom-out doesn't leave the image offset
-  // past the new (smaller) allowed range.
+  // Zoom keeps the viewport-center source-pixel locked. If we naively left
+  // offset alone when zoom changes, the image would appear to drift because
+  // display pixels per source pixel changed under the same offset. Scaling
+  // offset by (newZoom / oldZoom) keeps whatever's under the center of the
+  // crop circle sitting under it after the zoom.
+  function changeZoom(next: number) {
+    const factor = next / zoom;
+    setOffset((o) => clamp(o.x * factor, o.y * factor));
+    setZoom(next);
+  }
+
+  // After a zoom change, re-clamp (needed if zooming out past current pan).
   useEffect(() => {
     setOffset((o) => clamp(o.x, o.y));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -257,7 +267,7 @@ function CropModal({
               max={4}
               step={0.01}
               value={zoom}
-              onChange={(e) => setZoom(Number(e.target.value))}
+              onChange={(e) => changeZoom(Number(e.target.value))}
               className="flex-1"
             />
           </label>
