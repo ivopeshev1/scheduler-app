@@ -43,35 +43,79 @@ async function addStaffAction(formData: FormData) {
   }
   const primary = roleRows[0];
 
+  // Duplicate-email handling. The unique index is on (companyId, email), so
+  // a soft-deleted (archivedAt-set) prior row with the same email still
+  // blocks a straight insert. If the existing row is archived we resurrect
+  // it (so "removed then re-added" works); if it's active we bounce back
+  // to the form with an inline error.
   const existing = await db.select().from(schema.users).where(
     and(eq(schema.users.companyId, session.companyId), eq(schema.users.email, email)),
   );
-  if (existing.length > 0) {
+  const archivedPrior = existing.find((u) => u.archivedAt && u.role === "staff");
+  const activePrior = existing.find((u) => !u.archivedAt);
+  if (activePrior) {
     redirect("/manager/staff/new?err=" + encodeURIComponent(`A user with email ${email} already exists in your company.`));
   }
 
-  const userId = nanoid();
+  const userId = archivedPrior ? archivedPrior.id : nanoid();
   const inviteToken = makeInviteToken();
-  await db.insert(schema.users).values({
-    id: userId,
-    companyId: session.companyId,
-    email,
-    role: "staff",
-    inviteToken,
-  });
+  if (archivedPrior) {
+    // Resurrect: clear archivedAt, reset password/onboarding so they go
+    // through the invite flow again, issue a fresh invite token.
+    await db
+      .update(schema.users)
+      .set({
+        archivedAt: null,
+        suspendedAt: null,
+        inviteToken,
+        inviteAcceptedAt: null,
+        passwordHash: null,
+      })
+      .where(eq(schema.users.id, userId));
+  } else {
+    await db.insert(schema.users).values({
+      id: userId,
+      companyId: session.companyId,
+      email,
+      role: "staff",
+      inviteToken,
+    });
+  }
 
   // Manager-side onboarding only captures what's needed to send the
   // invite email. Phone, DOB, shirt size, emergency contact, and the
   // rest of the personal details are filled in by the staffer when
   // they accept their invite - we leave those columns null.
-  await db.insert(schema.staffProfiles).values({
-    userId,
-    firstName,
-    lastName,
-    position: primary.role,
-    defaultRate: primary.rate,
-    defaultRateType: primary.rateType,
-  });
+  const existingProfile = archivedPrior
+    ? await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, userId))
+    : [];
+  if (existingProfile.length > 0) {
+    await db
+      .update(schema.staffProfiles)
+      .set({
+        firstName,
+        lastName,
+        position: primary.role,
+        defaultRate: primary.rate,
+        defaultRateType: primary.rateType,
+      })
+      .where(eq(schema.staffProfiles.userId, userId));
+  } else {
+    await db.insert(schema.staffProfiles).values({
+      userId,
+      firstName,
+      lastName,
+      position: primary.role,
+      defaultRate: primary.rate,
+      defaultRateType: primary.rateType,
+    });
+  }
+  // Clear old role/location rows so the resurrected user gets exactly
+  // what's in this form, not what they used to have.
+  if (archivedPrior) {
+    await db.delete(schema.staffRoles).where(eq(schema.staffRoles.userId, userId));
+    await db.delete(schema.userLocations).where(eq(schema.userLocations.userId, userId));
+  }
 
   // Dedupe + persist every role the manager configured. Primary already
   // lives on the profile as a fallback; the real list is here.
@@ -133,11 +177,16 @@ async function addStaffAction(formData: FormData) {
   }
   const toAssign = requestedLocationIds.filter((id) => allowedForManager.includes(id));
   if (toAssign.length === 0) {
-    // Roll back the user + profile + roles we just inserted so retrying from
-    // the form doesn't trip the duplicate-email guard.
+    // Roll back what we just inserted so retrying from the form doesn't
+    // trip the duplicate-email guard. For a resurrected user we re-archive
+    // (don't hard-delete the historical row); for a brand-new user we drop.
     await db.delete(schema.staffRoles).where(eq(schema.staffRoles.userId, userId));
-    await db.delete(schema.staffProfiles).where(eq(schema.staffProfiles.userId, userId));
-    await db.delete(schema.users).where(eq(schema.users.id, userId));
+    if (archivedPrior) {
+      await db.update(schema.users).set({ archivedAt: new Date() }).where(eq(schema.users.id, userId));
+    } else {
+      await db.delete(schema.staffProfiles).where(eq(schema.staffProfiles.userId, userId));
+      await db.delete(schema.users).where(eq(schema.users.id, userId));
+    }
     redirect("/manager/staff/new?err=" + encodeURIComponent("Pick at least one location this staffer can work at."));
   }
   for (const locId of toAssign) {
