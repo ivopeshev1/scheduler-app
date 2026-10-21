@@ -39,7 +39,7 @@ async function addStaffAction(formData: FormData) {
   })();
 
   if (!firstName || !lastName || !email || roleRows.length === 0) {
-    throw new Error("First name, last name, email, and at least one role are required");
+    redirect("/manager/staff/new?err=" + encodeURIComponent("First name, last name, email, and at least one role are required."));
   }
   const primary = roleRows[0];
 
@@ -47,7 +47,7 @@ async function addStaffAction(formData: FormData) {
     and(eq(schema.users.companyId, session.companyId), eq(schema.users.email, email)),
   );
   if (existing.length > 0) {
-    throw new Error(`A user with email ${email} already exists in your company`);
+    redirect("/manager/staff/new?err=" + encodeURIComponent(`A user with email ${email} already exists in your company.`));
   }
 
   const userId = nanoid();
@@ -133,7 +133,12 @@ async function addStaffAction(formData: FormData) {
   }
   const toAssign = requestedLocationIds.filter((id) => allowedForManager.includes(id));
   if (toAssign.length === 0) {
-    throw new Error("Pick at least one location this staffer can work at.");
+    // Roll back the user + profile + roles we just inserted so retrying from
+    // the form doesn't trip the duplicate-email guard.
+    await db.delete(schema.staffRoles).where(eq(schema.staffRoles.userId, userId));
+    await db.delete(schema.staffProfiles).where(eq(schema.staffProfiles.userId, userId));
+    await db.delete(schema.users).where(eq(schema.users.id, userId));
+    redirect("/manager/staff/new?err=" + encodeURIComponent("Pick at least one location this staffer can work at."));
   }
   for (const locId of toAssign) {
     await db.insert(schema.userLocations).values({ userId, locationId: locId });
@@ -142,7 +147,7 @@ async function addStaffAction(formData: FormData) {
   redirect("/manager/staff");
 }
 
-export default async function AddStaffPage() {
+export default async function AddStaffPage({ searchParams }: { searchParams: { err?: string } }) {
   const session = await getSession();
   if (!session) redirect("/login");
   if (session.role !== "manager") redirect("/staff");
@@ -190,6 +195,12 @@ export default async function AddStaffPage() {
           Just the basics to send the invite. Phone, address, emergency contact, shirt size and the
           rest will be filled in by the staffer when they accept their invite.
         </p>
+
+        {searchParams.err && (
+          <div className="mb-4 border border-red-300 bg-red-50 text-red-800 text-sm rounded p-3">
+            {searchParams.err}
+          </div>
+        )}
 
         <form action={addStaffAction} className="space-y-4">
           <section>
