@@ -6,6 +6,14 @@ import { eq } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { revalidatePath } from "next/cache";
 import { ProfilePhotoField } from "@/components/ProfilePhotoField";
+import { sendEmail } from "@/lib/notifications";
+import { shellWrap, greeting, paragraph, signoff } from "@/lib/email-html";
+import {
+  CODE_TTL_MS,
+  generateCode,
+  verifyCode,
+  phoneChanged,
+} from "@/lib/phone-verification";
 
 /**
  * Staff "My profile" page. Covers everything the staffer entered during
@@ -32,6 +40,29 @@ async function saveProfileAction(formData: FormData) {
   if (!phone) redirect("/staff/profile?err=phone");
   if (!emergencyName || !emergencyPhone) redirect("/staff/profile?err=emergency");
 
+  const [existing] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, session.userId));
+  const phoneDidChange = phoneChanged(existing?.phone ?? null, phone);
+
+  // When the phone changed, re-challenge: clear phoneVerifiedAt and mint
+  // a fresh 6-digit code good for CODE_TTL_MS. We only email the code
+  // for now (SMS not live yet). When Twilio lands, send both so the
+  // staffer sees the code land on the device they actually use.
+  const nextVerification: {
+    phoneVerifiedAt: Date | null;
+    phoneVerificationCode: string | null;
+    phoneVerificationExpiresAt: Date | null;
+  } = phoneDidChange
+    ? {
+        phoneVerifiedAt: null,
+        phoneVerificationCode: generateCode(),
+        phoneVerificationExpiresAt: new Date(Date.now() + CODE_TTL_MS),
+      }
+    : {
+        phoneVerifiedAt: existing?.phoneVerifiedAt ?? null,
+        phoneVerificationCode: existing?.phoneVerificationCode ?? null,
+        phoneVerificationExpiresAt: existing?.phoneVerificationExpiresAt ?? null,
+      };
+
   await db
     .update(schema.staffProfiles)
     .set({
@@ -42,16 +73,99 @@ async function saveProfileAction(formData: FormData) {
       emergencyContactPhone: emergencyPhone,
       uniformSize,
       photoUrl,
+      phoneVerifiedAt: nextVerification.phoneVerifiedAt,
+      phoneVerificationCode: nextVerification.phoneVerificationCode,
+      phoneVerificationExpiresAt: nextVerification.phoneVerificationExpiresAt,
+    })
+    .where(eq(schema.staffProfiles.userId, session.userId));
+
+  if (phoneDidChange && nextVerification.phoneVerificationCode) {
+    const [user] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
+    const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
+    const companyName = company?.name ?? "Scheduler";
+    const code = nextVerification.phoneVerificationCode;
+    await sendEmail({
+      to: user!.email,
+      companyId: session.companyId,
+      userId: session.userId,
+      // Account-level security notification - skip the per-user pref check.
+      notificationKey: "passwordReset",
+      subject: `${companyName} phone verification code: ${code}`,
+      body: `Your ${companyName} phone verification code is ${code}. It expires in 10 minutes.\n\nIf you didn't change your phone, ignore this email.`,
+      html: shellWrap([
+        greeting(null, `Enter this code on your profile to confirm your new phone number.`),
+        `<p style="margin:12px 0 20px;font-size:28px;font-weight:600;letter-spacing:4px;">${code}</p>`,
+        paragraph(`This code expires in 10 minutes.`, { muted: true }),
+        paragraph(`If you didn't change your phone, you can ignore this email — nothing has changed with your account.`, { muted: true }),
+        signoff(companyName),
+      ].join("\n")),
+    });
+  }
+
+  revalidatePath("/staff/profile");
+  redirect(phoneDidChange ? "/staff/profile?saved=1&verify=1" : "/staff/profile?saved=1");
+}
+
+async function verifyPhoneAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "staff") throw new Error("Unauthorized");
+  const code = String(formData.get("code") ?? "").trim();
+  const [p] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, session.userId));
+  if (!p) throw new Error("Not found");
+  const result = verifyCode(p.phoneVerificationCode, p.phoneVerificationExpiresAt, code);
+  if (!result.ok) {
+    redirect(`/staff/profile?verr=${result.reason}`);
+  }
+  await db
+    .update(schema.staffProfiles)
+    .set({
+      phoneVerifiedAt: new Date(),
+      phoneVerificationCode: null,
+      phoneVerificationExpiresAt: null,
     })
     .where(eq(schema.staffProfiles.userId, session.userId));
   revalidatePath("/staff/profile");
-  redirect("/staff/profile?saved=1");
+  redirect("/staff/profile?verified=1");
+}
+
+async function resendPhoneCodeAction() {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "staff") throw new Error("Unauthorized");
+  const [p] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, session.userId));
+  if (!p || !p.phone) redirect("/staff/profile?verr=no-phone");
+  const code = generateCode();
+  const expires = new Date(Date.now() + CODE_TTL_MS);
+  await db
+    .update(schema.staffProfiles)
+    .set({ phoneVerificationCode: code, phoneVerificationExpiresAt: expires })
+    .where(eq(schema.staffProfiles.userId, session.userId));
+  const [user] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
+  const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
+  const companyName = company?.name ?? "Scheduler";
+  await sendEmail({
+    to: user!.email,
+    companyId: session.companyId,
+    userId: session.userId,
+    notificationKey: "passwordReset",
+    subject: `${companyName} phone verification code: ${code}`,
+    body: `Your ${companyName} phone verification code is ${code}. It expires in 10 minutes.`,
+    html: shellWrap([
+      greeting(null, `Here's a fresh code to verify your phone.`),
+      `<p style="margin:12px 0 20px;font-size:28px;font-weight:600;letter-spacing:4px;">${code}</p>`,
+      paragraph(`This code expires in 10 minutes.`, { muted: true }),
+      signoff(companyName),
+    ].join("\n")),
+  });
+  revalidatePath("/staff/profile");
+  redirect("/staff/profile?saved=1&verify=1&resent=1");
 }
 
 export default async function StaffProfilePage({
   searchParams,
 }: {
-  searchParams: { err?: string; saved?: string };
+  searchParams: { err?: string; saved?: string; verify?: string; verr?: string; verified?: string; resent?: string };
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
@@ -69,6 +183,18 @@ export default async function StaffProfilePage({
     : err === "emergency" ? "Both emergency contact name and phone are required."
     : err;
   const saved = searchParams.saved === "1";
+  const needsVerify = !!(profile?.phone && !profile?.phoneVerifiedAt);
+  const hasActiveCode = !!(profile?.phoneVerificationCode && profile?.phoneVerificationExpiresAt && profile.phoneVerificationExpiresAt.getTime() > Date.now());
+  const verifyBanner = searchParams.verify === "1";
+  const verified = searchParams.verified === "1";
+  const resent = searchParams.resent === "1";
+  const verr = searchParams.verr;
+  const verrMessage =
+    verr === "mismatch" ? "That code doesn't match. Double-check and try again."
+    : verr === "expired" ? "That code expired. Click Resend code to get a fresh one."
+    : verr === "no-code" ? "No active code. Click Resend code to get one."
+    : verr === "no-phone" ? "Add a phone number first, then verify it."
+    : null;
 
   return (
     <div>
@@ -86,10 +212,72 @@ export default async function StaffProfilePage({
         {errMessage && (
           <div className="border border-red-300 bg-red-50 text-red-800 text-sm rounded p-3">{errMessage}</div>
         )}
-        {saved && (
+        {saved && !verifyBanner && (
           <div className="border border-green-300 bg-green-50 text-green-800 text-sm rounded p-3">
             Profile saved.
           </div>
+        )}
+        {verified && (
+          <div className="border border-green-300 bg-green-50 text-green-800 text-sm rounded p-3">
+            Phone verified. SMS reminders will go to this number as soon as SMS is live.
+          </div>
+        )}
+
+        {needsVerify && (
+          <section className="border-2 border-amber-400 bg-amber-50 rounded-lg p-5">
+            <h2 className="font-semibold text-base">Verify your phone</h2>
+            {hasActiveCode ? (
+              <>
+                <p className="text-sm text-amber-900 mt-1">
+                  {resent ? "Fresh code just sent. " : saved ? "We just emailed a 6-digit code to " : "We've emailed a 6-digit code to "}
+                  <strong>{user.email}</strong>. Enter it below to confirm your phone number. The code expires in 10 minutes.
+                </p>
+                {verrMessage && (
+                  <div className="mt-3 border border-red-300 bg-red-50 text-red-800 text-sm rounded p-2">
+                    {verrMessage}
+                  </div>
+                )}
+                <div className="mt-4 flex items-end gap-3">
+                  <form action={verifyPhoneAction} className="flex items-end gap-3">
+                    <div>
+                      <label htmlFor="code" className="label text-xs">Verification code</label>
+                      <input
+                        id="code"
+                        name="code"
+                        type="text"
+                        inputMode="numeric"
+                        pattern="\d{6}"
+                        maxLength={6}
+                        autoComplete="one-time-code"
+                        required
+                        className="input w-40 tracking-widest text-center"
+                        placeholder="000000"
+                      />
+                    </div>
+                    <button type="submit" className="btn btn-primary">Verify</button>
+                  </form>
+                  <form action={resendPhoneCodeAction}>
+                    <button type="submit" className="btn btn-secondary text-sm">Resend code</button>
+                  </form>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-amber-900 mt-1">
+                  Your phone <strong>{profile?.phone}</strong> isn&apos;t verified yet.
+                  Verify it so SMS reminders can start when SMS goes live.
+                </p>
+                {verrMessage && (
+                  <div className="mt-3 border border-red-300 bg-red-50 text-red-800 text-sm rounded p-2">
+                    {verrMessage}
+                  </div>
+                )}
+                <form action={resendPhoneCodeAction} className="mt-4">
+                  <button type="submit" className="btn btn-primary text-sm">Send me a code</button>
+                </form>
+              </>
+            )}
+          </section>
         )}
 
         <section className="border rounded-lg bg-white p-6">
@@ -111,8 +299,23 @@ export default async function StaffProfilePage({
             {/* Contact */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="phone" className="label">Phone <span className="text-red-500">*</span></label>
+                <label htmlFor="phone" className="label flex items-center gap-2">
+                  Phone <span className="text-red-500">*</span>
+                  {profile?.phone && profile.phoneVerifiedAt && (
+                    <span className="text-[10px] uppercase tracking-wide bg-green-100 text-green-800 px-1.5 py-0.5 rounded">
+                      Verified
+                    </span>
+                  )}
+                  {profile?.phone && !profile.phoneVerifiedAt && (
+                    <span className="text-[10px] uppercase tracking-wide bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">
+                      Unverified
+                    </span>
+                  )}
+                </label>
                 <input id="phone" name="phone" type="tel" required defaultValue={profile?.phone ?? ""} className="input" />
+                <p className="text-xs text-gray-500 mt-1">
+                  Changing it requires a quick 6-digit code to confirm the new number before SMS reminders start.
+                </p>
               </div>
               <div>
                 <label htmlFor="city" className="label">City</label>

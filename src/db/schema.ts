@@ -135,6 +135,14 @@ export const staffProfiles = pgTable("staff_profiles", {
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   phone: text("phone"),
+  // Phone verification. phoneVerifiedAt is set when the staffer confirms
+  // a 6-digit code we sent to their new number; cleared whenever the
+  // phone column changes. SMS delivery (when live) only goes to verified
+  // phones so a typo doesn't quietly text a stranger. phoneVerificationCode
+  // and phoneVerificationExpiresAt hold the active challenge.
+  phoneVerifiedAt: timestamp("phone_verified_at", { withTimezone: true }),
+  phoneVerificationCode: text("phone_verification_code"),
+  phoneVerificationExpiresAt: timestamp("phone_verification_expires_at", { withTimezone: true }),
   city: text("city"),
   // Primary role for this staffer. Kept as free text so it can match any
   // role in the company's custom catalog (staff_roles carries the full
