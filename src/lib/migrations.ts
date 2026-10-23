@@ -333,6 +333,8 @@ export async function runMigrations(): Promise<void> {
   await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS beo_received_at TIMESTAMPTZ`;
   await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS beo_token TEXT UNIQUE`;
   await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS beo_version_sent INTEGER`;
+  await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS reminder_day_before_sent_at TIMESTAMPTZ`;
+  await sql`ALTER TABLE invitations ADD COLUMN IF NOT EXISTS reminder_morning_of_sent_at TIMESTAMPTZ`;
   await sql`CREATE TABLE IF NOT EXISTS event_beos (
     event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
     version INTEGER NOT NULL DEFAULT 1,

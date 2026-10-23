@@ -455,6 +455,12 @@ export const invitations = pgTable(
     // 50% of the auto-expire window, then a "last call" ~3h before expiry.
     // Each column is set to now() when its nudge goes out so we never double-send.
     nudgeSentAt: timestamp("nudge_sent_at", { withTimezone: true }),
+    // Shift-reminder dispatch stamps. Null = not yet sent. Set when the
+    // hourly reminders cron fires the day-before / morning-of email for
+    // this specific invite, so a retry on the next cron tick doesn't
+    // double-send.
+    reminderDayBeforeSentAt: timestamp("reminder_day_before_sent_at", { withTimezone: true }),
+    reminderMorningOfSentAt: timestamp("reminder_morning_of_sent_at", { withTimezone: true }),
     lastCallSentAt: timestamp("last_call_sent_at", { withTimezone: true }),
     // BEO (Banquet Event Order) send + staff receipt tracking. Set when the
     // manager hits "Send BEO" on the calendar; cleared/updated when they
