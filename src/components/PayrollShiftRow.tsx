@@ -104,10 +104,12 @@ export function PayrollShiftRow({
   }
 
   const flatCellClass = "px-3 py-2 border-b";
-  // Clock + break fields are disabled for flat-rate shifts (always
-  // used the position's flat $) and for on-call standby (no hours
-  // owed - they're paid the standby fee for being available).
-  const timeDisabled = isOnCall || rateType === "flat";
+  // Period lock: once a row is paid, every editable field freezes so the
+  // amount people were paid can't drift. Flip the Paid toggle off to
+  // unlock. Also disabled for flat-rate (position carries the amount) and
+  // on-call standby (fee is fixed, no hours owed).
+  const paidLocked = !!savedPaidAt;
+  const timeDisabled = paidLocked || isOnCall || rateType === "flat";
   const timeInput = (val: string, setter: (v: string) => void) => (
     <input
       type="time"
@@ -180,14 +182,14 @@ export function PayrollShiftRow({
             type="text"
             inputMode="decimal"
             value={gratuity}
+            disabled={paidLocked}
             onChange={(e) => {
-              // Allow digits + a single decimal point only
               const v = e.target.value.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1");
               setGratuity(v);
             }}
             onBlur={() => persist()}
             placeholder="0"
-            className="text-xs px-1.5 py-0.5 w-14 border border-gray-300 rounded outline-none focus:border-gray-500"
+            className="text-xs px-1.5 py-0.5 w-14 border border-gray-300 rounded outline-none focus:border-gray-500 disabled:bg-gray-100 disabled:text-gray-400"
           />
         </td>
       )}

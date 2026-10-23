@@ -127,21 +127,30 @@ async function saveShiftPayrollAction(formData: FormData) {
     return Number.isFinite(n) ? n : null;
   }
 
-  const update: Record<string, unknown> = {
-    clockIn: strOrNull("clockIn"),
-    clockOut: strOrNull("clockOut"),
-    breakFrom: strOrNull("breakFrom"),
-    breakTo: strOrNull("breakTo"),
-    gratuity: numOrNull("gratuity"),
-  };
   const togglePaidTo = formData.get("togglePaid");
   const wasPaid = !!inv.paidAt;
+  // Period lock defense: if the invite is already paid, reject edits to
+  // the clock + gratuity fields. Only the paid-toggle can change state
+  // (flipping to Unpaid is how you unlock the row). The client-side
+  // disables the inputs already; this is belt-and-suspenders against
+  // crafted form posts.
+  const update: Record<string, unknown> = wasPaid && togglePaidTo !== "off"
+    ? {}
+    : {
+        clockIn: strOrNull("clockIn"),
+        clockOut: strOrNull("clockOut"),
+        breakFrom: strOrNull("breakFrom"),
+        breakTo: strOrNull("breakTo"),
+        gratuity: numOrNull("gratuity"),
+      };
   if (togglePaidTo === "on") {
     update.paidAt = new Date();
   } else if (togglePaidTo === "off") {
     update.paidAt = null;
   }
-  await db.update(schema.invitations).set(update).where(eq(schema.invitations.id, invitationId));
+  if (Object.keys(update).length > 0) {
+    await db.update(schema.invitations).set(update).where(eq(schema.invitations.id, invitationId));
+  }
   // Fire the receipt only on the unpaid → paid transition. Flipping it off
   // or re-saving an already-paid row stays quiet.
   if (togglePaidTo === "on" && !wasPaid) {
@@ -150,6 +159,44 @@ async function saveShiftPayrollAction(formData: FormData) {
   revalidatePath("/manager/payroll");
   revalidatePath(`/manager/event/${ev.id}`);
   revalidatePath(`/manager/month/${ev.date.slice(0, 7)}`);
+}
+
+/**
+ * Fill clock-in / clock-out with the event's scheduled check-in and end
+ * times for every passed-in invitation that's unpaid, hourly, and
+ * missing one or both time fields. Break stays empty. Useful at the
+ * start of the payroll run so the manager only has to touch rows where
+ * the staffer actually arrived early / left late / took a break.
+ */
+async function fillScheduledTimesAction(formData: FormData) {
+  "use server";
+  const session = await getSession();
+  if (!session || session.role !== "manager") throw new Error("Unauthorized");
+  const ids = String(formData.get("invitationIds") ?? "").split(",").filter(Boolean);
+  if (ids.length === 0) return;
+
+  const rows = await db
+    .select({ inv: schema.invitations, pos: schema.positions, ev: schema.events })
+    .from(schema.invitations)
+    .innerJoin(schema.positions, eq(schema.invitations.positionId, schema.positions.id))
+    .innerJoin(schema.events, eq(schema.positions.eventId, schema.events.id));
+  const monthsToRevalidate = new Set<string>();
+  for (const r of rows) {
+    if (!ids.includes(r.inv.id)) continue;
+    if (r.ev.companyId !== session.companyId) continue;
+    if (r.inv.paidAt) continue; // paid rows locked
+    if (r.inv.isOnCall) continue; // standby fee, no hours entry
+    if (r.pos.rateType === "flat" || r.pos.baseRateMode === "flat") continue; // flat rows don't bill by hours
+    // Only touch fields the row doesn't already have a value for.
+    const update: Record<string, string | null> = {};
+    if (!r.inv.clockIn && r.ev.checkInTime) update.clockIn = r.ev.checkInTime;
+    if (!r.inv.clockOut && r.ev.endTime) update.clockOut = r.ev.endTime;
+    if (Object.keys(update).length === 0) continue;
+    await db.update(schema.invitations).set(update).where(eq(schema.invitations.id, r.inv.id));
+    monthsToRevalidate.add(r.ev.date.slice(0, 7));
+  }
+  revalidatePath("/manager/payroll");
+  for (const m of monthsToRevalidate) revalidatePath(`/manager/month/${m}`);
 }
 
 /**
@@ -246,7 +293,11 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
     .innerJoin(schema.users, eq(schema.invitations.userId, schema.users.id))
     .innerJoin(schema.staffProfiles, eq(schema.users.id, schema.staffProfiles.userId));
 
-  const filter = searchParams.filter === "unpaid" ? "unpaid" : searchParams.filter === "paid" ? "paid" : "all";
+  const filter =
+    searchParams.filter === "unpaid" ? "unpaid"
+    : searchParams.filter === "paid" ? "paid"
+    : searchParams.filter === "attention" ? "attention"
+    : "all";
   // Only accepted shifts count for payroll - whether they're regular
   // or on-call. Pending on-call invites don't owe the staffer anything
   // yet (they haven't confirmed they'll keep the slot free).
@@ -261,6 +312,17 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
   const visible = inPeriod.filter((r) => {
     if (filter === "unpaid") return !r.inv.paidAt;
     if (filter === "paid") return !!r.inv.paidAt;
+    if (filter === "attention") {
+      // Needs attention: unpaid AND (hourly row with missing clock times,
+      // OR missing the position's expected rate - rare edge). Rows that
+      // are already complete + unpaid don't block you; they just need the
+      // Paid flip.
+      if (r.inv.paidAt) return false;
+      if (r.inv.isOnCall) return false;
+      const isHourly = r.pos.rateType !== "flat" && r.pos.baseRateMode !== "flat";
+      if (!isHourly) return false;
+      return !r.inv.clockIn || !r.inv.clockOut;
+    }
     return true;
   });
 
@@ -396,13 +458,13 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
         <div className="flex items-center justify-between gap-3 mb-4 text-sm print:hidden">
           <div className="flex items-center gap-3">
             <span className="text-gray-500">Filter:</span>
-            {(["all", "unpaid", "paid"] as const).map((f) => (
+            {(["all", "unpaid", "attention", "paid"] as const).map((f) => (
               <Link
                 key={f}
                 href={buildHref(period.start, f)}
                 className={`px-2 py-1 rounded ${filter === f ? "bg-black text-white" : "text-gray-700 hover:bg-gray-100"}`}
               >
-                {f[0].toUpperCase() + f.slice(1)}
+                {f === "attention" ? "Needs attention" : f[0].toUpperCase() + f.slice(1)}
               </Link>
             ))}
           </div>
@@ -438,6 +500,7 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
             // for this section.
             let staffTotal = 0;
             const idsForBulk: string[] = [];
+            const fillableIds: string[] = [];
             let sectionHasAddOns = false;
             let sectionHasTravel = false;
             let sectionHasGratuity = false;
@@ -462,6 +525,17 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
               const total = baseEarning + addOnTotal + travel + gratuity;
               staffTotal += total;
               if (!s.inv.paidAt) idsForBulk.push(s.inv.id);
+              // Fill-eligible: hourly row, not yet paid, not on-call, and at
+              // least one of clockIn / clockOut still blank with a scheduled
+              // time available to pull from.
+              const isHourly = !s.inv.isOnCall && s.pos.rateType !== "flat" && s.pos.baseRateMode !== "flat";
+              if (
+                !s.inv.paidAt &&
+                isHourly &&
+                ((!s.inv.clockIn && s.ev.checkInTime) || (!s.inv.clockOut && s.ev.endTime))
+              ) {
+                fillableIds.push(s.inv.id);
+              }
             }
             const paidIds = g.shifts.filter((s) => s.inv.paidAt).map((s) => s.inv.id);
             // Gratuity column stays visible by default so the manager
@@ -537,6 +611,18 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
                     Total: ${staffTotal.toFixed(2)}
                   </div>
                   <div className="flex items-center gap-2">
+                    {fillableIds.length > 0 && (
+                      <form action={fillScheduledTimesAction}>
+                        <input type="hidden" name="invitationIds" value={fillableIds.join(",")} />
+                        <button
+                          type="submit"
+                          className="btn btn-secondary text-xs"
+                          title={`Fill empty clock-in / clock-out with the event's scheduled times (${fillableIds.length} row${fillableIds.length === 1 ? "" : "s"})`}
+                        >
+                          Fill from scheduled ({fillableIds.length})
+                        </button>
+                      </form>
+                    )}
                     {idsForBulk.length > 0 && (
                       <PayrollMarkAllButton
                         invitationIds={idsForBulk}
