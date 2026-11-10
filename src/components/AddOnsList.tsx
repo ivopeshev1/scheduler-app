@@ -6,6 +6,7 @@ export type AddOn = {
   id: string;
   name: string;
   includeDescription: boolean;
+  highlightInInvite: boolean;
 };
 
 /**
@@ -18,10 +19,12 @@ export function AddOnsList({
   initialAddOns,
   onReorder,
   onRemove,
+  onToggleHighlight,
 }: {
   initialAddOns: AddOn[];
   onReorder: (orderedIds: string[]) => Promise<void>;
   onRemove: (addOnId: string) => Promise<void>;
+  onToggleHighlight: (addOnId: string, next: boolean) => Promise<void>;
 }) {
   const [addOns, setAddOns] = useState<AddOn[]>(initialAddOns);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -89,11 +92,32 @@ export function AddOnsList({
             >
               <span className="text-gray-400 text-sm leading-none" aria-hidden>⋮⋮</span>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium">{a.name}</div>
+                <div className="text-sm font-medium flex items-center gap-2 flex-wrap">
+                  {a.name}
+                  {a.highlightInInvite && (
+                    <span className="text-[10px] uppercase tracking-wide bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">
+                      Shift requirement
+                    </span>
+                  )}
+                </div>
                 {a.includeDescription && (
                   <div className="text-xs text-gray-500">Includes description box</div>
                 )}
               </div>
+              <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none" title="Treat as a shift requirement (highlighted in invite emails)">
+                <input
+                  type="checkbox"
+                  checked={a.highlightInInvite}
+                  onChange={(e) => {
+                    const next = e.target.checked;
+                    setAddOns((xs) => xs.map((x) => (x.id === a.id ? { ...x, highlightInInvite: next } : x)));
+                    startTransition(() => onToggleHighlight(a.id, next));
+                  }}
+                  className="w-4 h-4"
+                  onClick={(e) => e.stopPropagation()}
+                />
+                <span>Requirement</span>
+              </label>
               <button
                 type="button"
                 onClick={() => remove(a.id)}

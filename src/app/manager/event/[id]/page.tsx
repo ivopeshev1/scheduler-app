@@ -549,7 +549,31 @@ async function sendPendingInvitations(formData: FormData) {
       const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, inv.userId));
       if (!u) continue;
       const position = byPosition.get(inv.positionId)!;
-      // Van-driving language only goes to the staff member whose position is flagged as the driver.
+
+      // Per-invitee add-on assignments + their event-level descriptions.
+      // Mirrors the cascade.ts loader so first-time invites + subsequent
+      // nudges render the same add-on blocks.
+      const invAddOnRows = await db
+        .select({ row: schema.invitationAddOns, addOn: schema.addOns })
+        .from(schema.invitationAddOns)
+        .innerJoin(schema.addOns, eq(schema.invitationAddOns.addOnId, schema.addOns.id))
+        .where(eq(schema.invitationAddOns.invitationId, inv.id));
+      const eventDescRows = invAddOnRows.length
+        ? await db.select().from(schema.eventAddOns).where(eq(schema.eventAddOns.eventId, event.id))
+        : [];
+      const descByAddOnId = new Map(eventDescRows.map((r) => [r.addOnId, r.description]));
+      const assignedAddOns = invAddOnRows.map(({ row, addOn }) => ({
+        id: addOn.id,
+        name: addOn.name,
+        amount: row.compensationAmount ?? 0,
+        description: descByAddOnId.get(addOn.id) ?? null,
+        highlightInInvite: !!addOn.highlightInInvite,
+      }));
+      const requirementAddOns = assignedAddOns.filter((a) => a.highlightInInvite);
+
+      // Legacy per-position van-driving flag. Kept so existing events that
+      // were built when van driving was a position-level checkbox still
+      // surface the callout; new events use the add-on path above.
       const vanLine = position.requiresVanDriving ? `This shift requires driving the van.` : "";
       const vanInstructions = position.requiresVanDriving && event.vanDrivingInstructions
         ? `Van driving instructions: ${event.vanDrivingInstructions}`
@@ -602,6 +626,25 @@ async function sendPendingInvitations(formData: FormData) {
       const compLinesText: string[] = [`Base rate:      ${baseRateDisplay}`];
       if (position.requiresVanDriving) compLinesText.push(`Van driving:    $${vanAmount}`);
       if (travel > 0) compLinesText.push(`Travel comp:    $${travel}`);
+      for (const a of assignedAddOns) compLinesText.push(`${a.name}:  $${a.amount}`);
+
+      // Requirement lines (text) for add-ons the owner marked as
+      // "shift requirement" in Settings.
+      const requirementLinesText: string[] = [];
+      for (const a of requirementAddOns) {
+        const base = `This shift requires: ${a.name}.`;
+        requirementLinesText.push(
+          a.description && a.description.trim() ? `${base} ${a.description.trim()}` : base,
+        );
+      }
+      // Quiet descriptions for add-ons that have a description set but
+      // aren't requirements (e.g. "Ice run" with pickup location).
+      const taskDescLinesText: string[] = [];
+      for (const a of assignedAddOns) {
+        if (!a.description || !a.description.trim()) continue;
+        if (a.highlightInInvite) continue; // already surfaced in requirement block
+        taskDescLinesText.push(`${a.name} notes: ${a.description.trim()}`);
+      }
 
       // On-call invites explain the standby model in the email lead +
       // compensation section so the staffer knows what they're agreeing
@@ -629,6 +672,7 @@ async function sendPendingInvitations(formData: FormData) {
         `Approx time: ${timeRange}`,
         `Venue:       ${venue}`,
         `Client:      ${event.clientName}`, ``,
+        ...(requirementLinesText.length > 0 ? ["Shift requirements:", ...requirementLinesText, ""] : []),
         inv.isOnCall ? `On-call compensation:` : `Compensation:`,
         ...onCallCompNote,
         ...(inv.isOnCall ? [`If activated, your pay switches to the shift rate instead (not stacked):`] : []),
@@ -636,6 +680,7 @@ async function sendPendingInvitations(formData: FormData) {
         ``,
         vanLine,
         vanInstructions,
+        ...taskDescLinesText,
         event.staffNotes ? `Notes: ${event.staffNotes}` : "",
         ``,
         `Accept: ${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/accept`,
@@ -665,6 +710,17 @@ async function sendPendingInvitations(formData: FormData) {
     ${row("Client", escapeHtml(event.clientName))}
   </table>
 
+  ${requirementAddOns.length > 0 ? `<div style="margin:0 0 20px;padding:12px 14px;background:#fef3c7;border-left:4px solid #d97706;border-radius:4px;">
+    <p style="margin:0 0 6px;font-weight:600;color:#92400e;">Shift requirements</p>
+    ${requirementAddOns.map((a) => {
+      const headline = `This shift requires: <strong>${escapeHtml(a.name)}</strong>.`;
+      const desc = a.description && a.description.trim()
+        ? `<span style="color:#78350f;"> ${escapeHtml(a.description.trim())}</span>`
+        : "";
+      return `<p style="margin:4px 0 0;">${headline}${desc}</p>`;
+    }).join("")}
+  </div>` : ""}
+
   <p style="margin:0 0 8px;font-weight:600;">${inv.isOnCall ? "On-call compensation" : "Compensation"}</p>
   <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 24px;">
     ${inv.isOnCall ? row("Standby fee (if NOT activated)", `$${onCallFee}`) : ""}
@@ -672,10 +728,12 @@ async function sendPendingInvitations(formData: FormData) {
     ${row("Base rate", escapeHtml(baseRateDisplay))}
     ${position.requiresVanDriving ? row("Van driving", `$${vanAmount}`) : ""}
     ${travel > 0 ? row("Travel comp", `$${travel}`) : ""}
+    ${assignedAddOns.map((a) => row(escapeHtml(a.name), `$${a.amount}`)).join("")}
   </table>
 
   ${vanLine ? `<p style="margin:0 0 12px;">${escapeHtml(vanLine)}</p>` : ""}
   ${vanInstructions ? `<p style="margin:0 0 12px;color:#555;">${escapeHtml(vanInstructions)}</p>` : ""}
+  ${assignedAddOns.filter((a) => !a.highlightInInvite && a.description && a.description.trim()).map((a) => `<p style="margin:0 0 12px;"><strong>${escapeHtml(a.name)} notes:</strong> ${escapeHtml(a.description!.trim())}</p>`).join("")}
   ${event.staffNotes ? `<p style="margin:0 0 12px;"><strong>Notes:</strong> ${escapeHtml(event.staffNotes)}</p>` : ""}
 
   <p style="margin:24px 0 12px;">

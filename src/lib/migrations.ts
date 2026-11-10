@@ -512,6 +512,7 @@ export async function runMigrations(): Promise<void> {
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`;
   await sql`CREATE INDEX IF NOT EXISTS add_ons_company_idx ON add_ons(company_id, sort_order)`;
+  await sql`ALTER TABLE add_ons ADD COLUMN IF NOT EXISTS highlight_in_invite BOOLEAN NOT NULL DEFAULT false`;
 
   // Per-event add-on configuration. Description is the shared text that
   // goes out in every invitee's email for this add-on on this event.

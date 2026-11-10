@@ -199,6 +199,12 @@ export const addOns = pgTable(
     compensationMode: text("compensation_mode", { enum: ["standard", "flat", "hourly"] }).notNull().default("standard"),
     compensationAmount: real("compensation_amount"),
     includeDescription: boolean("include_description").notNull().default(false),
+    // When true, the add-on reads as a shift REQUIREMENT in invite emails
+    // (prominent callout above the compensation table) instead of a quiet
+    // line item. For add-ons that aren't just a pay sweetener - van
+    // driving, teardown lead, equipment pickup. Off by default so pure
+    // pay add-ons (ice run, tip pool share) stay quiet.
+    highlightInInvite: boolean("highlight_in_invite").notNull().default(false),
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

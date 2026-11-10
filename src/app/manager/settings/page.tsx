@@ -426,6 +426,7 @@ async function addAddOnAction(formData: FormData) {
   if (name.length > 60) redirect("/manager/settings?error=addon-name-too-long");
 
   const includeDescription = formData.get("includeDescription") === "on";
+  const highlightInInvite = formData.get("highlightInInvite") === "on";
 
   // Reject name duplicates within a company (case-insensitive)
   const existing = await db.select().from(schema.addOns).where(eq(schema.addOns.companyId, session.companyId));
@@ -449,11 +450,21 @@ async function addAddOnAction(formData: FormData) {
     companyId: session.companyId,
     name,
     includeDescription,
+    highlightInInvite,
     sortOrder: nextSort,
   });
 
   revalidatePath("/manager/settings");
   redirect("/manager/settings?saved=addon-added");
+}
+
+async function toggleAddOnHighlightAction(addOnId: string, next: boolean) {
+  "use server";
+  const { session } = await requireSettingsAccess();
+  const [target] = await db.select().from(schema.addOns).where(eq(schema.addOns.id, addOnId));
+  if (!target || target.companyId !== session.companyId) throw new Error("Not found");
+  await db.update(schema.addOns).set({ highlightInInvite: !!next }).where(eq(schema.addOns.id, addOnId));
+  revalidatePath("/manager/settings");
 }
 
 async function removeAddOnByIdAction(addOnId: string) {
@@ -1096,9 +1107,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
                   id: a.id,
                   name: a.name,
                   includeDescription: a.includeDescription,
+                  highlightInInvite: a.highlightInInvite,
                 }))}
                 onReorder={reorderAddOnsAction}
                 onRemove={removeAddOnByIdAction}
+                onToggleHighlight={toggleAddOnHighlightAction}
               />
 
               <form action={addAddOnAction} className="space-y-3 border-t pt-4">
@@ -1118,6 +1131,13 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
                 <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
                   <input type="checkbox" name="includeDescription" className="w-4 h-4" />
                   <span>Include a description box on the event page (e.g. for driving directions).</span>
+                </label>
+                <label className="inline-flex items-start gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" name="highlightInInvite" className="w-4 h-4 mt-0.5" />
+                  <span>
+                    Treat as a shift requirement — show prominently in invite emails as something the staffer has to do (e.g. drive the van, lead teardown).
+                    Leave off for pay-only add-ons (ice run, tip pool share).
+                  </span>
                 </label>
                 <div>
                   <button type="submit" className="btn btn-secondary">Add add-on</button>
@@ -1140,8 +1160,15 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
           ) : (
             <ul className="divide-y border rounded-lg">
               {addOns.map((a) => (
-                <li key={a.id} className="px-4 py-3 text-sm flex items-center justify-between">
-                  <span className="font-medium">{a.name}</span>
+                <li key={a.id} className="px-4 py-3 text-sm flex items-center justify-between gap-3">
+                  <span className="font-medium flex items-center gap-2">
+                    {a.name}
+                    {a.highlightInInvite && (
+                      <span className="text-[10px] uppercase tracking-wide bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">
+                        Shift requirement
+                      </span>
+                    )}
+                  </span>
                   {a.includeDescription && (
                     <span className="text-xs text-gray-500">has description box</span>
                   )}

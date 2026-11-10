@@ -53,7 +53,12 @@ export async function sendInvitationEmail(
     name: addOn.name,
     amount: row.compensationAmount ?? 0,
     description: descByAddOnId.get(addOn.id) ?? null,
+    highlightInInvite: !!addOn.highlightInInvite,
   }));
+  // Shift-requirement add-ons (van driving, teardown lead, etc.) get a
+  // prominent callout above the compensation table. Pay-only add-ons
+  // (tip pool, ice run) stay quiet in the compensation table.
+  const requirementAddOns = assignedAddOns.filter((a) => a.highlightInInvite);
 
   function addOnCompensationLabel(a: typeof assignedAddOns[number]): string {
     return `$${a.amount}`;
@@ -109,6 +114,18 @@ export async function sendInvitationEmail(
     }
   }
 
+  // Prominent "this shift requires X" lines for every add-on flagged
+  // highlightInInvite in Settings (van driving, teardown lead, ...).
+  // Shown above the compensation table so the staffer sees the
+  // responsibility first, pay second.
+  const requirementLinesText: string[] = [];
+  for (const a of requirementAddOns) {
+    const base = `This shift requires: ${a.name}.`;
+    requirementLinesText.push(
+      a.description && a.description.trim() ? `${base} ${a.description.trim()}` : base,
+    );
+  }
+
   const textBody = [
     `Hi ${profile?.firstName ?? ""},`, ``,
     `You're invited to work the following shift:`, ``,
@@ -118,6 +135,7 @@ export async function sendInvitationEmail(
     `Approx time: ${timeRange}`,
     `Venue:       ${venue}`,
     `Client:      ${event.clientName}`, ``,
+    ...(requirementLinesText.length > 0 ? ["Shift requirements:", ...requirementLinesText, ""] : []),
     `Compensation:`,
     ...compLinesText, ``,
     vanLine,
@@ -144,6 +162,20 @@ export async function sendInvitationEmail(
       ${row("Venue", escapeHtml(venue))}
       ${row("Client", escapeHtml(event.clientName))}
     </table>`,
+    requirementAddOns.length > 0
+      ? `<div style="margin:0 0 20px;padding:12px 14px;background:#fef3c7;border-left:4px solid #d97706;border-radius:4px;">
+          <p style="margin:0 0 6px;font-weight:600;color:#92400e;">Shift requirements</p>
+          ${requirementAddOns
+            .map((a) => {
+              const headline = `This shift requires: <strong>${escapeHtml(a.name)}</strong>.`;
+              const desc = a.description && a.description.trim()
+                ? `<span style="color:#78350f;"> ${escapeHtml(a.description.trim())}</span>`
+                : "";
+              return `<p style="margin:4px 0 0;">${headline}${desc}</p>`;
+            })
+            .join("")}
+        </div>`
+      : "",
     `<p style="margin:0 0 8px;font-weight:600;">Compensation</p>`,
     `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 24px;">
       ${row("Base rate", escapeHtml(baseRateDisplay))}
