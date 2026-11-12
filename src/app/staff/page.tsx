@@ -311,18 +311,25 @@ function NextShiftCard({ row }: { row: Row }) {
       </dl>
 
       {/*
-        The amber "Shift requirements" callout + the Add-ons compensation
-        list now live on the full details page (/staff/shift/[id]) so the
-        overview stays scannable and the detail view is the richer one.
-        The next line nudges the staffer there when there's extra context
-        worth seeing.
+        Compact add-on lines right under the rate — one row per add-on:
+        name + compensation, plus a small amber "required" chip when
+        it's a highlightInInvite one. The amber callout with the
+        description text lives on the full details page.
       */}
-      {((requirements && requirements.length > 0) || (addOns && addOns.length > 0)) && (
-        <div className="mt-3 text-xs text-amber-800">
-          {requirements && requirements.length > 0
-            ? "This shift has requirements — open for details."
-            : "This shift has add-ons — open for details."}
-        </div>
+      {addOns && addOns.length > 0 && (
+        <ul className="mt-2 text-sm text-gray-700 space-y-0.5">
+          {addOns.map((a, i) => (
+            <li key={i} className="flex items-baseline gap-2">
+              <span>+ {a.name}</span>
+              <span>{a.compensation != null ? `$${a.compensation.toFixed(2)}` : ""}</span>
+              {a.isRequirement && (
+                <span className="text-xs text-amber-800 bg-amber-100 border border-amber-200 rounded px-1.5 py-0.5">
+                  required
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
 
       {evt.staffNotes && (
