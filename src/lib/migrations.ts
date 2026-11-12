@@ -155,6 +155,23 @@ export async function runMigrations(): Promise<void> {
     await sql`UPDATE staff_profiles SET reminder_day_before_hour = 9 WHERE reminder_day_before_hour IS NULL`;
     await sql`INSERT INTO migration_flags(key) VALUES ('reminder_day_before_default_on_v1') ON CONFLICT (key) DO NOTHING`;
   }
+  // SMS opt-in state for Twilio A2P 10DLC compliance. null = never
+  // asked, true = opted in via profile checkbox, false = opted out
+  // (either in profile or by replying STOP, which hits our inbound
+  // webhook and flips this).
+  await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS sms_opted_in BOOLEAN`;
+  await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS sms_opted_in_at TIMESTAMPTZ`;
+  await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS sms_opted_out_at TIMESTAMPTZ`;
+  // One-time backfill: existing staffers who already gave us a phone
+  // number did so for the explicit purpose of shift communication, so
+  // they're opted in by default. Guarded by migration_flags so a later
+  // opt-out doesn't get reverted on the next cold start.
+  const [smsBackfillRow] = await sql`SELECT 1 FROM migration_flags WHERE key = 'sms_opted_in_default_on_v1'` as unknown as Array<{ "?column?": number }>;
+  if (!smsBackfillRow) {
+    await sql`UPDATE staff_profiles SET sms_opted_in = TRUE, sms_opted_in_at = now() WHERE sms_opted_in IS NULL AND phone IS NOT NULL AND phone <> ''`;
+    await sql`INSERT INTO migration_flags(key) VALUES ('sms_opted_in_default_on_v1') ON CONFLICT (key) DO NOTHING`;
+  }
+
   await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS ui_preferences JSONB`;
   await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS rank_order INTEGER`;
   await sql`ALTER TABLE positions ADD COLUMN IF NOT EXISTS travel_rate REAL DEFAULT 0`;

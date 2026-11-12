@@ -149,6 +149,14 @@ export const staffProfiles = pgTable("staff_profiles", {
   phoneVerifiedAt: timestamp("phone_verified_at", { withTimezone: true }),
   phoneVerificationCode: text("phone_verification_code"),
   phoneVerificationExpiresAt: timestamp("phone_verification_expires_at", { withTimezone: true }),
+  // SMS opt-in. true = explicitly opted in via the profile checkbox;
+  // false = explicitly opted out (or replied STOP); null = haven't been
+  // asked yet. Only true means we text them. Required for Twilio A2P
+  // 10DLC compliance - the campaign registration describes this exact
+  // mechanism.
+  smsOptedIn: boolean("sms_opted_in"),
+  smsOptedInAt: timestamp("sms_opted_in_at", { withTimezone: true }),
+  smsOptedOutAt: timestamp("sms_opted_out_at", { withTimezone: true }),
   city: text("city"),
   // Primary role for this staffer. Kept as free text so it can match any
   // role in the company's custom catalog (staff_roles carries the full
@@ -588,7 +596,7 @@ export const notifications = pgTable("notifications", {
   channel: text("channel", { enum: ["email", "sms"] }).notNull(),
   subject: text("subject"),
   body: text("body").notNull(),
-  status: text("status", { enum: ["queued", "sent", "failed", "dev-logged", "muted"] }).notNull(),
+  status: text("status", { enum: ["queued", "sent", "failed", "dev-logged", "muted", "received"] }).notNull(),
   errorMessage: text("error_message"),
   relatedInvitationId: text("related_invitation_id").references(() => invitations.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

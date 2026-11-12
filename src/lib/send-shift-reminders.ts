@@ -19,7 +19,7 @@
 
 import { db, schema } from "@/db/client";
 import { and, eq, inArray, isNull, isNotNull } from "drizzle-orm";
-import { sendEmail } from "@/lib/notifications";
+import { sendEmail, sendSms } from "@/lib/notifications";
 import { shellWrap, greeting, paragraph, kvRow, kvTable, signoff } from "@/lib/email-html";
 import { formatDate, formatTime } from "@/lib/format";
 
@@ -161,6 +161,19 @@ async function sendReminderEmail(
     subject: `Reminder: you're on shift tomorrow — ${event.clientName} on ${prettyDate}`,
     body: textBody,
     html: htmlBody,
+    companyId: event.companyId,
+    userId: user.id,
+    relatedInvitationId: invitationId,
+    notificationKey: "shiftReminder",
+  });
+
+  // Companion SMS. Short body so it fits in one segment (160 chars) for
+  // most shifts - the email has the full details. Silently no-ops when
+  // the staffer isn't opted in or has no verified phone.
+  const checkIn = formatTime(event.checkInTime);
+  await sendSms({
+    to: profile?.phone,
+    body: `${companyName}: Reminder - you're on shift tomorrow (${prettyDate}) at ${venue || event.clientName}, check in at ${checkIn}. Reply STOP to opt out.`,
     companyId: event.companyId,
     userId: user.id,
     relatedInvitationId: invitationId,

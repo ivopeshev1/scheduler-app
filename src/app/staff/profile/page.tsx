@@ -39,6 +39,10 @@ async function saveProfileAction(formData: FormData) {
   const uniformSize = String(formData.get("uniformSize") ?? "").trim() || null;
   const photoUrl = String(formData.get("photoUrl") ?? "").trim() || null;
   const timezone = String(formData.get("timezone") ?? "").trim() || null;
+  // SMS opt-in checkbox. Unchecked = explicit opt-out, not null; we
+  // store the concrete boolean so a staffer can un-check it and we
+  // stop texting them immediately.
+  const smsOptedIn = formData.get("smsOptedIn") !== null;
 
   if (!phone) redirect("/staff/profile?err=phone");
   if (!emergencyName || !emergencyPhone) redirect("/staff/profile?err=emergency");
@@ -80,6 +84,11 @@ async function saveProfileAction(formData: FormData) {
       phoneVerifiedAt: nextVerification.phoneVerifiedAt,
       phoneVerificationCode: nextVerification.phoneVerificationCode,
       phoneVerificationExpiresAt: nextVerification.phoneVerificationExpiresAt,
+      smsOptedIn,
+      smsOptedInAt: smsOptedIn
+        ? (existing?.smsOptedInAt ?? new Date())
+        : existing?.smsOptedInAt ?? null,
+      smsOptedOutAt: smsOptedIn ? null : new Date(),
     })
     .where(eq(schema.staffProfiles.userId, session.userId));
 
@@ -380,6 +389,36 @@ export default async function StaffProfilePage({
                 <p className="text-xs text-gray-500 mt-1">
                   Changing it requires a quick 6-digit code to confirm the new number before SMS reminders start.
                 </p>
+                {/*
+                  SMS opt-in — required for Twilio A2P 10DLC. The box is
+                  defaulted ON for existing staffers who gave us a phone
+                  for the explicit purpose of shift communication; they
+                  can un-check to opt out. Unchecked saves smsOptedIn =
+                  false (not null) so sendSms honors the opt-out.
+                */}
+                <label className="flex items-start gap-2 mt-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="smsOptedIn"
+                    defaultChecked={profile?.smsOptedIn !== false}
+                    className="mt-0.5"
+                  />
+                  <span className="text-sm">
+                    <span className="font-medium">Text me about my shifts</span>
+                    <span className="block text-xs text-gray-500 mt-0.5">
+                      Shift invites, day-before reminders, and schedule changes sent to
+                      this number by Flair Projects SB. Message frequency varies. Msg &amp;
+                      data rates may apply. Reply STOP to any text to opt out. See our{" "}
+                      <a href="/privacy" className="underline" target="_blank" rel="noreferrer">
+                        privacy policy
+                      </a>{" "}
+                      and{" "}
+                      <a href="/terms" className="underline" target="_blank" rel="noreferrer">
+                        terms
+                      </a>.
+                    </span>
+                  </span>
+                </label>
               </div>
               <div>
                 <label htmlFor="city" className="label">City</label>

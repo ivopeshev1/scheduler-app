@@ -1,7 +1,7 @@
 import { db, schema } from "@/db/client";
 import { and, eq, isNull } from "drizzle-orm";
 // (and + eq imported above; staff_roles lookup added later uses them)
-import { sendEmail, escapeHtml } from "@/lib/notifications";
+import { sendEmail, sendSms, escapeHtml } from "@/lib/notifications";
 import { formatTime, formatDate } from "@/lib/format";
 import { shellWrap, kvRow, kvTable, greeting, paragraph, banner, signoff } from "@/lib/email-html";
 import { nanoid } from "nanoid";
@@ -208,6 +208,22 @@ export async function sendInvitationEmail(
     relatedInvitationId: inv.id,
     notificationKey: "shiftInvite",
   });
+
+  // Companion SMS to the shift invite. Short on purpose - a long body
+  // costs more segments and gets filtered by carriers. The email carries
+  // the full compensation table, requirements callout, etc.; this is
+  // just a nudge to open the link and respond. sendSms silently no-ops
+  // when the staffer isn't opted in or has no verified phone.
+  const acceptUrl = `${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/accept`;
+  await sendSms({
+    to: profile?.phone,
+    body: `${companyName}: You've been invited to work ${position.role} at ${venue || event.clientName} on ${prettyDate}. Open ${acceptUrl} to accept or decline. Reply STOP to opt out.`,
+    companyId,
+    userId: inv.userId,
+    relatedInvitationId: inv.id,
+    notificationKey: "shiftInvite",
+  });
+
   await db.update(schema.invitations).set({ sentAt: new Date() }).where(eq(schema.invitations.id, inv.id));
 }
 
