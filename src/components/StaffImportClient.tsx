@@ -23,72 +23,64 @@ type NormalizedRow = {
   firstName: string;
   lastName: string;
   email: string;
-  phone: string | null;
-  city: string | null;
   primaryRole: string;
   rate: number;
   rateType: "hourly" | "flat";
-  additionalRoles: { role: string; rate: number; rateType: "hourly" | "flat" }[];
-  locations: string[];
-  canDriveVan: boolean;
   // UI / validation
   errors: string[];
   warnings: string[];
 };
 
+/**
+ * Canonical field name → every spelling we've seen a staffing /
+ * scheduling / HR tool export for it. Match is case-insensitive and
+ * ignores whitespace and punctuation (see normalizeHeaderKey). Extra
+ * columns in the uploaded file that don't match any alias are silently
+ * ignored - users don't have to strip them.
+ */
+const COLUMN_ALIASES: Record<string, string[]> = {
+  first_name: ["first_name", "firstname", "first", "given_name", "forename", "given"],
+  last_name: ["last_name", "lastname", "last", "surname", "family_name", "family"],
+  email: ["email", "email_address", "e_mail", "mail", "work_email", "contact_email"],
+  primary_role: ["primary_role", "role", "position", "job", "job_title", "title", "default_role"],
+  rate: ["rate", "pay_rate", "hourly_rate", "flat_rate", "wage", "pay", "default_rate"],
+  rate_type: ["rate_type", "pay_type", "rate_kind", "wage_type", "default_rate_type"],
+};
+
 const REQUIRED = ["first_name", "last_name", "email", "primary_role", "rate", "rate_type"] as const;
 
 /**
- * Normalize US-looking phone into +1XXXXXXXXXX. Non-US phones (10+
- * digits with an explicit country code) pass through with punctuation
- * stripped. Returns null for anything we can't match - caller treats
- * null as "no phone on file" rather than erroring.
+ * Collapse "First Name", "first-name", "firstName", "e-mail" etc. to a
+ * single canonical shape ("first_name", "e_mail") so the alias map can
+ * match without listing every punctuation variant.
  */
-function normalizePhone(raw: string): string | null {
-  const digits = raw.replace(/\D/g, "");
-  if (!digits) return null;
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  if (digits.length >= 10) return `+${digits}`;
-  return null;
+function normalizeHeaderKey(raw: string): string {
+  return raw.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 }
 
-function parseBool(raw: string): boolean {
-  const v = raw.trim().toLowerCase();
-  return v === "yes" || v === "y" || v === "true" || v === "1";
-}
-
-function parseAdditionalRoles(
-  raw: string,
-): { role: string; rate: number; rateType: "hourly" | "flat" }[] {
-  if (!raw.trim()) return [];
-  return raw
-    .split(";")
-    .map((chunk) => chunk.trim())
-    .filter(Boolean)
-    .map((chunk) => {
-      // Format: Role:rate:type - e.g. "Bartender:30:hourly"
-      const parts = chunk.split(":").map((s) => s.trim());
-      if (parts.length < 3) return null;
-      const [role, rateStr, type] = parts;
-      const rate = Number(rateStr);
-      if (!role || !Number.isFinite(rate) || rate < 0) return null;
-      const rateType = type.toLowerCase() === "flat" ? "flat" : "hourly";
-      return { role, rate, rateType: rateType as "hourly" | "flat" };
-    })
-    .filter((r): r is { role: string; rate: number; rateType: "hourly" | "flat" } => r !== null);
-}
-
-function parseLocations(raw: string): string[] {
-  return raw
-    .split(";")
-    .map((s) => s.trim())
-    .filter(Boolean);
+/**
+ * Walk the alias table against the raw-row keys and produce a new row
+ * keyed by our canonical names. Multiple source columns mapping to the
+ * same canonical field: first non-empty wins.
+ */
+function remapRow(raw: RawRow): RawRow {
+  const normalized: RawRow = {};
+  for (const [canonical, aliases] of Object.entries(COLUMN_ALIASES)) {
+    const aliasSet = new Set(aliases.map(normalizeHeaderKey));
+    for (const [k, v] of Object.entries(raw)) {
+      if (!aliasSet.has(normalizeHeaderKey(k))) continue;
+      const trimmed = String(v ?? "").trim();
+      if (!normalized[canonical] && trimmed) {
+        normalized[canonical] = trimmed;
+      }
+    }
+  }
+  return normalized;
 }
 
 function normalize(
   row: RawRow,
-  ctx: { knownLocationNames: string[]; existingEmails: string[]; seenEmails: Set<string> },
+  ctx: { existingEmails: string[]; seenEmails: Set<string> },
 ): NormalizedRow {
   const get = (k: string) => (row[k] ?? "").toString().trim();
   const errors: string[] = [];
@@ -107,35 +99,22 @@ function normalize(
   const rate = Number(get("rate"));
   if (get("rate") && (!Number.isFinite(rate) || rate < 0)) errors.push("Invalid rate (must be a non-negative number)");
 
+  // Accept any spelling of hourly/flat that a human would type. Full
+  // words win; shortened "h"/"f" also accepted. Anything else = error.
   const rateTypeRaw = get("rate_type").toLowerCase();
-  const rateType: "hourly" | "flat" = rateTypeRaw === "flat" ? "flat" : "hourly";
-  if (get("rate_type") && rateTypeRaw !== "hourly" && rateTypeRaw !== "flat") {
-    errors.push(`rate_type must be "hourly" or "flat" (got "${rateTypeRaw}")`);
+  const rateType: "hourly" | "flat" =
+    /^(flat|f)$/.test(rateTypeRaw) ? "flat" : "hourly";
+  if (get("rate_type") && !/^(hourly|h|flat|f|per_hour|per_event)$/.test(rateTypeRaw)) {
+    warnings.push(`rate_type "${rateTypeRaw}" interpreted as hourly`);
   }
-
-  const phoneRaw = get("phone");
-  const phone = phoneRaw ? normalizePhone(phoneRaw) : null;
-  if (phoneRaw && !phone) warnings.push(`Phone "${phoneRaw}" couldn't be normalized, leaving blank`);
-
-  const locations = parseLocations(get("locations"));
-  const knownLower = new Set(ctx.knownLocationNames.map((s) => s.toLowerCase()));
-  const unknownLocs = locations.filter((l) => !knownLower.has(l.toLowerCase()));
-  if (unknownLocs.length > 0) errors.push(`Unknown location(s): ${unknownLocs.join(", ")}`);
-
-  const additionalRoles = parseAdditionalRoles(get("additional_roles"));
 
   return {
     firstName: get("first_name"),
     lastName: get("last_name"),
     email,
-    phone,
-    city: get("city") || null,
     primaryRole: get("primary_role"),
     rate: Number.isFinite(rate) ? rate : 0,
     rateType,
-    additionalRoles,
-    locations,
-    canDriveVan: parseBool(get("can_drive_van")),
     errors,
     warnings,
   };
@@ -144,33 +123,54 @@ function normalize(
 export function StaffImportClient({
   formAction,
   knownRoleNames,
-  knownLocationNames,
   existingEmails,
 }: {
   formAction: (formData: FormData) => Promise<void> | void;
   knownRoleNames: string[];
-  knownLocationNames: string[];
   existingEmails: string[];
 }) {
   const [rawRows, setRawRows] = useState<RawRow[]>([]);
   const [fileName, setFileName] = useState<string>("");
   const [parseError, setParseError] = useState<string>("");
+  const [detectedHeaders, setDetectedHeaders] = useState<string[]>([]);
+  const [ignoredHeaders, setIgnoredHeaders] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function finalizeRows(parsedRaw: Record<string, unknown>[]) {
+    const nonEmpty = parsedRaw.filter((r) =>
+      Object.values(r).some((v) => String(v ?? "").trim() !== ""),
+    );
+    const headers = nonEmpty.length > 0 ? Object.keys(nonEmpty[0]) : [];
+    setDetectedHeaders(headers);
+    const canonicalKnown = new Set(
+      Object.values(COLUMN_ALIASES).flat().map(normalizeHeaderKey),
+    );
+    setIgnoredHeaders(headers.filter((h) => !canonicalKnown.has(normalizeHeaderKey(h))));
+    setRawRows(
+      nonEmpty.map((r) => {
+        const asStrings: RawRow = {};
+        for (const [k, v] of Object.entries(r)) asStrings[k] = String(v ?? "");
+        return remapRow(asStrings);
+      }),
+    );
+  }
 
   function handleFile(file: File) {
     setParseError("");
     setFileName(file.name);
     const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
     if (ext === "csv" || file.type === "text/csv") {
-      Papa.parse<RawRow>(file, {
+      Papa.parse<Record<string, unknown>>(file, {
         header: true,
         skipEmptyLines: true,
-        transformHeader: (h) => h.trim().toLowerCase().replace(/\s+/g, "_"),
+        // Keep headers as-written so the aliases table can match against
+        // real-world spellings like "Email Address" or "Mobile Number"
+        // without pre-normalizing them to lose that information.
         complete: (result) => {
           if (result.errors.length > 0) {
             setParseError(result.errors.map((e) => e.message).join("; "));
           }
-          setRawRows(result.data.filter((r) => Object.values(r).some((v) => String(v ?? "").trim() !== "")));
+          finalizeRows(result.data);
         },
         error: (err) => setParseError(err.message),
       });
@@ -182,15 +182,7 @@ export function StaffImportClient({
           const workbook = XLSX.read(data, { type: "array" });
           const sheet = workbook.Sheets[workbook.SheetNames[0]];
           const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "", raw: false });
-          // Normalize header case the same way the CSV path does.
-          const normalized: RawRow[] = json.map((row) => {
-            const out: RawRow = {};
-            for (const [k, v] of Object.entries(row)) {
-              out[k.trim().toLowerCase().replace(/\s+/g, "_")] = String(v ?? "").trim();
-            }
-            return out;
-          }).filter((r) => Object.values(r).some((v) => String(v ?? "").trim() !== ""));
-          setRawRows(normalized);
+          finalizeRows(json);
         } catch (err) {
           setParseError(err instanceof Error ? err.message : String(err));
         }
@@ -204,9 +196,9 @@ export function StaffImportClient({
   const normalized = useMemo<NormalizedRow[]>(() => {
     const seen = new Set<string>();
     return rawRows.map((r) =>
-      normalize(r, { knownLocationNames, existingEmails, seenEmails: seen }),
+      normalize(r, { existingEmails, seenEmails: seen }),
     );
-  }, [rawRows, knownLocationNames, existingEmails]);
+  }, [rawRows, existingEmails]);
 
   const ok = normalized.filter((r) => r.errors.length === 0);
   const bad = normalized.filter((r) => r.errors.length > 0);
@@ -215,10 +207,7 @@ export function StaffImportClient({
     const known = new Set(knownRoleNames.map((n) => n.toLowerCase()));
     const seen = new Set<string>();
     for (const r of ok) {
-      if (!known.has(r.primaryRole.toLowerCase())) seen.add(r.primaryRole);
-      for (const ar of r.additionalRoles) {
-        if (!known.has(ar.role.toLowerCase())) seen.add(ar.role);
-      }
+      if (r.primaryRole && !known.has(r.primaryRole.toLowerCase())) seen.add(r.primaryRole);
     }
     return Array.from(seen);
   }, [ok, knownRoleNames]);
@@ -261,6 +250,20 @@ export function StaffImportClient({
           Parse error: {parseError}
         </div>
       )}
+      {detectedHeaders.length > 0 && (
+        <div className="mb-4 text-xs text-gray-600 border rounded p-3 bg-gray-50">
+          <p>
+            <span className="font-semibold">Detected columns:</span>{" "}
+            {detectedHeaders.join(", ")}
+          </p>
+          {ignoredHeaders.length > 0 && (
+            <p className="mt-1 text-gray-500">
+              Ignored columns (we don&apos;t need these — staffers fill them in during onboarding):{" "}
+              {ignoredHeaders.join(", ")}
+            </p>
+          )}
+        </div>
+      )}
 
       {normalized.length > 0 && (
         <>
@@ -288,9 +291,7 @@ export function StaffImportClient({
                   <th className="text-left p-2">Status</th>
                   <th className="text-left p-2">Name</th>
                   <th className="text-left p-2">Email</th>
-                  <th className="text-left p-2">Phone</th>
                   <th className="text-left p-2">Primary role / rate</th>
-                  <th className="text-left p-2">Locations</th>
                   <th className="text-left p-2">Notes</th>
                 </tr>
               </thead>
@@ -307,14 +308,9 @@ export function StaffImportClient({
                       </td>
                       <td className="p-2">{r.firstName} {r.lastName}</td>
                       <td className="p-2 font-mono">{r.email}</td>
-                      <td className="p-2 font-mono">{r.phone ?? "—"}</td>
                       <td className="p-2">
                         {r.primaryRole} · ${r.rate} {r.rateType}
-                        {r.additionalRoles.length > 0 && (
-                          <span className="text-gray-500"> +{r.additionalRoles.length} more</span>
-                        )}
                       </td>
-                      <td className="p-2">{r.locations.join(", ") || <span className="text-gray-400">default</span>}</td>
                       <td className="p-2">
                         {r.errors.map((e, j) => <div key={`e${j}`} className="text-red-700">{e}</div>)}
                         {r.warnings.map((w, j) => <div key={`w${j}`} className="text-amber-700">{w}</div>)}

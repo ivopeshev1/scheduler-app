@@ -9,45 +9,9 @@
  */
 export function GET() {
   const rows = [
-    [
-      "first_name",
-      "last_name",
-      "email",
-      "phone",
-      "city",
-      "primary_role",
-      "rate",
-      "rate_type",
-      "additional_roles",
-      "locations",
-      "can_drive_van",
-    ],
-    [
-      "Jamie",
-      "Rivera",
-      "jamie@example.com",
-      "805-555-0101",
-      "Simi Valley",
-      "Bartender",
-      "30",
-      "hourly",
-      "Server:25:hourly;Bar Back:22:hourly",
-      "Main Location",
-      "yes",
-    ],
-    [
-      "Alex",
-      "Chen",
-      "alex@example.com",
-      "805-555-0102",
-      "Thousand Oaks",
-      "Event Lead",
-      "600",
-      "flat",
-      "",
-      "Main Location",
-      "no",
-    ],
+    ["first_name", "last_name", "email", "primary_role", "rate", "rate_type"],
+    ["Jamie", "Rivera", "jamie@example.com", "Bartender", "30", "hourly"],
+    ["Alex", "Chen", "alex@example.com", "Event Lead", "600", "flat"],
   ];
   const csv = rows
     .map((r) =>

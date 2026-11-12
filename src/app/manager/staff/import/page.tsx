@@ -30,14 +30,9 @@ type ImportRow = {
   firstName: string;
   lastName: string;
   email: string;
-  phone: string | null;
-  city: string | null;
   primaryRole: string;
   rate: number;
   rateType: "hourly" | "flat";
-  additionalRoles: { role: string; rate: number; rateType: "hourly" | "flat" }[];
-  locations: string[];
-  canDriveVan: boolean;
 };
 
 type ImportResult = {
@@ -79,24 +74,28 @@ async function importStaffAction(formData: FormData): Promise<void> {
   const roleNames = new Map(roleCatalog.map((r) => [r.name.toLowerCase(), r]));
   let nextRoleOrder = roleCatalog.reduce((m, r) => Math.max(m, r.sortOrder ?? 0), 0);
 
+  // Importer auto-assigns every location the current manager can access
+  // (owners = all company locations, non-owners = their own). Managers
+  // refine per-staffer later on the staff detail page; keeping this
+  // automatic avoids forcing them to type location names for every row.
   const companyLocations = await db
     .select()
     .from(schema.locations)
     .where(eq(schema.locations.companyId, session.companyId));
-  const locationsByName = new Map(
-    companyLocations.filter((l) => !l.archivedAt).map((l) => [l.name.toLowerCase(), l]),
-  );
-  // Non-owners can only assign a staffer to locations they themselves
-  // belong to. Owners pass through.
-  let assignableLocationIds: Set<string>;
+  const activeLocations = companyLocations.filter((l) => !l.archivedAt);
+  let assignableLocationIds: string[];
   if (me.isOwner) {
-    assignableLocationIds = new Set(companyLocations.map((l) => l.id));
+    assignableLocationIds = activeLocations.map((l) => l.id);
   } else {
     const myLocs = await db
       .select({ id: schema.userLocations.locationId })
       .from(schema.userLocations)
       .where(eq(schema.userLocations.userId, session.userId));
-    assignableLocationIds = new Set(myLocs.map((r) => r.id));
+    const mine = new Set(myLocs.map((r) => r.id));
+    assignableLocationIds = activeLocations.filter((l) => mine.has(l.id)).map((l) => l.id);
+  }
+  if (assignableLocationIds.length === 0) {
+    redirect("/manager/staff/import?err=" + encodeURIComponent("You don't have access to any locations. Add one in Settings first."));
   }
 
   const results: ImportResult[] = [];
@@ -114,56 +113,20 @@ async function importStaffAction(formData: FormData): Promise<void> {
         continue;
       }
 
-      // Resolve roles - auto-add any unknown ones to the company catalog
-      // so "import staffer with role we haven't configured yet" Just
-      // Works, same as the single-add flow.
-      const allRoles = [
-        { role: r.primaryRole, rate: r.rate, rateType: r.rateType },
-        ...r.additionalRoles,
-      ];
-      for (const rr of allRoles) {
-        const key = rr.role.toLowerCase();
-        if (roleNames.has(key)) continue;
+      // Resolve primary role - auto-add to the company catalog when it's
+      // a role the company hasn't configured yet, same as the single-add
+      // flow. Additional roles come later via the staff detail page.
+      const key = r.primaryRole.toLowerCase();
+      if (!roleNames.has(key)) {
         nextRoleOrder += 10;
         const newRow = {
           id: nanoid(),
           companyId: session.companyId,
-          name: rr.role,
+          name: r.primaryRole,
           sortOrder: nextRoleOrder,
         };
         await db.insert(schema.roles).values(newRow);
         roleNames.set(key, newRow as (typeof roleCatalog)[number]);
-      }
-
-      // Resolve locations. Row's `locations` is a list of names from the
-      // spreadsheet; match case-insensitively to the company's catalog.
-      // Fall back to the single available location when none specified.
-      let locationIds: string[];
-      if (r.locations.length === 0) {
-        if (locationsByName.size === 1) {
-          locationIds = Array.from(locationsByName.values()).map((l) => l.id);
-        } else {
-          results.push({ email, status: "failed", reason: "No location specified (your company has multiple; add one)" });
-          continue;
-        }
-      } else {
-        const resolved: string[] = [];
-        const unknown: string[] = [];
-        for (const name of r.locations) {
-          const loc = locationsByName.get(name.toLowerCase());
-          if (loc) resolved.push(loc.id);
-          else unknown.push(name);
-        }
-        if (unknown.length > 0) {
-          results.push({ email, status: "failed", reason: `Unknown location(s): ${unknown.join(", ")}` });
-          continue;
-        }
-        locationIds = resolved;
-      }
-      const assignable = locationIds.filter((id) => assignableLocationIds.has(id));
-      if (assignable.length === 0) {
-        results.push({ email, status: "failed", reason: "You don't have access to any of these locations" });
-        continue;
       }
 
       // Create or resurrect the user row.
@@ -190,7 +153,9 @@ async function importStaffAction(formData: FormData): Promise<void> {
         });
       }
 
-      // Profile row.
+      // Profile row. Phone, city, DOB, emergency contact, uniform,
+      // photo, SMS opt-in - all left for the staffer to fill in during
+      // their own onboarding.
       const existingProfile = archivedPrior
         ? await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, userId))
         : [];
@@ -200,18 +165,15 @@ async function importStaffAction(formData: FormData): Promise<void> {
         position: r.primaryRole,
         defaultRate: r.rate,
         defaultRateType: r.rateType,
-        phone: r.phone,
-        city: r.city,
-        canDriveVan: r.canDriveVan,
         reminderDayBeforeHour: 9,
-        // SMS opt-in isn't set here - the staffer ticks that themselves
-        // during profile completion, same as the one-at-a-time flow.
       } as const;
       if (existingProfile.length > 0) {
         await db
           .update(schema.staffProfiles)
           .set({
             ...profileFields,
+            phone: null,
+            city: null,
             dateOfBirth: null,
             emergencyContactName: null,
             emergencyContactPhone: null,
@@ -224,28 +186,25 @@ async function importStaffAction(formData: FormData): Promise<void> {
         await db.insert(schema.staffProfiles).values({ userId, ...profileFields });
       }
 
-      // Roles.
+      // Primary role only. Additional roles come later from the staff
+      // detail page once the manager wants to configure them.
       if (archivedPrior) {
         await db.delete(schema.staffRoles).where(eq(schema.staffRoles.userId, userId));
       }
-      const seenRoles = new Set<string>();
-      for (const rr of allRoles) {
-        if (seenRoles.has(rr.role.toLowerCase())) continue;
-        seenRoles.add(rr.role.toLowerCase());
-        await db.insert(schema.staffRoles).values({
-          id: nanoid(),
-          userId,
-          role: rr.role,
-          rate: rr.rate,
-          rateType: rr.rateType,
-        });
-      }
+      await db.insert(schema.staffRoles).values({
+        id: nanoid(),
+        userId,
+        role: r.primaryRole,
+        rate: r.rate,
+        rateType: r.rateType,
+      });
 
-      // Locations.
+      // Locations: auto-assign every location the importing manager can
+      // access. Manager refines per-staffer on the staff detail page.
       if (archivedPrior) {
         await db.delete(schema.userLocations).where(eq(schema.userLocations.userId, userId));
       }
-      for (const locId of assignable) {
+      for (const locId of assignableLocationIds) {
         await db.insert(schema.userLocations).values({ userId, locationId: locId });
       }
 
@@ -344,14 +303,6 @@ export default async function BulkImportPage({
 
   const roles = await db.select().from(schema.roles).where(eq(schema.roles.companyId, session.companyId));
   const roleNames = roles.map((r) => r.name).sort((a, b) => a.localeCompare(b));
-  const locations = (await db
-    .select()
-    .from(schema.locations)
-    .where(eq(schema.locations.companyId, session.companyId)))
-    .filter((l) => !l.archivedAt)
-    .sort((a, b) => a.name.localeCompare(b.name));
-  const locationNames = locations.map((l) => l.name);
-
   // Existing staff emails for client-side duplicate detection in the
   // preview. Case-insensitive.
   const existingEmails = (
@@ -451,22 +402,33 @@ export default async function BulkImportPage({
           >
             Download CSV template
           </a>
-          <div className="mt-4 text-xs text-gray-600">
-            <p className="font-semibold mb-1">Expected columns (required ones marked *):</p>
-            <ul className="list-disc list-inside space-y-0.5">
-              <li><code>first_name*</code>, <code>last_name*</code>, <code>email*</code></li>
-              <li><code>primary_role*</code>, <code>rate*</code>, <code>rate_type*</code> (<code>hourly</code> or <code>flat</code>)</li>
-              <li><code>phone</code>, <code>city</code>, <code>can_drive_van</code> (<code>yes</code>/<code>no</code>)</li>
-              <li><code>additional_roles</code> — format: <code>Role:rate:type;Role:rate:type</code></li>
-              <li><code>locations</code> — semicolon-separated names matching your company&apos;s locations</li>
-            </ul>
+          <div className="mt-4 text-xs text-gray-600 space-y-2">
+            <p>
+              <span className="font-semibold">Required columns:</span>{" "}
+              <code>first_name</code>, <code>last_name</code>, <code>email</code>,{" "}
+              <code>primary_role</code>, <code>rate</code>,{" "}
+              <code>rate_type</code> (<code>hourly</code> or <code>flat</code>).
+            </p>
+            <p>
+              Column names are matched loosely — &ldquo;Last Name&rdquo;,
+              &ldquo;surname&rdquo;, &ldquo;family_name&rdquo; all map to the
+              same field; &ldquo;Email Address&rdquo;, &ldquo;mail&rdquo;,
+              &ldquo;work email&rdquo; all map to email; and so on. If your
+              current tool exported extra columns (phone, address, DOB,
+              uniform size, etc.) you can leave them in — we ignore them.
+              Staffers fill those in themselves when they accept the invite.
+            </p>
+            <p>
+              Each imported staffer is auto-assigned every location you (the
+              importing manager) have access to. You can refine per-staffer
+              on the staff detail page afterward.
+            </p>
           </div>
         </section>
 
         <StaffImportClient
           formAction={importStaffAction}
           knownRoleNames={roleNames}
-          knownLocationNames={locationNames}
           existingEmails={existingEmails}
         />
       </main>
