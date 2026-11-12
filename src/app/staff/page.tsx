@@ -310,40 +310,18 @@ function NextShiftCard({ row }: { row: Row }) {
         />
       </dl>
 
-      {requirements && requirements.length > 0 && (
-        <div className="mt-4 border border-amber-300 bg-amber-50 rounded p-3 text-sm text-amber-900">
-          <div className="font-semibold mb-1">Shift requirements</div>
-          <div>
-            This shift requires:{" "}
-            <span className="font-semibold">{requirements.map((r) => r.name).join(", ")}</span>
-            {requirements.some((r) => r.description) && "."}
-          </div>
-          {requirements.filter((r) => r.description).map((r, i) => (
-            <div key={i} className="mt-1 whitespace-pre-wrap">{r.description}</div>
-          ))}
-        </div>
-      )}
-
-      {addOns && addOns.length > 0 && (
-        <div className="mt-4 border-t pt-3">
-          <div className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-1">Add-ons</div>
-          <ul className="text-sm space-y-1">
-            {addOns.map((a, i) => (
-              <li key={i} className="flex items-baseline justify-between gap-3">
-                <span>
-                  {a.name}
-                  {a.isRequirement && (
-                    <span className="ml-2 text-xs text-amber-800 bg-amber-100 border border-amber-200 rounded px-1.5 py-0.5">
-                      requirement
-                    </span>
-                  )}
-                </span>
-                <span className="text-gray-700">
-                  {a.compensation != null ? `$${a.compensation.toFixed(2)}` : "—"}
-                </span>
-              </li>
-            ))}
-          </ul>
+      {/*
+        The amber "Shift requirements" callout + the Add-ons compensation
+        list now live on the full details page (/staff/shift/[id]) so the
+        overview stays scannable and the detail view is the richer one.
+        The next line nudges the staffer there when there's extra context
+        worth seeing.
+      */}
+      {((requirements && requirements.length > 0) || (addOns && addOns.length > 0)) && (
+        <div className="mt-3 text-xs text-amber-800">
+          {requirements && requirements.length > 0
+            ? "This shift has requirements — open for details."
+            : "This shift has add-ons — open for details."}
         </div>
       )}
 

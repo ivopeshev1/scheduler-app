@@ -130,6 +130,37 @@ export default async function ShiftDetailPage({ params }: { params: { inviteId: 
     ? await db.select().from(schema.eventAttachments).where(eq(schema.eventAttachments.eventId, evt.id))
     : [];
 
+  // Add-on assignments for this invite: name + compensation from
+  // invitationAddOns, the highlightInInvite flag from the catalog, and
+  // the per-event description from eventAddOns. Drives the amber
+  // "Shift requirements" callout and the Add-ons list below.
+  const invAddOnRows = await db
+    .select()
+    .from(schema.invitationAddOns)
+    .where(eq(schema.invitationAddOns.invitationId, inv.id));
+  const myAddOnIds = invAddOnRows.map((r) => r.addOnId);
+  const myAddOnCatalog = myAddOnIds.length
+    ? await db.select().from(schema.addOns).where(inArray(schema.addOns.id, myAddOnIds))
+    : [];
+  const myAddOnById = new Map(myAddOnCatalog.map((a) => [a.id, a]));
+  const myEventAddOnRows = myAddOnIds.length
+    ? await db
+        .select()
+        .from(schema.eventAddOns)
+        .where(and(eq(schema.eventAddOns.eventId, evt.id), inArray(schema.eventAddOns.addOnId, myAddOnIds)))
+    : [];
+  const myEventAddOnDesc = new Map(myEventAddOnRows.map((r) => [r.addOnId, r.description ?? ""]));
+  const myAddOns = invAddOnRows.map((r) => {
+    const addOn = myAddOnById.get(r.addOnId);
+    return {
+      name: addOn?.name ?? "",
+      description: myEventAddOnDesc.get(r.addOnId) ?? "",
+      compensation: r.compensationAmount,
+      isRequirement: !!addOn?.highlightInInvite,
+    };
+  });
+  const myRequirements = myAddOns.filter((a) => a.isRequirement);
+
   // Custom values for custom fields that are shared with staff.
   const customConfigs = configs.filter((c) => c.enabled && c.shareWithStaff && c.isCustom);
   const customValues = customConfigs.length
@@ -280,6 +311,43 @@ export default async function ShiftDetailPage({ params }: { params: { inviteId: 
             <div className="mt-4 text-sm">
               <div className="text-xs uppercase tracking-wide text-gray-500 mb-1">Notes from your manager</div>
               <div className="whitespace-pre-wrap">{evt.staffNotes}</div>
+            </div>
+          )}
+
+          {myRequirements.length > 0 && (
+            <div className="mt-4 border border-amber-300 bg-amber-50 rounded p-3 text-sm text-amber-900">
+              <div className="font-semibold mb-1">Shift requirements</div>
+              <div>
+                This shift requires:{" "}
+                <span className="font-semibold">{myRequirements.map((r) => r.name).join(", ")}</span>
+                {myRequirements.some((r) => r.description) && "."}
+              </div>
+              {myRequirements.filter((r) => r.description).map((r, i) => (
+                <div key={i} className="mt-1 whitespace-pre-wrap">{r.description}</div>
+              ))}
+            </div>
+          )}
+
+          {myAddOns.length > 0 && (
+            <div className="mt-4">
+              <div className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-1">Add-ons</div>
+              <ul className="text-sm space-y-1">
+                {myAddOns.map((a, i) => (
+                  <li key={i} className="flex items-baseline justify-between gap-3">
+                    <span>
+                      {a.name}
+                      {a.isRequirement && (
+                        <span className="ml-2 text-xs text-amber-800 bg-amber-100 border border-amber-200 rounded px-1.5 py-0.5">
+                          requirement
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-gray-700">
+                      {a.compensation != null ? `$${a.compensation.toFixed(2)}` : "—"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 
