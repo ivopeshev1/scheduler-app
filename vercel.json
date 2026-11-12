@@ -3,10 +3,6 @@
     {
       "path": "/api/cron/expire-invites",
       "schedule": "0 9 * * *"
-    },
-    {
-      "path": "/api/cron/shift-reminders",
-      "schedule": "0 * * * *"
     }
   ]
 }

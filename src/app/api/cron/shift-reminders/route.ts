@@ -2,9 +2,21 @@ import { NextResponse } from "next/server";
 import { runShiftReminders } from "@/lib/send-shift-reminders";
 
 /**
- * Hourly cron that sends day-before + morning-of shift reminders. Each
- * staffer's chosen hour is in their local tz, so running the loop every
- * hour is enough to catch everyone's window exactly once.
+ * Shift-reminders dispatch route. Intended to be hit once an hour so
+ * each staffer's chosen local-time reminder window gets picked up
+ * exactly once.
+ *
+ * Note: Vercel's Hobby plan caps crons to DAILY schedules, so the
+ * hourly schedule can't live in vercel.json yet. Options:
+ *   - Upgrade the Vercel project to Pro and add
+ *     { path: "/api/cron/shift-reminders", schedule: "0 * * * *" } to
+ *     vercel.json.
+ *   - Point a free external cron service (cron-job.org, EasyCron,
+ *     Google Cloud Scheduler on free tier) at
+ *     https://<deploy>/api/cron/shift-reminders?key=<AUTH_SECRET>
+ *     every hour.
+ * Until one of those is wired up, reminders fire only on manual
+ * invocation of this endpoint.
  *
  * Auth matches the other cron entrypoints: Vercel's bearer secret or a
  * manual ?key= for browser-triggered dry-runs.
