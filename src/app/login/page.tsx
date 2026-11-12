@@ -8,13 +8,22 @@ async function loginAction(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
   const result = await signInWithPassword(email, password);
-  if (!result.ok) throw new Error(result.error);
+  if (!result.ok) {
+    // Bounce back to /login with the message in a query param. Throwing
+    // here used to kick users to the generic "Application error:
+    // a server-side exception has occurred" page, which looks like the
+    // app crashed and is terrible UX for something as common as a typo'd
+    // password. redirect with an err param lets us render the message
+    // inline below the form.
+    redirect(`/login?err=${encodeURIComponent(result.error)}`);
+  }
   if (result.user.role === "manager") redirect("/manager");
   if (result.user.role === "staff") redirect("/staff");
 }
 
-export default function LoginPage({ searchParams }: { searchParams: { reset?: string } }) {
+export default function LoginPage({ searchParams }: { searchParams: { reset?: string; err?: string } }) {
   const justReset = searchParams.reset === "1";
+  const err = searchParams.err ?? "";
   return (
     <main className="max-w-md mx-auto px-6 py-16">
       <Link href="/" className="text-sm text-gray-500 hover:underline">← Back</Link>
@@ -22,6 +31,11 @@ export default function LoginPage({ searchParams }: { searchParams: { reset?: st
       {justReset && (
         <div className="mt-6 border border-green-300 bg-green-50 text-green-900 rounded p-3 text-sm">
           Password updated. Sign in with the new one below.
+        </div>
+      )}
+      {err && (
+        <div className="mt-6 border border-red-300 bg-red-50 text-red-800 rounded p-3 text-sm">
+          {err}
         </div>
       )}
       <form action={loginAction} className="mt-8 space-y-4">
