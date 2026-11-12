@@ -52,6 +52,45 @@ export default async function StaffHomePage({ searchParams }: { searchParams: { 
     : [];
   const posById = new Map(positionsList.map((p) => [p.id, p]));
   const evtById = new Map(eventsList.map((e) => [e.id, e]));
+
+  // Per-invitation add-on assignments, add-on catalog (for name +
+  // highlightInInvite flag), and event-level descriptions. We only need
+  // this for pending-invite cards, but one trip up front is simpler than
+  // conditional loads per row.
+  const invIds = invitations.map((i) => i.id);
+  const invAddOnRows = invIds.length
+    ? await db.select().from(schema.invitationAddOns).where(inArray(schema.invitationAddOns.invitationId, invIds))
+    : [];
+  const addOnIds = Array.from(new Set(invAddOnRows.map((r) => r.addOnId)));
+  const addOnCatalog = addOnIds.length
+    ? await db.select().from(schema.addOns).where(inArray(schema.addOns.id, addOnIds))
+    : [];
+  const addOnById = new Map(addOnCatalog.map((a) => [a.id, a]));
+  const eventAddOnRows = eventIds.length && addOnIds.length
+    ? await db
+        .select()
+        .from(schema.eventAddOns)
+        .where(
+          and(
+            inArray(schema.eventAddOns.eventId, eventIds),
+            inArray(schema.eventAddOns.addOnId, addOnIds),
+          ),
+        )
+    : [];
+  const eventAddOnDesc = new Map(
+    eventAddOnRows.map((r) => [`${r.eventId}:${r.addOnId}`, r.description ?? ""]),
+  );
+  const requirementsByInvitation = new Map<string, { name: string; description: string }[]>();
+  for (const row of invAddOnRows) {
+    const addOn = addOnById.get(row.addOnId);
+    if (!addOn || !addOn.highlightInInvite) continue;
+    const pos = positionsList.find((p) => invitations.find((i) => i.id === row.invitationId)?.positionId === p.id);
+    const eventId = pos?.eventId;
+    const desc = eventId ? (eventAddOnDesc.get(`${eventId}:${row.addOnId}`) ?? "") : "";
+    const list = requirementsByInvitation.get(row.invitationId) ?? [];
+    list.push({ name: addOn.name, description: desc });
+    requirementsByInvitation.set(row.invitationId, list);
+  }
   // Staffer's per-role rates; used as the fallback when the position is in
   // "standard" rate mode (no override, no position-flat/hourly rate).
   const staffRolesList = await db
@@ -86,7 +125,10 @@ export default async function StaffHomePage({ searchParams }: { searchParams: { 
       hours,
       isOnCall: !!inv.isOnCall,
     });
-    rows.push({ inv, pos, evt, estPay, rate: resolved.rate, rateType: resolved.rateType, hours });
+    rows.push({
+      inv, pos, evt, estPay, rate: resolved.rate, rateType: resolved.rateType, hours,
+      requirements: requirementsByInvitation.get(inv.id),
+    });
   }
 
   // Sort by date (then start-of-day for stability). Next shift is the first
@@ -178,6 +220,7 @@ type Row = {
   rate: number;
   rateType: "hourly" | "flat";
   hours: number;
+  requirements?: { name: string; description: string }[];
 };
 
 /** HH:MM diff in decimal hours. Null-safe + returns 0 for missing/invalid. */
@@ -269,7 +312,7 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 }
 
 function PendingInviteCard({ row }: { row: Row }) {
-  const { inv, pos, evt, rate, rateType } = row;
+  const { inv, pos, evt, rate, rateType, requirements } = row;
   return (
     <li className="border rounded-lg p-4 bg-yellow-50/60 border-yellow-200">
       <div className="flex items-baseline justify-between gap-3">
@@ -287,6 +330,23 @@ function PendingInviteCard({ row }: { row: Row }) {
       <div className="mt-1 text-sm text-gray-700">
         Rate: {formatRate(rate, rateType)}
       </div>
+      {requirements && requirements.length > 0 && (
+        <div className="mt-3 border border-amber-300 bg-amber-50 rounded p-3 text-sm text-amber-900">
+          <div className="font-semibold mb-1">Shift requirements</div>
+          <div>
+            This shift requires:{" "}
+            <span className="font-semibold">
+              {requirements.map((r) => r.name).join(", ")}
+            </span>
+            {requirements.some((r) => r.description) && "."}
+          </div>
+          {requirements
+            .filter((r) => r.description)
+            .map((r, i) => (
+              <div key={i} className="mt-1 whitespace-pre-wrap">{r.description}</div>
+            ))}
+        </div>
+      )}
       <div className="mt-3 flex items-center gap-3">
         <Link
           href={`/invite/${inv.token}/accept`}
