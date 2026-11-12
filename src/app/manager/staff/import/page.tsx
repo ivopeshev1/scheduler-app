@@ -33,6 +33,10 @@ type ImportRow = {
   primaryRole: string;
   rate: number;
   rateType: "hourly" | "flat";
+  // Extra roles for staffers who appeared in the source file multiple
+  // times (Square's "one row per job" shape). Merged client-side in
+  // mergeMultiRole() before the payload gets here.
+  additionalRoles: { role: string; rate: number; rateType: "hourly" | "flat" }[];
 };
 
 type ImportResult = {
@@ -113,16 +117,21 @@ async function importStaffAction(formData: FormData): Promise<void> {
         continue;
       }
 
-      // Resolve primary role - auto-add to the company catalog when it's
-      // a role the company hasn't configured yet, same as the single-add
-      // flow. Additional roles come later via the staff detail page.
-      const key = r.primaryRole.toLowerCase();
-      if (!roleNames.has(key)) {
+      // Resolve all roles (primary + any additionals merged in from
+      // multi-row-same-email) - auto-add each to the company catalog
+      // when it's one we haven't seen yet.
+      const allRoles = [
+        { role: r.primaryRole, rate: r.rate, rateType: r.rateType },
+        ...(r.additionalRoles ?? []),
+      ];
+      for (const rr of allRoles) {
+        const key = rr.role.toLowerCase();
+        if (roleNames.has(key)) continue;
         nextRoleOrder += 10;
         const newRow = {
           id: nanoid(),
           companyId: session.companyId,
-          name: r.primaryRole,
+          name: rr.role,
           sortOrder: nextRoleOrder,
         };
         await db.insert(schema.roles).values(newRow);
@@ -186,18 +195,25 @@ async function importStaffAction(formData: FormData): Promise<void> {
         await db.insert(schema.staffProfiles).values({ userId, ...profileFields });
       }
 
-      // Primary role only. Additional roles come later from the staff
-      // detail page once the manager wants to configure them.
+      // All roles (primary + merged extras from multi-row-same-email).
+      // Dedupe by role name case-insensitively so duplicates in the
+      // source file don't double-insert.
       if (archivedPrior) {
         await db.delete(schema.staffRoles).where(eq(schema.staffRoles.userId, userId));
       }
-      await db.insert(schema.staffRoles).values({
-        id: nanoid(),
-        userId,
-        role: r.primaryRole,
-        rate: r.rate,
-        rateType: r.rateType,
-      });
+      const seenRoles = new Set<string>();
+      for (const rr of allRoles) {
+        const k = rr.role.toLowerCase();
+        if (seenRoles.has(k)) continue;
+        seenRoles.add(k);
+        await db.insert(schema.staffRoles).values({
+          id: nanoid(),
+          userId,
+          role: rr.role,
+          rate: rr.rate,
+          rateType: rr.rateType,
+        });
+      }
 
       // Locations: auto-assign every location the importing manager can
       // access. Manager refines per-staffer on the staff detail page.

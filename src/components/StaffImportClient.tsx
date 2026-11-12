@@ -26,6 +26,14 @@ type NormalizedRow = {
   primaryRole: string;
   rate: number;
   rateType: "hourly" | "flat";
+  // Extra (role, rate, rateType) rows that will become staffRoles entries
+  // alongside the primary. Populated when the source file has multiple
+  // lines for the same email (Square's "one row per job" shape).
+  additionalRoles: { role: string; rate: number; rateType: "hourly" | "flat" }[];
+  // Non-active staff from the source file (Square exports a Status
+  // column; Inactive / Archived / Terminated / Suspended rows get
+  // flagged here and are excluded from the import by default).
+  status: "active" | "inactive" | null;
   // UI / validation
   errors: string[];
   warnings: string[];
@@ -49,6 +57,9 @@ const COLUMN_ALIASES: Record<string, string[]> = {
   primary_role: ["primary_role", "role", "position", "job", "primary_job", "job_title", "title", "default_role"],
   rate: ["rate", "pay_rate", "hourly_rate", "flat_rate", "wage", "pay", "default_rate"],
   rate_type: ["rate_type", "pay_type", "rate_kind", "wage_type", "default_rate_type"],
+  // Active/Inactive/Archived/Terminated marker. When present, inactive
+  // rows get a warning and are excluded from the import by default.
+  status: ["status", "employment_status", "employee_status", "state", "active"],
 };
 
 const REQUIRED = ["first_name", "last_name", "email", "primary_role", "rate", "rate_type"] as const;
@@ -135,6 +146,20 @@ function normalize(
   const errors: string[] = [];
   const warnings: string[] = [];
 
+  // Status parsing. Square uses "Active"/"Inactive"; other tools use
+  // "Terminated"/"Suspended"/"Archived". Active and empty-string are
+  // the only values we treat as active; everything else -> inactive
+  // and gets excluded from the commit by default.
+  const statusRaw = get("status").toLowerCase();
+  let status: "active" | "inactive" | null = null;
+  if (statusRaw) {
+    if (/^(active|enabled|current|employed|yes|true|1)$/.test(statusRaw)) status = "active";
+    else status = "inactive";
+  }
+  if (status === "inactive") {
+    warnings.push(`Status is "${get("status")}" — excluded from import. Uncheck "skip inactive" below to include.`);
+  }
+
   // Name: prefer explicit first_name/last_name columns, but if the
   // source file only had a combined "Full Name"/"Name" column, split
   // it on the first space (Jamie Rivera -> first=Jamie, last=Rivera;
@@ -168,7 +193,11 @@ function normalize(
   const email = get("email").toLowerCase();
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.push("Invalid email format");
   if (email && ctx.existingEmails.includes(email)) errors.push("Email already exists in your staff");
-  if (email && ctx.seenEmails.has(email)) errors.push("Duplicate email in this file");
+  // Multi-row-same-email is NOT an error - Square and other tools
+  // export one row per (staffer, job) combo. We detect the duplicate
+  // here just so seen-set bookkeeping keeps working; the actual
+  // merging into one staffer with multiple roles happens in the
+  // mergeMultiRole() pass after all rows are normalized.
   if (email) ctx.seenEmails.add(email);
 
   // Layered rate parsing. Priority:
@@ -224,9 +253,65 @@ function normalize(
     primaryRole: get("primary_role"),
     rate: parsedAmount ?? 0,
     rateType,
+    additionalRoles: [],
+    status,
     errors,
     warnings,
   };
+}
+
+/**
+ * Collapse duplicate-email rows into one staffer with multiple roles.
+ * Square's team export emits one row per (staffer, job); if someone is
+ * both a Bartender ($30/hr) and a Bar Back ($22/hr), we see two rows
+ * with the same email but different Job + Wage. Merge all rows past
+ * the first into the first row's additionalRoles list.
+ *
+ * Rows that differ in name or email obviously don't merge; rows with
+ * the SAME primary_role + rate get silently de-duped (same job listed
+ * twice).
+ */
+function mergeMultiRole(rows: NormalizedRow[]): NormalizedRow[] {
+  const byEmail = new Map<string, NormalizedRow>();
+  const out: NormalizedRow[] = [];
+  for (const r of rows) {
+    if (r.errors.length > 0 || !r.email) {
+      out.push(r);
+      continue;
+    }
+    const existing = byEmail.get(r.email);
+    if (!existing) {
+      byEmail.set(r.email, r);
+      out.push(r);
+      continue;
+    }
+    // Skip exact-duplicate (same role + rate + type) rows silently.
+    const sameAsPrimary =
+      existing.primaryRole.toLowerCase() === r.primaryRole.toLowerCase() &&
+      existing.rate === r.rate &&
+      existing.rateType === r.rateType;
+    const alreadyInAdditionals = existing.additionalRoles.some(
+      (a) =>
+        a.role.toLowerCase() === r.primaryRole.toLowerCase() &&
+        a.rate === r.rate &&
+        a.rateType === r.rateType,
+    );
+    if (sameAsPrimary || alreadyInAdditionals) continue;
+    existing.additionalRoles.push({
+      role: r.primaryRole,
+      rate: r.rate,
+      rateType: r.rateType,
+    });
+    existing.warnings.push(
+      `Added extra role from another row: ${r.primaryRole} (${r.rateType === "hourly" ? `$${r.rate}/hr` : `$${r.rate} flat`})`,
+    );
+  }
+  // Drop the duplicate rows from the output - they've been absorbed
+  // into the primary row's additionalRoles.
+  return out.filter((r) => {
+    if (r.errors.length > 0 || !r.email) return true;
+    return byEmail.get(r.email) === r;
+  });
 }
 
 export function StaffImportClient({
@@ -304,21 +389,40 @@ export function StaffImportClient({
     }
   }
 
+  const [skipInactive, setSkipInactive] = useState(true);
+
   const normalized = useMemo<NormalizedRow[]>(() => {
     const seen = new Set<string>();
-    return remappedRows.map((r) =>
+    const raw = remappedRows.map((r) =>
       normalize(r.fields, r.sourceHeaders, { existingEmails, seenEmails: seen }),
     );
+    return mergeMultiRole(raw);
   }, [remappedRows, existingEmails]);
 
-  const ok = normalized.filter((r) => r.errors.length === 0);
-  const bad = normalized.filter((r) => r.errors.length > 0);
+  // "ok" means ready-to-commit. Bad = errors. Inactive-and-excluded
+  // are not "ok" but not errored either; they just drop when the skip
+  // toggle is on.
+  const errored = normalized.filter((r) => r.errors.length > 0);
+  const inactiveExcluded = skipInactive
+    ? normalized.filter((r) => r.errors.length === 0 && r.status === "inactive")
+    : [];
+  const ok = normalized.filter((r) => {
+    if (r.errors.length > 0) return false;
+    if (skipInactive && r.status === "inactive") return false;
+    return true;
+  });
+  const bad = errored;
   const withWarnings = normalized.filter((r) => r.warnings.length > 0);
+  const inactiveCount = normalized.filter((r) => r.status === "inactive").length;
+  const multiRoleCount = normalized.filter((r) => r.additionalRoles.length > 0).length;
   const newRoles = useMemo(() => {
     const known = new Set(knownRoleNames.map((n) => n.toLowerCase()));
     const seen = new Set<string>();
     for (const r of ok) {
       if (r.primaryRole && !known.has(r.primaryRole.toLowerCase())) seen.add(r.primaryRole);
+      for (const a of r.additionalRoles) {
+        if (a.role && !known.has(a.role.toLowerCase())) seen.add(a.role);
+      }
     }
     return Array.from(seen);
   }, [ok, knownRoleNames]);
@@ -381,11 +485,21 @@ export function StaffImportClient({
           <h3 className="text-sm font-semibold mt-6 mb-2">
             3. Preview — {normalized.length} row{normalized.length === 1 ? "" : "s"}
           </h3>
-          <div className="flex gap-4 text-xs mb-3">
+          <div className="flex flex-wrap gap-4 text-xs mb-3">
             <span className="text-green-700">✓ Ready: {ok.length}</span>
             {bad.length > 0 && <span className="text-red-700">✗ Errors: {bad.length}</span>}
             {withWarnings.length > 0 && (
               <span className="text-amber-700">! Warnings: {withWarnings.length}</span>
+            )}
+            {multiRoleCount > 0 && (
+              <span className="text-purple-700">
+                ⚡ Multi-role merged: {multiRoleCount} (multiple rows per person collapsed)
+              </span>
+            )}
+            {inactiveCount > 0 && (
+              <span className="text-gray-700">
+                ⏸ Inactive: {inactiveCount} {skipInactive ? "(will be skipped)" : "(will be imported)"}
+              </span>
             )}
             {newRoles.length > 0 && (
               <span className="text-blue-700">
@@ -393,6 +507,16 @@ export function StaffImportClient({
               </span>
             )}
           </div>
+          {inactiveCount > 0 && (
+            <label className="flex items-center gap-2 text-sm mb-3">
+              <input
+                type="checkbox"
+                checked={skipInactive}
+                onChange={(e) => setSkipInactive(e.target.checked)}
+              />
+              Skip staff marked Inactive / Terminated / Archived
+            </label>
+          )}
 
           <div className="border rounded overflow-auto max-h-[480px]">
             <table className="w-full text-xs">
@@ -408,19 +532,37 @@ export function StaffImportClient({
               </thead>
               <tbody>
                 {normalized.map((r, i) => {
-                  const status = r.errors.length > 0 ? "error" : r.warnings.length > 0 ? "warn" : "ok";
+                  const willSkipInactive = skipInactive && r.status === "inactive";
+                  const status = r.errors.length > 0
+                    ? "error"
+                    : willSkipInactive
+                    ? "skip"
+                    : r.warnings.length > 0
+                    ? "warn"
+                    : "ok";
                   const bg =
-                    status === "error" ? "bg-red-50" : status === "warn" ? "bg-amber-50" : "bg-white";
+                    status === "error"
+                      ? "bg-red-50"
+                      : status === "skip"
+                      ? "bg-gray-100 text-gray-500"
+                      : status === "warn"
+                      ? "bg-amber-50"
+                      : "bg-white";
                   return (
                     <tr key={i} className={`border-t ${bg}`}>
                       <td className="p-2 text-gray-500">{i + 1}</td>
                       <td className="p-2">
-                        {status === "error" ? "✗" : status === "warn" ? "!" : "✓"}
+                        {status === "error" ? "✗" : status === "skip" ? "⏸" : status === "warn" ? "!" : "✓"}
                       </td>
                       <td className="p-2">{r.firstName} {r.lastName}</td>
                       <td className="p-2 font-mono">{r.email}</td>
                       <td className="p-2">
-                        {r.primaryRole} · ${r.rate} {r.rateType}
+                        <div>{r.primaryRole} · ${r.rate} {r.rateType}</div>
+                        {r.additionalRoles.map((a, j) => (
+                          <div key={j} className="text-gray-600">
+                            + {a.role} · ${a.rate} {a.rateType}
+                          </div>
+                        ))}
                       </td>
                       <td className="p-2">
                         {r.errors.map((e, j) => <div key={`e${j}`} className="text-red-700">{e}</div>)}
@@ -439,9 +581,10 @@ export function StaffImportClient({
                 type="hidden"
                 name="rows"
                 value={JSON.stringify(
-                  ok.map(({ errors, warnings, ...keep }) => {
+                  ok.map(({ errors, warnings, status, ...keep }) => {
                     void errors;
                     void warnings;
+                    void status;
                     return keep;
                   }),
                 )}
