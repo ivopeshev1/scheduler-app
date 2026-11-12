@@ -155,6 +155,7 @@ export default async function ManagerStaffPage() {
           <h1 className="text-2xl font-semibold">Staff ({staffRows.length})</h1>
           <div className="flex items-center gap-3">
             <Link href="/manager/staff/compare" className="btn btn-secondary">Compare &amp; rank</Link>
+            <Link href="/manager/staff/import" className="btn btn-secondary">Import CSV</Link>
             <Link href="/manager/staff/new" className="btn btn-primary">+ Add staff</Link>
           </div>
         </div>

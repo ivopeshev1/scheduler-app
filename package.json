@@ -12,14 +12,17 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.1",
+    "@types/papaparse": "^5.5.2",
     "bcryptjs": "^2.4.3",
     "drizzle-orm": "^0.36.0",
     "jose": "^5.9.6",
     "nanoid": "^5.0.7",
     "next": "14.2.15",
+    "papaparse": "^5.7.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "twilio": "^6.3.0",
+    "xlsx": "^0.18.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {
