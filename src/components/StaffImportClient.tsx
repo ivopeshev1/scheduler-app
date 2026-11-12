@@ -41,6 +41,10 @@ type NormalizedRow = {
 const COLUMN_ALIASES: Record<string, string[]> = {
   first_name: ["first_name", "firstname", "first", "given_name", "forename", "given"],
   last_name: ["last_name", "lastname", "last", "surname", "family_name", "family"],
+  // When the source file has a single combined column, we split it in
+  // normalize() and flag the row with a warning so the manager can
+  // eyeball the split before committing.
+  full_name: ["full_name", "name", "staff_name", "employee_name", "contact_name", "display_name"],
   email: ["email", "email_address", "e_mail", "mail", "work_email", "contact_email"],
   primary_role: ["primary_role", "role", "position", "job", "job_title", "title", "default_role"],
   rate: ["rate", "pay_rate", "hourly_rate", "flat_rate", "wage", "pay", "default_rate"],
@@ -131,12 +135,35 @@ function normalize(
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  // The six required pieces: name, email, role, rate amount, rate type.
-  // rate and rate_type are handled jointly below so a single "$30/hr"
-  // cell counts as both.
-  for (const k of ["first_name", "last_name", "email", "primary_role"] as const) {
-    if (!get(k)) errors.push(`Missing ${k}`);
+  // Name: prefer explicit first_name/last_name columns, but if the
+  // source file only had a combined "Full Name"/"Name" column, split
+  // it on the first space (Jamie Rivera -> first=Jamie, last=Rivera;
+  // Mary Jane Watson -> first=Mary, last=Jane Watson) and flag the
+  // row so the manager can eyeball every row that was auto-split.
+  // Compound surnames like "Van Der Berg" or "Watson-Smith" survive
+  // the simple split; harder cases (Chinese names in Western order,
+  // single-word names) get fixed in-source and re-uploaded.
+  let firstName = get("first_name");
+  let lastName = get("last_name");
+  if ((!firstName || !lastName) && get("full_name")) {
+    const parts = get("full_name").split(/\s+/).filter(Boolean);
+    if (parts.length === 1) {
+      firstName = firstName || parts[0];
+      lastName = lastName || parts[0];
+      warnings.push(`Only one word in name "${get("full_name")}" - using it for both first and last`);
+    } else if (parts.length >= 2) {
+      if (!firstName) firstName = parts[0];
+      if (!lastName) lastName = parts.slice(1).join(" ");
+      warnings.push(`Split "${get("full_name")}" into "${firstName}" / "${lastName}" - review before committing`);
+    }
   }
+  if (!firstName) errors.push("Missing first_name");
+  if (!lastName) errors.push("Missing last_name");
+
+  // The remaining required pieces. rate and rate_type are handled
+  // jointly below so a single "$30/hr" cell counts as both.
+  if (!get("email")) errors.push("Missing email");
+  if (!get("primary_role")) errors.push("Missing primary_role");
 
   const email = get("email").toLowerCase();
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.push("Invalid email format");
@@ -191,8 +218,8 @@ function normalize(
   }
 
   return {
-    firstName: get("first_name"),
-    lastName: get("last_name"),
+    firstName,
+    lastName,
     email,
     primaryRole: get("primary_role"),
     rate: parsedAmount ?? 0,
