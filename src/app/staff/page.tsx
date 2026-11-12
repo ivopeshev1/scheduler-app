@@ -80,16 +80,27 @@ export default async function StaffHomePage({ searchParams }: { searchParams: { 
   const eventAddOnDesc = new Map(
     eventAddOnRows.map((r) => [`${r.eventId}:${r.addOnId}`, r.description ?? ""]),
   );
+  // All add-ons assigned to each invitation (shown on Next-shift card),
+  // plus just the requirement-highlighted subset (shown as an amber
+  // callout on pending-invite cards + reused on Next-shift card).
+  const addOnsByInvitation = new Map<string, { name: string; description: string; compensation: number | null; isRequirement: boolean }[]>();
   const requirementsByInvitation = new Map<string, { name: string; description: string }[]>();
+  const invById = new Map(invitations.map((i) => [i.id, i]));
   for (const row of invAddOnRows) {
     const addOn = addOnById.get(row.addOnId);
-    if (!addOn || !addOn.highlightInInvite) continue;
-    const pos = positionsList.find((p) => invitations.find((i) => i.id === row.invitationId)?.positionId === p.id);
+    if (!addOn) continue;
+    const inv = invById.get(row.invitationId);
+    const pos = inv ? positionsList.find((p) => p.id === inv.positionId) : undefined;
     const eventId = pos?.eventId;
     const desc = eventId ? (eventAddOnDesc.get(`${eventId}:${row.addOnId}`) ?? "") : "";
-    const list = requirementsByInvitation.get(row.invitationId) ?? [];
-    list.push({ name: addOn.name, description: desc });
-    requirementsByInvitation.set(row.invitationId, list);
+    const all = addOnsByInvitation.get(row.invitationId) ?? [];
+    all.push({ name: addOn.name, description: desc, compensation: row.compensationAmount, isRequirement: !!addOn.highlightInInvite });
+    addOnsByInvitation.set(row.invitationId, all);
+    if (addOn.highlightInInvite) {
+      const list = requirementsByInvitation.get(row.invitationId) ?? [];
+      list.push({ name: addOn.name, description: desc });
+      requirementsByInvitation.set(row.invitationId, list);
+    }
   }
   // Staffer's per-role rates; used as the fallback when the position is in
   // "standard" rate mode (no override, no position-flat/hourly rate).
@@ -128,6 +139,7 @@ export default async function StaffHomePage({ searchParams }: { searchParams: { 
     rows.push({
       inv, pos, evt, estPay, rate: resolved.rate, rateType: resolved.rateType, hours,
       requirements: requirementsByInvitation.get(inv.id),
+      addOns: addOnsByInvitation.get(inv.id),
     });
   }
 
@@ -167,13 +179,11 @@ export default async function StaffHomePage({ searchParams }: { searchParams: { 
           </p>
         </div>
 
-        {nextShift && (
-          <section>
-            <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-2">Next shift</h2>
-            <NextShiftCard row={nextShift} />
-          </section>
-        )}
-
+        {/*
+          Order: pending first (needs the staffer's action), then next
+          shift + upcoming confirmed shifts flow together as one block
+          of "what's on the calendar."
+        */}
         <section>
           <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-2">
             Pending invitations{pending.length > 0 ? ` (${pending.length})` : ""}
@@ -190,6 +200,13 @@ export default async function StaffHomePage({ searchParams }: { searchParams: { 
             </div>
           )}
         </section>
+
+        {nextShift && (
+          <section>
+            <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-2">Next shift</h2>
+            <NextShiftCard row={nextShift} />
+          </section>
+        )}
 
         <section>
           <h2 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-2">
@@ -221,6 +238,7 @@ type Row = {
   rateType: "hourly" | "flat";
   hours: number;
   requirements?: { name: string; description: string }[];
+  addOns?: { name: string; description: string; compensation: number | null; isRequirement: boolean }[];
 };
 
 /** HH:MM diff in decimal hours. Null-safe + returns 0 for missing/invalid. */
@@ -247,7 +265,7 @@ function formatHours(h: number): string {
 }
 
 function NextShiftCard({ row }: { row: Row }) {
-  const { inv, pos, evt, rate, rateType, hours } = row;
+  const { inv, pos, evt, rate, rateType, hours, addOns, requirements } = row;
   const beoStatus = inv.beoReceivedAt
     ? { label: "BEO received", tone: "ok" as const }
     : inv.beoSentAt
@@ -291,6 +309,43 @@ function NextShiftCard({ row }: { row: Row }) {
           }
         />
       </dl>
+
+      {requirements && requirements.length > 0 && (
+        <div className="mt-4 border border-amber-300 bg-amber-50 rounded p-3 text-sm text-amber-900">
+          <div className="font-semibold mb-1">Shift requirements</div>
+          <div>
+            This shift requires:{" "}
+            <span className="font-semibold">{requirements.map((r) => r.name).join(", ")}</span>
+            {requirements.some((r) => r.description) && "."}
+          </div>
+          {requirements.filter((r) => r.description).map((r, i) => (
+            <div key={i} className="mt-1 whitespace-pre-wrap">{r.description}</div>
+          ))}
+        </div>
+      )}
+
+      {addOns && addOns.length > 0 && (
+        <div className="mt-4 border-t pt-3">
+          <div className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-1">Add-ons</div>
+          <ul className="text-sm space-y-1">
+            {addOns.map((a, i) => (
+              <li key={i} className="flex items-baseline justify-between gap-3">
+                <span>
+                  {a.name}
+                  {a.isRequirement && (
+                    <span className="ml-2 text-xs text-amber-800 bg-amber-100 border border-amber-200 rounded px-1.5 py-0.5">
+                      requirement
+                    </span>
+                  )}
+                </span>
+                <span className="text-gray-700">
+                  {a.compensation != null ? `$${a.compensation.toFixed(2)}` : "—"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {evt.staffNotes && (
         <div className="mt-4 text-sm text-gray-600 border-t pt-3 whitespace-pre-wrap">
