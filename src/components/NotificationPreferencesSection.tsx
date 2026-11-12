@@ -32,7 +32,7 @@ export function NotificationPreferencesSection({
   const gridCols = showMode ? "grid-cols-[1fr_60px_60px_130px]" : "grid-cols-[1fr_60px_60px]";
 
   return (
-    <section className="border rounded-lg bg-white p-6">
+    <section id="notifications" className="border rounded-lg bg-white p-6 scroll-mt-16">
       <h2 className="font-semibold text-lg mb-1">Notifications</h2>
       <p className="text-sm text-gray-600 mb-4">
         Email is always on so you have an audit trail you can go back to. SMS is up to you —

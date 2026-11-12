@@ -26,15 +26,46 @@ type SendEmailInput = {
   attachments?: SendEmailAttachment[];
 };
 
+/**
+ * Build a "Manage notifications" footer tailored to the recipient's
+ * role. Managers want to dial down the noise as a business grows;
+ * staffers want the same control. Both have a settings page where the
+ * per-user prefs live - /manager/settings/me#notifications for
+ * managers, /staff/settings#notifications for staffers.
+ *
+ * Injected automatically inside sendEmail so every outbound email gets
+ * the link without each caller needing to add it. Silently no-ops when
+ * we don't know the recipient (no userId) or PUBLIC_APP_URL is unset.
+ */
+function notificationFooter(
+  role: "manager" | "staff" | null,
+): { text: string; html: string } {
+  const base = process.env.PUBLIC_APP_URL ?? "";
+  if (!role || !base) return { text: "", html: "" };
+  const path = role === "manager" ? "/manager/settings/me" : "/staff/settings";
+  const url = `${base}${path}#notifications`;
+  const text = `\n\n—\nGetting too many of these? Manage your email preferences: ${url}`;
+  const html = `<hr style="border:none;border-top:1px solid #eee;margin:32px 0 16px;" />
+<p style="margin:0;color:#888;font-size:12px;line-height:1.5;">
+  Getting too many of these?
+  <a href="${url}" style="color:#555;text-decoration:underline;">Manage your email preferences</a>
+  to turn off notifications you don't need.
+</p>`;
+  return { text, html };
+}
+
 export async function sendEmail(input: SendEmailInput) {
   // Honor per-user notification preferences when the caller supplied both
-  // the recipient's userId and the channel key.
-  if (input.userId && input.notificationKey) {
+  // the recipient's userId and the channel key. Also grab the role so we
+  // can point the footer link at the right settings page.
+  let recipientRole: "manager" | "staff" | null = null;
+  if (input.userId) {
     const [u] = await db
-      .select({ prefs: schema.users.notificationPreferences })
+      .select({ prefs: schema.users.notificationPreferences, role: schema.users.role })
       .from(schema.users)
       .where(eq(schema.users.id, input.userId));
-    if (u && !userWantsNotification(u.prefs, input.notificationKey)) {
+    recipientRole = (u?.role as "manager" | "staff" | undefined) ?? null;
+    if (u && input.notificationKey && !userWantsNotification(u.prefs, input.notificationKey)) {
       await db.insert(schema.notifications).values({
         id: nanoid(),
         companyId: input.companyId,
@@ -49,17 +80,33 @@ export async function sendEmail(input: SendEmailInput) {
     }
   }
 
+  // Append the "Manage notifications" footer to both the text and HTML
+  // bodies. Injected here, once, so every outbound email picks it up
+  // without each caller having to remember. Links the recipient to
+  // their role-appropriate settings page.
+  const footer = notificationFooter(recipientRole);
+  const bodyText = footer.text ? `${input.body}${footer.text}` : input.body;
+  // For HTML we try to slip the footer in just before </body>; if the
+  // caller handed us a bare fragment without a </body>, we just append.
+  const bodyHtml = input.html
+    ? footer.html
+      ? input.html.includes("</body>")
+        ? input.html.replace("</body>", `${footer.html}\n</body>`)
+        : `${input.html}\n${footer.html}`
+      : input.html
+    : undefined;
+
   const hasResend = !!process.env.RESEND_API_KEY;
 
   if (!hasResend) {
-    console.log(`\n─── DEV EMAIL ───\nTo: ${input.to}\nSubject: ${input.subject}\n${input.body}\n────────────────\n`);
+    console.log(`\n─── DEV EMAIL ───\nTo: ${input.to}\nSubject: ${input.subject}\n${bodyText}\n────────────────\n`);
     await db.insert(schema.notifications).values({
       id: nanoid(),
       companyId: input.companyId,
       userId: input.userId,
       channel: "email",
       subject: input.subject,
-      body: input.body,
+      body: bodyText,
       status: "dev-logged",
       relatedInvitationId: input.relatedInvitationId,
     });
@@ -71,9 +118,9 @@ export async function sendEmail(input: SendEmailInput) {
       from: process.env.EMAIL_FROM ?? "Scheduler <onboarding@resend.dev>",
       to: input.to,
       subject: input.subject,
-      text: input.body,
+      text: bodyText,
     };
-    if (input.html) payload.html = input.html;
+    if (bodyHtml) payload.html = bodyHtml;
     if (input.attachments && input.attachments.length > 0) {
       // Resend accepts attachments as {filename, content} where content is
       // base64 of the raw file bytes.
@@ -97,7 +144,7 @@ export async function sendEmail(input: SendEmailInput) {
       userId: input.userId,
       channel: "email",
       subject: input.subject,
-      body: input.body,
+      body: bodyText,
       status,
       errorMessage: res.ok ? null : await res.text(),
       relatedInvitationId: input.relatedInvitationId,
