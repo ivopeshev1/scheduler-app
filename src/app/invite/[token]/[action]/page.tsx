@@ -2,6 +2,8 @@ import { db, schema } from "@/db/client";
 import { eq, and } from "drizzle-orm";
 import { formatDate, formatTime } from "@/lib/format";
 import { notFound } from "next/navigation";
+import Link from "next/link";
+import { getSession } from "@/lib/auth";
 import { releasePendingIfPositionFilled } from "@/lib/release-pending";
 
 /**
@@ -168,6 +170,26 @@ export default async function InviteActionPage({
         </p>
       )}
       <p className="text-gray-600">{message}</p>
+      <InviteActionFooter />
     </main>
+  );
+}
+
+/**
+ * Footer link back to the staff dashboard. Shown always: for a logged-in
+ * staffer it's a one-click return home (no need to use the browser back
+ * button, which would re-trigger the accept/decline request and undo
+ * what they just did); for someone hitting the page from an email with
+ * no session, /staff bounces to /login and then back to the dashboard.
+ */
+async function InviteActionFooter() {
+  const session = await getSession();
+  const href = session?.role === "staff" ? "/staff" : "/login";
+  return (
+    <div className="mt-8">
+      <Link href={href} className="btn btn-primary">
+        Back to my shifts
+      </Link>
+    </div>
   );
 }
