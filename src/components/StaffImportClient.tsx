@@ -46,7 +46,7 @@ const COLUMN_ALIASES: Record<string, string[]> = {
   // eyeball the split before committing.
   full_name: ["full_name", "name", "staff_name", "employee_name", "contact_name", "display_name"],
   email: ["email", "email_address", "e_mail", "mail", "work_email", "contact_email"],
-  primary_role: ["primary_role", "role", "position", "job", "job_title", "title", "default_role"],
+  primary_role: ["primary_role", "role", "position", "job", "primary_job", "job_title", "title", "default_role"],
   rate: ["rate", "pay_rate", "hourly_rate", "flat_rate", "wage", "pay", "default_rate"],
   rate_type: ["rate_type", "pay_type", "rate_kind", "wage_type", "default_rate_type"],
 };
