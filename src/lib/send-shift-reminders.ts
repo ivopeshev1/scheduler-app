@@ -1,55 +1,51 @@
 /**
- * Hourly shift-reminder dispatch loop. Iterates every live accepted
- * invitation for events happening today or tomorrow, resolves the
- * staffer's timezone + chosen reminder hour, and fires the day-before
- * / morning-of email when shouldSendReminderNow() approves.
+ * Daily shift-reminders dispatch. Fires once a day (the vercel.json
+ * cron is 15:00 UTC = roughly 7-8am PT / 10-11am ET) and emails every
+ * confirmed staffer whose shift is TOMORROW. One email per invite,
+ * idempotent via the reminderDayBeforeSentAt stamp.
  *
- * Idempotent: the invitation row carries reminderDayBeforeSentAt and
- * reminderMorningOfSentAt timestamps, which get stamped on send so the
- * next tick skips the already-sent ones.
+ * Simplified from the earlier per-staffer hour-picker design because
+ * Vercel's Hobby plan only allows daily cron schedules. If the project
+ * ever upgrades to Pro, the hourly variant (per-staffer chosen hour +
+ * local-timezone matching) can be restored from git history - the
+ * schema columns (reminder_day_before_hour, reminder_morning_of_hour)
+ * are still in place.
+ *
+ * Opt-in: a staffer with reminderDayBeforeHour=null has turned the
+ * day-before reminder off and is skipped. The hour VALUE is ignored
+ * (we fire at the cron's wall-clock hour for everyone); non-null just
+ * means "yes, I want it".
  */
 
 import { db, schema } from "@/db/client";
-import { and, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, isNotNull } from "drizzle-orm";
 import { sendEmail } from "@/lib/notifications";
 import { shellWrap, greeting, paragraph, kvRow, kvTable, signoff } from "@/lib/email-html";
 import { formatDate, formatTime } from "@/lib/format";
-import { shouldSendReminderNow, addDays, localDateString } from "@/lib/shift-reminders";
-
-const DEFAULT_TZ = "America/Los_Angeles";
 
 export async function runShiftReminders(now: Date = new Date()): Promise<{
   checked: number;
-  sentDayBefore: number;
-  sentMorningOf: number;
+  sent: number;
   skipped: number;
 }> {
-  // Shifts we care about this tick are today or tomorrow in *some*
-  // reasonable timezone. We don't know each staffer's tz up front, so
-  // we grab a two-day window around UTC-now and let the per-staffer
-  // check narrow it. Cheap: a scheduler app has at most a few hundred
-  // shifts in a two-day window.
-  const utcToday = localDateString(now, "UTC");
-  const dates = [addDays(utcToday, -1), utcToday, addDays(utcToday, 1), addDays(utcToday, 2)];
+  // "Tomorrow" in UTC terms. We don't bother resolving per-staffer
+  // timezone here because the cron fires at the same wall-clock
+  // moment for the whole app anyway.
+  const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const tomorrowIso = `${tomorrow.getUTCFullYear()}-${pad(tomorrow.getUTCMonth() + 1)}-${pad(tomorrow.getUTCDate())}`;
 
-  const events = await db.select().from(schema.events).where(inArray(schema.events.date, dates));
-  if (events.length === 0) {
-    return { checked: 0, sentDayBefore: 0, sentMorningOf: 0, skipped: 0 };
-  }
+  const events = await db.select().from(schema.events).where(eq(schema.events.date, tomorrowIso));
+  if (events.length === 0) return { checked: 0, sent: 0, skipped: 0 };
   const eventIds = events.map((e) => e.id);
   const positionsList = await db
     .select()
     .from(schema.positions)
     .where(inArray(schema.positions.eventId, eventIds));
-  if (positionsList.length === 0) {
-    return { checked: 0, sentDayBefore: 0, sentMorningOf: 0, skipped: 0 };
-  }
+  if (positionsList.length === 0) return { checked: 0, sent: 0, skipped: 0 };
   const positionIds = positionsList.map((p) => p.id);
 
-  // Pull live accepted invitations only (we don't remind for pending or
-  // rejected). isNull on BOTH stamp columns would skip rows that still
-  // need the morning-of after day-before went out, so instead we filter
-  // in-memory below.
+  // Accepted, not cancelled, not already-reminded.
   const invitations = await db
     .select()
     .from(schema.invitations)
@@ -58,97 +54,61 @@ export async function runShiftReminders(now: Date = new Date()): Promise<{
         inArray(schema.invitations.positionId, positionIds),
         eq(schema.invitations.status, "accepted"),
         isNull(schema.invitations.cancelledAt),
-        or(
-          isNull(schema.invitations.reminderDayBeforeSentAt),
-          isNull(schema.invitations.reminderMorningOfSentAt),
-        ),
+        isNull(schema.invitations.reminderDayBeforeSentAt),
       ),
     );
-  if (invitations.length === 0) {
-    return { checked: 0, sentDayBefore: 0, sentMorningOf: 0, skipped: 0 };
-  }
+  if (invitations.length === 0) return { checked: 0, sent: 0, skipped: 0 };
 
   const userIds = Array.from(new Set(invitations.map((i) => i.userId)));
   const users = await db.select().from(schema.users).where(inArray(schema.users.id, userIds));
+  // Filter: the staffer has to be opted into day-before reminders. We
+  // check staff_profiles.reminderDayBeforeHour — null = off.
   const profiles = await db
     .select()
     .from(schema.staffProfiles)
-    .where(inArray(schema.staffProfiles.userId, userIds));
+    .where(and(inArray(schema.staffProfiles.userId, userIds), isNotNull(schema.staffProfiles.reminderDayBeforeHour)));
+  const optedInUserIds = new Set(profiles.map((p) => p.userId));
+
   const posById = new Map(positionsList.map((p) => [p.id, p]));
   const evtById = new Map(events.map((e) => [e.id, e]));
   const userById = new Map(users.map((u) => [u.id, u]));
   const profileByUserId = new Map(profiles.map((p) => [p.userId, p]));
 
   let checked = 0;
-  let sentDayBefore = 0;
-  let sentMorningOf = 0;
+  let sent = 0;
   let skipped = 0;
 
   for (const inv of invitations) {
     const pos = posById.get(inv.positionId);
     if (!pos) continue;
     const evt = evtById.get(pos.eventId);
-    if (!evt) continue;
-    if (evt.cancelledAt) continue;
+    if (!evt || evt.cancelledAt) continue;
     const user = userById.get(inv.userId);
-    const profile = profileByUserId.get(inv.userId);
-    if (!user || !profile) continue;
+    if (!user) continue;
     checked++;
 
-    const tz = profile.timezone || DEFAULT_TZ;
-
-    // Day-before
-    if (!inv.reminderDayBeforeSentAt && profile.reminderDayBeforeHour != null) {
-      const fire = shouldSendReminderNow({
-        kind: "dayBefore",
-        shiftDate: evt.date,
-        shiftCheckInTime: evt.checkInTime,
-        chosenHour: profile.reminderDayBeforeHour,
-        staffTz: tz,
-        alreadySent: false,
-        now,
-      });
-      if (fire) {
-        await sendReminderEmail("dayBefore", user, profile, evt, pos, inv.id);
-        await db
-          .update(schema.invitations)
-          .set({ reminderDayBeforeSentAt: new Date() })
-          .where(eq(schema.invitations.id, inv.id));
-        sentDayBefore++;
-        continue; // one reminder per invite per tick is enough
-      }
+    if (!optedInUserIds.has(inv.userId)) {
+      skipped++;
+      continue;
+    }
+    const profile = profileByUserId.get(inv.userId);
+    if (!profile) {
+      skipped++;
+      continue;
     }
 
-    // Morning-of
-    if (!inv.reminderMorningOfSentAt && profile.reminderMorningOfHour != null) {
-      const fire = shouldSendReminderNow({
-        kind: "morningOf",
-        shiftDate: evt.date,
-        shiftCheckInTime: evt.checkInTime,
-        chosenHour: profile.reminderMorningOfHour,
-        staffTz: tz,
-        alreadySent: false,
-        now,
-      });
-      if (fire) {
-        await sendReminderEmail("morningOf", user, profile, evt, pos, inv.id);
-        await db
-          .update(schema.invitations)
-          .set({ reminderMorningOfSentAt: new Date() })
-          .where(eq(schema.invitations.id, inv.id));
-        sentMorningOf++;
-        continue;
-      }
-    }
-
-    skipped++;
+    await sendReminderEmail(user, profile, evt, pos, inv.id);
+    await db
+      .update(schema.invitations)
+      .set({ reminderDayBeforeSentAt: new Date() })
+      .where(eq(schema.invitations.id, inv.id));
+    sent++;
   }
 
-  return { checked, sentDayBefore, sentMorningOf, skipped };
+  return { checked, sent, skipped };
 }
 
 async function sendReminderEmail(
-  kind: "dayBefore" | "morningOf",
   user: typeof schema.users.$inferSelect,
   profile: typeof schema.staffProfiles.$inferSelect,
   event: typeof schema.events.$inferSelect,
@@ -164,14 +124,7 @@ async function sendReminderEmail(
   const timeRange = `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`;
   const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
 
-  const headline =
-    kind === "dayBefore"
-      ? `Reminder: you're on shift tomorrow`
-      : `Reminder: your shift starts today`;
-  const lead =
-    kind === "dayBefore"
-      ? `Heads up — tomorrow (${prettyDate}) you're on at ${venue || event.clientName}.`
-      : `Today's the day. See you at ${venue || event.clientName}.`;
+  const lead = `Heads up — tomorrow (${prettyDate}) you're on at ${venue || event.clientName}.`;
 
   const textBody = [
     `Hi ${profile?.firstName ?? "there"},`, ``,
@@ -205,7 +158,7 @@ async function sendReminderEmail(
 
   await sendEmail({
     to: user.email,
-    subject: `${headline}: ${event.clientName} on ${prettyDate}`,
+    subject: `Reminder: you're on shift tomorrow — ${event.clientName} on ${prettyDate}`,
     body: textBody,
     html: htmlBody,
     companyId: event.companyId,

@@ -103,17 +103,17 @@ async function saveReminderTimesAction(formData: FormData) {
   "use server";
   const session = await getSession();
   if (!session || session.role !== "staff") throw new Error("Unauthorized");
+  // Simplified reminder: just a single day-before toggle. We still write
+  // the hour columns so a future per-staffer upgrade can use them; the
+  // current cron just checks "is reminderDayBeforeHour non-null?" as the
+  // opt-in flag. morningOf is removed from the UI; clear its column so
+  // stale values don't fire anything unexpected later.
   const dbOn = formData.get("dayBeforeOn") !== null;
-  const moOn = formData.get("morningOfOn") !== null;
-  const dbHour = Number(formData.get("dayBeforeHour") ?? 18);
-  const moHour = Number(formData.get("morningOfHour") ?? 7);
-  const okDb = dbOn && Number.isInteger(dbHour) && dbHour >= 0 && dbHour <= 23 ? dbHour : null;
-  const okMo = moOn && Number.isInteger(moHour) && moHour >= 0 && moHour <= 23 ? moHour : null;
   await db
     .update(schema.staffProfiles)
     .set({
-      reminderDayBeforeHour: okDb,
-      reminderMorningOfHour: okMo,
+      reminderDayBeforeHour: dbOn ? 9 : null,
+      reminderMorningOfHour: null,
     })
     .where(eq(schema.staffProfiles.userId, session.userId));
   revalidatePath("/staff/settings");
@@ -279,7 +279,6 @@ export default async function StaffSettingsPage({
 
         <ReminderTimesSection
           dayBefore={profile?.reminderDayBeforeHour ?? null}
-          morningOf={profile?.reminderMorningOfHour ?? null}
           formAction={saveReminderTimesAction}
           saved={searchParams.saved === "reminders"}
         />
