@@ -141,6 +141,20 @@ export async function runMigrations(): Promise<void> {
   await sql`ALTER TABLE manager_profiles ADD COLUMN IF NOT EXISTS timezone TEXT`;
   await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS reminder_day_before_hour INTEGER`;
   await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS reminder_morning_of_hour INTEGER`;
+
+  // One-time backfill: opt every existing staffer into the day-before
+  // shift reminder (sentinel: non-null = on). Guarded by migration_flags
+  // so it only runs once — if a user later turns it off, we won't
+  // re-flip them on on the next cold start.
+  await sql`CREATE TABLE IF NOT EXISTS migration_flags (
+    key TEXT PRIMARY KEY,
+    ran_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`;
+  const [backfillRow] = await sql`SELECT 1 FROM migration_flags WHERE key = 'reminder_day_before_default_on_v1'` as unknown as Array<{ "?column?": number }>;
+  if (!backfillRow) {
+    await sql`UPDATE staff_profiles SET reminder_day_before_hour = 9 WHERE reminder_day_before_hour IS NULL`;
+    await sql`INSERT INTO migration_flags(key) VALUES ('reminder_day_before_default_on_v1') ON CONFLICT (key) DO NOTHING`;
+  }
   await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS ui_preferences JSONB`;
   await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS rank_order INTEGER`;
   await sql`ALTER TABLE positions ADD COLUMN IF NOT EXISTS travel_rate REAL DEFAULT 0`;

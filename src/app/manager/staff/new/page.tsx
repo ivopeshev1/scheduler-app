@@ -110,6 +110,10 @@ async function addStaffAction(formData: FormData) {
         emergencyContactPhone: null,
         uniformSize: null,
         photoUrl: null,
+        // Opt the resurrected staffer back into day-before reminders;
+        // they can turn it off from /staff/settings.
+        reminderDayBeforeHour: 9,
+        reminderMorningOfHour: null,
       })
       .where(eq(schema.staffProfiles.userId, userId));
   } else {
@@ -120,6 +124,9 @@ async function addStaffAction(formData: FormData) {
       position: primary.role,
       defaultRate: primary.rate,
       defaultRateType: primary.rateType,
+      // Opt new staffers into the day-before shift reminder by default
+      // (sentinel: non-null = on; the cron ignores the hour value).
+      reminderDayBeforeHour: 9,
     });
   }
   // Clear old role/location rows so the resurrected user gets exactly
