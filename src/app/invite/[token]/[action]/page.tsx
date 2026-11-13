@@ -1,4 +1,5 @@
 import { db, schema } from "@/db/client";
+import { shiftTimes } from "@/lib/shift-times";
 import { eq, and } from "drizzle-orm";
 import { formatDate, formatTime } from "@/lib/format";
 import { notFound } from "next/navigation";
@@ -38,7 +39,7 @@ export default async function InviteActionPage({
   const [pos] = await db.select().from(schema.positions).where(eq(schema.positions.id, inv.positionId));
   const [event] = pos ? await db.select().from(schema.events).where(eq(schema.events.id, pos.eventId)) : [null];
   const prettyDate = event?.date ? formatDate(event.date) : "";
-  const timeRange = event ? `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}` : "";
+  const timeRange = event ? (() => { const t = shiftTimes(event, pos); return `${formatTime(t.start)} – ${formatTime(t.end)}`; })() : "";
 
   // Terminal states - don't re-process, just show the current state.
   // "cancelled" means the manager (or the staffer via their log) pulled the
