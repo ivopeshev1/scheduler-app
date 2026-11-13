@@ -11,9 +11,11 @@ import {
   notifyEventDetailsChanged,
   notifyPositionRemoved,
   notifyPayChanged,
+  notifyPositionChanged,
 } from "@/lib/event-notifications";
+import { shiftTimes } from "@/lib/shift-times";
+import { formatDate, formatTime } from "@/lib/format";
 import { sendEmail } from "@/lib/notifications";
-import { formatDate } from "@/lib/format";
 import { shellWrap, kvRow, kvTable, greeting, paragraph, banner, signoff } from "@/lib/email-html";
 import { revalidatePath } from "next/cache";
 
@@ -68,6 +70,8 @@ async function saveEventEditAction(formData: FormData) {
   const keptPositionIds = new Set<string>();
   // Collect per-position changes to notify invited staff AFTER all DB updates settle
   const pendingPositionNotifications: Array<{ positionId: string; changes: string[] }> = [];
+  // Row-time changes go to that row's invitees as a "shift updated" email.
+  const pendingTimeNotifications: Array<{ positionId: string; changes: string[] }> = [];
 
   // Collect all unique row keys by looking at role[<key>] entries
   const rowKeys = new Set<string>();
@@ -87,11 +91,17 @@ async function saveEventEditAction(formData: FormData) {
       : "standard";
     // In standard mode, baseRate is ignored (each invitee gets their onboarded rate).
     const baseRate = baseRateMode === "standard" ? null : num(formData.get(`baseRate[${key}]`));
+    // Optional per-row times. Only touch them when the form sent the Time
+    // control (it is hidden when the company turned row times off).
+    const timesSent = formData.has(`startTime[${key}]`) || formData.has(`endTime[${key}]`);
+    const startTime = str(formData.get(`startTime[${key}]`));
+    const endTime = str(formData.get(`endTime[${key}]`));
 
     if (key.startsWith("new-")) {
       const pid = nanoid();
       await db.insert(schema.positions).values({
         id: pid, eventId, role: role as any, mode: "pool", needed,
+        startTime: timesSent ? startTime : null, endTime: timesSent ? endTime : null,
         sortOrder: existingPositions.length + 1,
         // Van fields: UI is gone, set the defaults so the column stays usable
         // until the Add-ons feature replaces them.
@@ -172,6 +182,14 @@ async function saveEventEditAction(formData: FormData) {
         if (oldRateLabel !== newRateLabel) {
           positionChangeLines.push(`Base rate: ${oldRateLabel} → ${newRateLabel}`);
         }
+        if (timesSent && ((existing.startTime ?? null) !== startTime || (existing.endTime ?? null) !== endTime)) {
+          const before = shiftTimes(event, existing);
+          const after = shiftTimes(newValues, { startTime, endTime });
+          pendingTimeNotifications.push({
+            positionId: key,
+            changes: [`Shift time: ${formatTime(before.start)} – ${formatTime(before.end)} → ${formatTime(after.start)} – ${formatTime(after.end)}`],
+          });
+        }
       }
       pendingPositionNotifications.push({ positionId: key, changes: positionChangeLines });
 
@@ -180,6 +198,7 @@ async function saveEventEditAction(formData: FormData) {
       // UI.
       await db.update(schema.positions).set({
         role: role as any, needed, baseRate, baseRateMode,
+        ...(timesSent ? { startTime, endTime } : {}),
       }).where(eq(schema.positions.id, key));
     }
   }
@@ -279,6 +298,12 @@ async function saveEventEditAction(formData: FormData) {
     }
   }
 
+  for (const notif of pendingTimeNotifications) {
+    const pos = finalPositions.find((p) => p.id === notif.positionId);
+    if (!pos || !updatedEvent) continue;
+    await notifyPositionChanged(updatedEvent, pos, notif.changes, null, session.companyId);
+  }
+
   revalidatePath(`/manager/event/${eventId}`);
   redirect(`/manager/event/${eventId}`);
 }
@@ -364,6 +389,8 @@ export default async function EditEventPage({ params }: { params: { id: string }
       id: p.id,
       role: p.role as any,
       needed: p.needed,
+      startTime: p.startTime ?? null,
+      endTime: p.endTime ?? null,
       baseRate: p.baseRate,
       baseRateMode: (p.baseRateMode ?? "standard") as "standard" | "flat" | "hourly",
       vanDrivingRate: p.vanDrivingRate,
@@ -493,7 +520,7 @@ export default async function EditEventPage({ params }: { params: { id: string }
 
           <section>
             <h2 className="font-semibold mb-2">Positions</h2>
-            <PositionsEditor positions={positionsWithStaff} roles={roles} />
+            <PositionsEditor positions={positionsWithStaff} roles={roles} showTimes={company?.positionTimesEnabled ?? true} />
           </section>
 
           <section className="grid md:grid-cols-2 gap-4">
