@@ -85,6 +85,9 @@ async function createEventAction(formData: FormData) {
       : "standard";
     // Standard mode ignores the typed $ amount - each invitee gets their onboarded rate.
     const baseRate = baseRateMode === "standard" ? null : num(formData.get(`baseRate${i}`));
+    // Optional per-row times. Blank = row uses the event check-in / end times.
+    const startTime = str(formData.get(`startTime${i}`));
+    const endTime = str(formData.get(`endTime${i}`));
     const vanDrivingRate = num(formData.get(`vanRate${i}`)) ?? 0;
     const requiresVanDriving = formData.get(`vanReq${i}`) === "on";
 
@@ -92,7 +95,7 @@ async function createEventAction(formData: FormData) {
     await db.insert(schema.positions).values({
       id: pid, eventId, role: role as any,
       mode: "pool", // legacy column; always the same now - Priority/Backup tiers cover it
-      needed, sortOrder,
+      needed, sortOrder, startTime, endTime,
       baseRate, baseRateMode, vanDrivingRate, travelRate: 0, requiresVanDriving,
       rateType: "flat",
     });
@@ -325,7 +328,7 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
             <p className="text-sm text-gray-500 mb-4">
               Add as many positions as you need. <strong>Pool</strong> = multiple staff compete, first-accept-wins. <strong>Individual</strong> = specific person per slot.
             </p>
-            <PositionRows roles={roles} />
+            <PositionRows roles={roles} showTimes={company?.positionTimesEnabled ?? true} />
           </section>
 
           <section className="grid md:grid-cols-2 gap-4">
