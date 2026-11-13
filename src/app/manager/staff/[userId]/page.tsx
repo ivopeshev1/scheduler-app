@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
+import { withShiftTimes } from "@/lib/shift-times";
 import { eq, and } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { computeTotalHours } from "@/lib/pay-period";
@@ -38,7 +39,9 @@ export default async function StaffLogPage({ params }: { params: { userId: strin
     .from(schema.invitations)
     .innerJoin(schema.positions, eq(schema.invitations.positionId, schema.positions.id))
     .innerJoin(schema.events, eq(schema.positions.eventId, schema.events.id))
-    .where(and(eq(schema.invitations.userId, target.id), eq(schema.events.companyId, session.companyId)));
+    .where(and(eq(schema.invitations.userId, target.id), eq(schema.events.companyId, session.companyId)))
+    // Row-level custom times (if any) replace the event times for that shift.
+    .then((rows) => rows.map((r) => ({ ...r, ev: withShiftTimes(r.ev, r.pos) })));
 
   // Per-role rates for the standard-mode pay path.
   const staffRolesRows = await db
