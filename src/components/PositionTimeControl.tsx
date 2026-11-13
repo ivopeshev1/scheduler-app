@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 /**
- * Single-cell "Time" control for a position row. Default is "Event times"
+ * Single-cell "Customize times" control for a position row. Default is "Event times"
  * (the row uses the event's check-in / end times). Clicking opens a small
  * popover with Start / End boxes for a custom time on this row. Clearing
  * both goes back to "Event times".
@@ -46,8 +46,8 @@ export function PositionTimeControl({
   const changed = start !== (defaultStart ?? "") || end !== (defaultEnd ?? "");
   const warn = changed && invitedCount > 0;
   const label = custom
-    ? `${start ? fmt(start) : "Event start"} – ${end ? fmt(end) : "Event end"}`
-    : "Event times";
+    ? `${start ? fmt(start) : "Event check-in"} – ${end ? fmt(end) : "Event end"}`
+    : "Current event times";
 
   return (
     <div ref={containerRef} className="relative">
@@ -64,7 +64,7 @@ export function PositionTimeControl({
       </button>
 
       {open && (
-        <div className="absolute z-20 mt-1 w-[260px] bg-white border border-gray-300 rounded-md shadow-lg p-1">
+        <div className="absolute right-0 z-20 mt-1 w-[320px] bg-white border border-gray-300 rounded-md shadow-lg p-1">
           <button
             type="button"
             onClick={() => {
@@ -77,25 +77,25 @@ export function PositionTimeControl({
             }`}
           >
             <span className="w-3 inline-block">{!custom ? "•" : ""}</span>
-            Event times <span className="text-xs text-gray-500">(check-in to end)</span>
+            Current event times
           </button>
 
           <div className={`px-3 py-2 text-sm rounded ${custom ? "bg-gray-50 font-medium" : ""}`}>
             <div className="flex items-center gap-2 mb-2">
               <span className="w-3 inline-block">{custom ? "•" : ""}</span>
-              <span>Custom for this row</span>
+              <span>Custom times for this row</span>
             </div>
             <div className="flex items-center gap-2 pl-5">
-              <label className="flex-1">
-                <span className="block text-xs text-gray-500 font-normal">Start</span>
+              <label className="flex-1 min-w-0">
+                <span className="block text-xs text-gray-500 font-normal">Check in</span>
                 <input
                   type="time"
                   value={start}
                   onChange={(e) => setStart(e.target.value)}
-                  className="w-full border border-gray-300 rounded px-2 py-1 text-sm outline-none focus:border-gray-500"
+                  className="w-full min-w-0 border border-gray-300 rounded px-1.5 py-1 text-sm outline-none focus:border-gray-500"
                 />
               </label>
-              <label className="flex-1">
+              <label className="flex-1 min-w-0">
                 <span className="block text-xs text-gray-500 font-normal">End</span>
                 <input
                   type="time"
@@ -107,7 +107,7 @@ export function PositionTimeControl({
                       setOpen(false);
                     }
                   }}
-                  className="w-full border border-gray-300 rounded px-2 py-1 text-sm outline-none focus:border-gray-500"
+                  className="w-full min-w-0 border border-gray-300 rounded px-1.5 py-1 text-sm outline-none focus:border-gray-500"
                 />
               </label>
             </div>
