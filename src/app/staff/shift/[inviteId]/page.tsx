@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
+import { withShiftTimes } from "@/lib/shift-times";
 import { eq, and, inArray } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { formatDate, formatTime } from "@/lib/format";
@@ -107,8 +108,10 @@ export default async function ShiftDetailPage({ params }: { params: { inviteId: 
 
   const [pos] = await db.select().from(schema.positions).where(eq(schema.positions.id, inv.positionId));
   if (!pos) redirect("/staff");
-  const [evt] = await db.select().from(schema.events).where(eq(schema.events.id, pos.eventId));
-  if (!evt) redirect("/staff");
+  const [rawEvt] = await db.select().from(schema.events).where(eq(schema.events.id, pos.eventId));
+  if (!rawEvt) redirect("/staff");
+  // Row-level custom times (if any) replace the event times for this shift.
+  const evt = withShiftTimes(rawEvt, pos);
 
   const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
   const [user] = await db.select().from(schema.users).where(eq(schema.users.id, session.userId));
