@@ -303,6 +303,17 @@ async function saveOnCallFeeAction(formData: FormData) {
   redirect("/manager/settings?saved=on-call-fee");
 }
 
+async function savePositionTimesAction(formData: FormData) {
+  "use server";
+  const { session } = await requireSettingsAccess();
+  const enabled = formData.get("positionTimesEnabled") === "on";
+  await db.update(schema.companies)
+    .set({ positionTimesEnabled: enabled })
+    .where(eq(schema.companies.id, session.companyId));
+  revalidatePath("/manager/settings");
+  redirect("/manager/settings?saved=position-times");
+}
+
 async function savePayPeriodAction(formData: FormData) {
   "use server";
   const { session } = await requireSettingsAccess();
@@ -1082,6 +1093,40 @@ export default async function SettingsPage({ searchParams }: { searchParams: { s
             />
           ) : (
             <ReadOnlyFieldList rows={fieldRows} />
+          )}
+        </section>
+
+        {/* -------------------- Position times -------------------- */}
+        <section className="border rounded-lg bg-white p-6">
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-lg font-semibold">Shift times per position</h2>
+            {!canEdit && (
+              <RequestChangesButton section="Shift times per position" action={requestSettingsChangesAction} />
+            )}
+          </div>
+          <p className="text-sm text-gray-600 mb-4">
+            Adds a Customize times box to each position row on an event, so a row can have its own
+            check-in and end time (for example, 3 bartenders at 4 PM and 2 more at 6 PM). Rows left on
+            &quot;Current event times&quot; use the event check-in and end times.
+          </p>
+          {canEdit ? (
+            <form action={savePositionTimesAction} className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name="positionTimesEnabled"
+                  defaultChecked={company.positionTimesEnabled ?? true}
+                  className="w-4 h-4"
+                />
+                Show the Customize times box on position rows
+              </label>
+              <button type="submit" className="btn btn-secondary">Save</button>
+              {saved === "position-times" && <span className="text-sm text-green-700">Saved.</span>}
+            </form>
+          ) : (
+            <dl className="text-sm border rounded-lg p-4 bg-gray-50">
+              <ReadOnlyRow label="Customize times box" value={(company.positionTimesEnabled ?? true) ? "on" : "off"} />
+            </dl>
           )}
         </section>
 
