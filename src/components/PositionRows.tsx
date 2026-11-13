@@ -63,12 +63,6 @@ function PositionRow({
           {roles.map((r) => (<option key={r} value={r}>{r}</option>))}
         </select>
       </div>
-      {showTimes && (
-        <div className="col-span-3">
-          <label className="label">Time</label>
-          <PositionTimeControl startFieldName={`startTime${index}`} endFieldName={`endTime${index}`} />
-        </div>
-      )}
       <div className={showTimes ? "col-span-3" : "col-span-5"}>
         <label className="label">Base rate</label>
         <BaseRateControl
@@ -78,6 +72,12 @@ function PositionRow({
           defaultAmount=""
         />
       </div>
+      {showTimes && (
+        <div className="col-span-3">
+          <label className="label">Customize times</label>
+          <PositionTimeControl startFieldName={`startTime${index}`} endFieldName={`endTime${index}`} />
+        </div>
+      )}
       <div className="col-span-1 pb-1 flex justify-end">
         <button
           type="button"
