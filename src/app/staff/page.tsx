@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
+import { withShiftTimes } from "@/lib/shift-times";
 import { eq, and, inArray, isNull } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { formatDate, formatTime } from "@/lib/format";
@@ -117,8 +118,10 @@ export default async function StaffHomePage({ searchParams }: { searchParams: { 
   for (const inv of invitations) {
     const pos = posById.get(inv.positionId);
     if (!pos) continue;
-    const evt = evtById.get(pos.eventId);
-    if (!evt) continue;
+    const rawEvt = evtById.get(pos.eventId);
+    if (!rawEvt) continue;
+    // Row-level custom times (if any) replace the event times for this shift.
+    const evt = withShiftTimes(rawEvt, pos);
     if (evt.cancelledAt) continue;
     if (evt.date < today) continue;
     // Silent backup: still being held in reserve, don't show as a real invite.
