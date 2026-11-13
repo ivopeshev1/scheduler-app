@@ -74,6 +74,58 @@ function normalizeHeaderKey(raw: string): string {
 }
 
 /**
+ * Classic edit-distance, iterative DP version. Used to catch header
+ * typos: a user who writes "Positioin" instead of "Position" will have
+ * distance 2 against our "position" alias, which we flag as "did you
+ * mean..." under the ignored-columns list. Short-circuits when the
+ * difference is already too big.
+ */
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const prev = new Array(b.length + 1);
+  const curr = new Array(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+    }
+    for (let j = 0; j <= b.length; j++) prev[j] = curr[j];
+  }
+  return prev[b.length];
+}
+
+/**
+ * For each ignored column header, suggest the closest canonical field
+ * when the edit distance is small enough to be plausibly a typo rather
+ * than an unrelated column. Returns a list parallel to `ignoredHeaders`
+ * where each entry is either a canonical field name ("primary_role")
+ * or null (no plausible match).
+ */
+function suggestFieldForHeader(header: string): string | null {
+  const normalized = normalizeHeaderKey(header);
+  let best: { canonical: string; distance: number } | null = null;
+  for (const [canonical, aliases] of Object.entries(COLUMN_ALIASES)) {
+    for (const alias of aliases) {
+      const normalizedAlias = normalizeHeaderKey(alias);
+      const distance = levenshtein(normalized, normalizedAlias);
+      // Tunable threshold: 2 absolute chars OR 25% of alias length,
+      // whichever is larger. Catches "Positioin" vs "position"
+      // (distance 2) and "Emial" vs "email" (distance 2) without
+      // false-positiving unrelated shorter words.
+      const threshold = Math.max(2, Math.floor(normalizedAlias.length * 0.25));
+      if (distance > 0 && distance <= threshold) {
+        if (!best || distance < best.distance) best = { canonical, distance };
+      }
+    }
+  }
+  return best?.canonical ?? null;
+}
+
+/**
  * Walk the alias table against the raw-row keys and produce a new row
  * keyed by our canonical names, plus the source-header name that each
  * canonical field came from. Keeping the source header around lets
@@ -390,14 +442,59 @@ export function StaffImportClient({
   }
 
   const [skipInactive, setSkipInactive] = useState(true);
+  // Per-row edit overrides. Keyed by the post-merge row index (the one
+  // the preview table shows). Any field the manager tweaks lives here;
+  // the "effective" row for display + validation + submit is the
+  // normalized row with these fields layered on top.
+  const [rowEdits, setRowEdits] = useState<
+    Record<number, Partial<Pick<NormalizedRow, "firstName" | "lastName" | "email" | "primaryRole" | "rate" | "rateType">>>
+  >({});
 
-  const normalized = useMemo<NormalizedRow[]>(() => {
+  const baseNormalized = useMemo<NormalizedRow[]>(() => {
     const seen = new Set<string>();
     const raw = remappedRows.map((r) =>
       normalize(r.fields, r.sourceHeaders, { existingEmails, seenEmails: seen }),
     );
     return mergeMultiRole(raw);
   }, [remappedRows, existingEmails]);
+
+  // Apply the per-row edits over the base and re-run the validation
+  // checks that matter per-row (missing fields, bad email, duplicate
+  // email, non-numeric rate). Expensive bits like multi-role merging
+  // and header parsing don't re-run here.
+  const normalized = useMemo<NormalizedRow[]>(() => {
+    const seen = new Set<string>();
+    return baseNormalized.map((r, i) => {
+      const edits = rowEdits[i] ?? {};
+      const firstName = (edits.firstName ?? r.firstName).trim();
+      const lastName = (edits.lastName ?? r.lastName).trim();
+      const email = (edits.email ?? r.email).trim().toLowerCase();
+      const primaryRole = (edits.primaryRole ?? r.primaryRole).trim();
+      const rate = edits.rate ?? r.rate;
+      const rateType = edits.rateType ?? r.rateType;
+
+      const errors: string[] = [];
+      const warnings = [...r.warnings];
+
+      if (!firstName) errors.push("Missing first_name");
+      if (!lastName) errors.push("Missing last_name");
+      if (!email) errors.push("Missing email");
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.push("Invalid email format");
+      else if (existingEmails.includes(email)) errors.push("Email already exists in your staff");
+      else if (seen.has(email)) errors.push("Duplicate email in this file");
+      if (email) seen.add(email);
+      if (!primaryRole) errors.push("Missing primary_role");
+      if (!Number.isFinite(rate) || rate < 0) errors.push("Invalid rate");
+
+      return { ...r, firstName, lastName, email, primaryRole, rate, rateType, errors, warnings };
+    });
+  }, [baseNormalized, rowEdits, existingEmails]);
+
+  // Suggestions for ignored headers that look like typos of real
+  // fields. Rendered inline with the "Ignored columns" list.
+  const headerSuggestions = useMemo(() => {
+    return ignoredHeaders.map((h) => ({ header: h, suggestion: suggestFieldForHeader(h) }));
+  }, [ignoredHeaders]);
 
   // "ok" means ready-to-commit. Bad = errors. Inactive-and-excluded
   // are not "ok" but not errored either; they just drop when the skip
@@ -453,6 +550,7 @@ export function StaffImportClient({
               setRemappedRows([]);
               setFileName("");
               setParseError("");
+              setRowEdits({});
               if (fileInputRef.current) fileInputRef.current.value = "";
             }}
           >
@@ -472,19 +570,37 @@ export function StaffImportClient({
             {detectedHeaders.join(", ")}
           </p>
           {ignoredHeaders.length > 0 && (
-            <p className="mt-1 text-gray-500">
-              Ignored columns (we don&apos;t need these — staffers fill them in during onboarding):{" "}
-              {ignoredHeaders.join(", ")}
-            </p>
+            <div className="mt-1 text-gray-500 space-y-0.5">
+              <p>
+                Ignored columns (we don&apos;t need these — staffers fill them in during onboarding):
+              </p>
+              <ul className="list-disc list-inside">
+                {headerSuggestions.map(({ header, suggestion }) => (
+                  <li key={header}>
+                    <span className="font-mono text-gray-700">{header}</span>
+                    {suggestion && (
+                      <span className="ml-2 text-amber-700">
+                        — looks like a typo of <code>{suggestion}</code>. Rename the column in your
+                        source file and re-upload to include it.
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
       )}
 
       {normalized.length > 0 && (
         <>
-          <h3 className="text-sm font-semibold mt-6 mb-2">
+          <h3 className="text-sm font-semibold mt-6 mb-1">
             3. Preview — {normalized.length} row{normalized.length === 1 ? "" : "s"}
           </h3>
+          <p className="text-xs text-gray-500 mb-3">
+            Every field is editable. Fix typos, emails, roles, or rates here and the row re-validates
+            as you type — no need to edit the source file and re-upload for small tweaks.
+          </p>
           <div className="flex flex-wrap gap-4 text-xs mb-3">
             <span className="text-green-700">✓ Ready: {ok.length}</span>
             {bad.length > 0 && <span className="text-red-700">✗ Errors: {bad.length}</span>}
@@ -554,12 +670,68 @@ export function StaffImportClient({
                       <td className="p-2">
                         {status === "error" ? "✗" : status === "skip" ? "⏸" : status === "warn" ? "!" : "✓"}
                       </td>
-                      <td className="p-2">{r.firstName} {r.lastName}</td>
-                      <td className="p-2 font-mono">{r.email}</td>
                       <td className="p-2">
-                        <div>{r.primaryRole} · ${r.rate} {r.rateType}</div>
+                        <input
+                          className="border rounded px-1 py-0.5 w-20 text-xs"
+                          value={r.firstName}
+                          onChange={(e) =>
+                            setRowEdits((p) => ({ ...p, [i]: { ...(p[i] ?? {}), firstName: e.target.value } }))
+                          }
+                        />{" "}
+                        <input
+                          className="border rounded px-1 py-0.5 w-20 text-xs"
+                          value={r.lastName}
+                          onChange={(e) =>
+                            setRowEdits((p) => ({ ...p, [i]: { ...(p[i] ?? {}), lastName: e.target.value } }))
+                          }
+                        />
+                      </td>
+                      <td className="p-2">
+                        <input
+                          className="border rounded px-1 py-0.5 w-52 text-xs font-mono"
+                          value={r.email}
+                          onChange={(e) =>
+                            setRowEdits((p) => ({ ...p, [i]: { ...(p[i] ?? {}), email: e.target.value } }))
+                          }
+                        />
+                      </td>
+                      <td className="p-2">
+                        <div className="flex items-center gap-1">
+                          <input
+                            className="border rounded px-1 py-0.5 w-28 text-xs"
+                            value={r.primaryRole}
+                            onChange={(e) =>
+                              setRowEdits((p) => ({ ...p, [i]: { ...(p[i] ?? {}), primaryRole: e.target.value } }))
+                            }
+                          />
+                          <span>·</span>
+                          <span>$</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            className="border rounded px-1 py-0.5 w-20 text-xs"
+                            value={r.rate}
+                            onChange={(e) =>
+                              setRowEdits((p) => ({ ...p, [i]: { ...(p[i] ?? {}), rate: Number(e.target.value) } }))
+                            }
+                          />
+                          <select
+                            className="border rounded px-1 py-0.5 text-xs"
+                            value={r.rateType}
+                            onChange={(e) =>
+                              setRowEdits((p) => ({
+                                ...p,
+                                [i]: { ...(p[i] ?? {}), rateType: e.target.value as "hourly" | "flat" },
+                              }))
+                            }
+                          >
+                            <option value="hourly">hourly</option>
+                            <option value="flat">flat</option>
+                          </select>
+                        </div>
                         {r.additionalRoles.map((a, j) => (
-                          <div key={j} className="text-gray-600">
+                          <div key={j} className="text-gray-600 mt-1 pl-2">
                             + {a.role} · ${a.rate} {a.rateType}
                           </div>
                         ))}
