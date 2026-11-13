@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { BaseRateControl } from "@/components/BaseRateControl";
+import { PositionTimeControl } from "@/components/PositionTimeControl";
 
-export function PositionRows({ roles }: { roles: string[] }) {
+export function PositionRows({ roles, showTimes = true }: { roles: string[]; showTimes?: boolean }) {
   const [rowIds, setRowIds] = useState<number[]>([0]);
   const [nextId, setNextId] = useState(1);
 
@@ -14,6 +15,7 @@ export function PositionRows({ roles }: { roles: string[] }) {
           key={id}
           index={id}
           roles={roles}
+          showTimes={showTimes}
           onRemove={() => setRowIds((rows) => rows.filter((r) => r !== id))}
         />
       ))}
@@ -38,10 +40,12 @@ export function PositionRows({ roles }: { roles: string[] }) {
 function PositionRow({
   index,
   roles,
+  showTimes,
   onRemove,
 }: {
   index: number;
   roles: string[];
+  showTimes: boolean;
   onRemove: () => void;
 }) {
   // Default to Standard - managers already put each staff member's rate on file
@@ -52,14 +56,20 @@ function PositionRow({
         <label className="label">#</label>
         <input name={`needed${index}`} type="number" min={1} defaultValue={1} className="input" />
       </div>
-      <div className="col-span-5">
+      <div className={showTimes ? "col-span-4" : "col-span-5"}>
         <label className="label">Role</label>
         <select name={`role${index}`} className="input" defaultValue="" required>
           <option value="" disabled>-</option>
           {roles.map((r) => (<option key={r} value={r}>{r}</option>))}
         </select>
       </div>
-      <div className="col-span-5">
+      {showTimes && (
+        <div className="col-span-3">
+          <label className="label">Time</label>
+          <PositionTimeControl startFieldName={`startTime${index}`} endFieldName={`endTime${index}`} />
+        </div>
+      )}
+      <div className={showTimes ? "col-span-3" : "col-span-5"}>
         <label className="label">Base rate</label>
         <BaseRateControl
           baseRateFieldName={`baseRate${index}`}
