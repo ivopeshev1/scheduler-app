@@ -22,6 +22,7 @@ import { and, eq, inArray, isNull, isNotNull } from "drizzle-orm";
 import { sendEmail, sendSms } from "@/lib/notifications";
 import { shellWrap, greeting, paragraph, kvRow, kvTable, signoff } from "@/lib/email-html";
 import { formatDate, formatTime } from "@/lib/format";
+import { withShiftTimes } from "@/lib/shift-times";
 
 export async function runShiftReminders(now: Date = new Date()): Promise<{
   checked: number;
@@ -121,6 +122,7 @@ async function sendReminderEmail(
     .where(eq(schema.companies.id, event.companyId));
   const companyName = company?.name ?? "Scheduler";
   const prettyDate = formatDate(event.date);
+  event = withShiftTimes(event, position);
   const timeRange = `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`;
   const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
 
