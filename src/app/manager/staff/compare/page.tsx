@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
+import { withShiftTimes } from "@/lib/shift-times";
 import { eq, and, isNull } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { computeTotalHours } from "@/lib/pay-period";
@@ -82,7 +83,8 @@ export default async function StaffComparePage() {
     .from(schema.invitations)
     .innerJoin(schema.positions, eq(schema.invitations.positionId, schema.positions.id))
     .innerJoin(schema.events, eq(schema.positions.eventId, schema.events.id))
-    .where(eq(schema.events.companyId, session.companyId));
+    .where(eq(schema.events.companyId, session.companyId))
+    .then((rows) => rows.map((r) => ({ ...r, ev: withShiftTimes(r.ev, r.pos) })));
 
   const today = new Date().toISOString().slice(0, 10);
 
