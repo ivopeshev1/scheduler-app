@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
+import { withShiftTimes } from "@/lib/shift-times";
 import { eq, and, inArray, isNull } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { parseMonthSlug, monthSlug, shiftMonth, buildMonthGrid, monthLabel } from "@/lib/month-grid";
@@ -112,8 +113,9 @@ export default async function StaffMonthPage({ params }: { params: { month: stri
   for (const inv of invitations) {
     const pos = posById.get(inv.positionId);
     if (!pos) continue;
-    const evt = evtById.get(pos.eventId);
-    if (!evt || evt.cancelledAt) continue;
+    const rawEvt = evtById.get(pos.eventId);
+    if (!rawEvt || rawEvt.cancelledAt) continue;
+    const evt = withShiftTimes(rawEvt, pos);
     if (evt.date < gridStart || evt.date > gridEnd) continue;
     const list = shiftsByDate.get(evt.date) ?? [];
     list.push({ role: pos.role, venue: evt.venue, checkIn: evt.checkInTime, endTime: evt.endTime, isOnCall: !!inv.isOnCall });
