@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
+import { shiftTimes } from "@/lib/shift-times";
 import { eq, and } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { revalidatePath } from "next/cache";
@@ -189,8 +190,9 @@ async function fillScheduledTimesAction(formData: FormData) {
     if (r.pos.rateType === "flat" || r.pos.baseRateMode === "flat") continue; // flat rows don't bill by hours
     // Only touch fields the row doesn't already have a value for.
     const update: Record<string, string | null> = {};
-    if (!r.inv.clockIn && r.ev.checkInTime) update.clockIn = r.ev.checkInTime;
-    if (!r.inv.clockOut && r.ev.endTime) update.clockOut = r.ev.endTime;
+    const t = shiftTimes(r.ev, r.pos);
+    if (!r.inv.clockIn && t.start) update.clockIn = t.start;
+    if (!r.inv.clockOut && t.end) update.clockOut = t.end;
     if (Object.keys(update).length === 0) continue;
     await db.update(schema.invitations).set(update).where(eq(schema.invitations.id, r.inv.id));
     monthsToRevalidate.add(r.ev.date.slice(0, 7));
@@ -532,7 +534,7 @@ export default async function PayrollPage({ searchParams }: { searchParams: { on
               if (
                 !s.inv.paidAt &&
                 isHourly &&
-                ((!s.inv.clockIn && s.ev.checkInTime) || (!s.inv.clockOut && s.ev.endTime))
+                ((!s.inv.clockIn && shiftTimes(s.ev, s.pos).start) || (!s.inv.clockOut && shiftTimes(s.ev, s.pos).end))
               ) {
                 fillableIds.push(s.inv.id);
               }
