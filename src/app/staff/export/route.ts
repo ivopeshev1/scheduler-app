@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
+import { withShiftTimes } from "@/lib/shift-times";
 import { eq, inArray } from "drizzle-orm";
 
 /**
@@ -82,7 +83,8 @@ export async function GET() {
     availabilityBlocks: blocks.map((b) => ({ date: b.date, startTime: b.startTime, endTime: b.endTime, reason: b.reason })),
     shifts: invitations.map((inv) => {
       const pos = positions.find((p) => p.id === inv.positionId);
-      const evt = pos ? events.find((e) => e.id === pos.eventId) : null;
+      const rawEvt = pos ? events.find((e) => e.id === pos.eventId) : null;
+      const evt = rawEvt && pos ? withShiftTimes(rawEvt, pos) : null;
       return {
         invitationId: inv.id,
         status: inv.status,
