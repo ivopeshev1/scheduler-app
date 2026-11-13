@@ -2,6 +2,7 @@ import { db, schema } from "@/db/client";
 import { eq } from "drizzle-orm";
 import { sendEmail } from "@/lib/notifications";
 import { formatTime, formatDate } from "@/lib/format";
+import { shiftTimes } from "@/lib/shift-times";
 import { shellWrap, kvRow, kvTable, greeting, paragraph, banner, signoff } from "@/lib/email-html";
 
 type EventRow = typeof schema.events.$inferSelect;
@@ -19,11 +20,15 @@ async function getCompanyName(companyId: string): Promise<string> {
 export async function notifyCancellation(event: EventRow, companyId: string) {
   const companyName = await getCompanyName(companyId);
   const prettyDate = formatDate(event.date);
-  const timeRange = `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`;
+  const rangeFor = (pos: { startTime: string | null; endTime: string | null }) => {
+    const t = shiftTimes(event, pos);
+    return `${formatTime(t.start)} – ${formatTime(t.end)}`;
+  };
   const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
 
   const positions = await db.select().from(schema.positions).where(eq(schema.positions.eventId, event.id));
   for (const p of positions) {
+    const timeRange = rangeFor(p);
     const invites = await db.select().from(schema.invitations).where(eq(schema.invitations.positionId, p.id));
     for (const inv of invites) {
       if (inv.status !== "pending" && inv.status !== "accepted") continue;
@@ -87,7 +92,10 @@ export async function notifyEventDetailsChanged(
 ) {
   const companyName = await getCompanyName(companyId);
   const prettyDate = formatDate(event.date);
-  const timeRange = `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`;
+  const rangeFor = (pos: { startTime: string | null; endTime: string | null }) => {
+    const t = shiftTimes(event, pos);
+    return `${formatTime(t.start)} – ${formatTime(t.end)}`;
+  };
   const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
 
   const subjectPrefix = isBigChange ? "⚠ IMPORTANT — " : "Update: ";
@@ -102,6 +110,7 @@ export async function notifyEventDetailsChanged(
 
   const positions = await db.select().from(schema.positions).where(eq(schema.positions.eventId, event.id));
   for (const p of positions) {
+    const timeRange = rangeFor(p);
     const invites = await db.select().from(schema.invitations).where(eq(schema.invitations.positionId, p.id));
     for (const inv of invites) {
       if (inv.status !== "pending" && inv.status !== "accepted") continue;
@@ -171,7 +180,7 @@ export async function notifyPositionChanged(
   if (changes.length === 0 && !newVanInstructions) return;
   const companyName = await getCompanyName(companyId);
   const prettyDate = formatDate(event.date);
-  const timeRange = `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`;
+  const timeRange = (() => { const t = shiftTimes(event, position); return `${formatTime(t.start)} – ${formatTime(t.end)}`; })();
   const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
 
   const invites = await db.select().from(schema.invitations).where(eq(schema.invitations.positionId, position.id));
