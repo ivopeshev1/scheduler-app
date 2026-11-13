@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
+import { withShiftTimes } from "@/lib/shift-times";
 import { eq } from "drizzle-orm";
 import { buildIcs } from "@/lib/ics";
 
@@ -22,8 +23,9 @@ export async function GET(_req: Request, { params }: { params: { inviteId: strin
 
   const [pos] = await db.select().from(schema.positions).where(eq(schema.positions.id, inv.positionId));
   if (!pos) return new NextResponse("Not found", { status: 404 });
-  const [evt] = await db.select().from(schema.events).where(eq(schema.events.id, pos.eventId));
-  if (!evt) return new NextResponse("Not found", { status: 404 });
+  const [rawEvt] = await db.select().from(schema.events).where(eq(schema.events.id, pos.eventId));
+  if (!rawEvt) return new NextResponse("Not found", { status: 404 });
+  const evt = withShiftTimes(rawEvt, pos);
   if (!evt.checkInTime || !evt.endTime) {
     return new NextResponse("This shift doesn't have start / end times set yet.", { status: 400 });
   }
