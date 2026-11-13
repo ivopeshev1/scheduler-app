@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { BaseRateControl, type BaseRateMode } from "@/components/BaseRateControl";
+import { PositionTimeControl } from "@/components/PositionTimeControl";
 
 export type InvitedStaff = {
   userId: string;
@@ -16,6 +17,9 @@ export type PositionData = {
   // no longer fits now that managers can add custom roles.
   role: string;
   needed: number;
+  // Optional per-row times. Null = row uses the event check-in / end times.
+  startTime?: string | null;
+  endTime?: string | null;
   baseRate: number | null;
   baseRateMode: BaseRateMode;
   // Van-driver fields still exist on the DB row, but the UI no longer exposes
@@ -33,7 +37,7 @@ type Removal = {
   unInviteUserIds: string[];
 };
 
-export function PositionsEditor({ positions, roles }: { positions: PositionData[]; roles: string[] }) {
+export function PositionsEditor({ positions, roles, showTimes = true }: { positions: PositionData[]; roles: string[]; showTimes?: boolean }) {
   const [newRows, setNewRows] = useState<number[]>([]);
   const [nextNewId, setNextNewId] = useState(0);
 
@@ -63,6 +67,7 @@ export function PositionsEditor({ positions, roles }: { positions: PositionData[
             key={p.id}
             p={p}
             roles={roles}
+            showTimes={showTimes}
             removal={r}
             onOpenRemoveModal={() => openModal(p.id)}
             onUndoRemoval={() => undoRemoval(p.id)}
@@ -77,6 +82,7 @@ export function PositionsEditor({ positions, roles }: { positions: PositionData[
             key={k}
             newKey={k}
             roles={roles}
+            showTimes={showTimes}
             onRemove={() => setNewRows((rows) => rows.filter((r) => r !== id))}
           />
         );
@@ -110,12 +116,14 @@ export function PositionsEditor({ positions, roles }: { positions: PositionData[
 function ExistingRow({
   p,
   roles,
+  showTimes,
   removal,
   onOpenRemoveModal,
   onUndoRemoval,
 }: {
   p: PositionData;
   roles: string[];
+  showTimes: boolean;
   removal: Removal | undefined;
   onOpenRemoveModal: () => void;
   onUndoRemoval: () => void;
@@ -149,7 +157,7 @@ function ExistingRow({
           <label className="label">#</label>
           <input name={`needed[${key}]`} type="number" min={1} defaultValue={reducedNeeded} className="input" />
         </div>
-        <div className="col-span-5">
+        <div className={showTimes ? "col-span-4" : "col-span-5"}>
           <label className="label">Role</label>
           <select
             name={`role[${key}]`}
@@ -166,7 +174,18 @@ function ExistingRow({
             )}
           </select>
         </div>
-        <div className="col-span-5">
+        {showTimes && (
+          <div className="col-span-3">
+            <label className="label">Time</label>
+            <PositionTimeControl
+              startFieldName={`startTime[${key}]`}
+              endFieldName={`endTime[${key}]`}
+              defaultStart={p.startTime}
+              defaultEnd={p.endTime}
+            />
+          </div>
+        )}
+        <div className={showTimes ? "col-span-3" : "col-span-5"}>
           <label className="label">Base rate</label>
           <BaseRateControl
             baseRateFieldName={`baseRate[${key}]`}
@@ -214,10 +233,12 @@ function ExistingRow({
 function NewRow({
   newKey,
   roles,
+  showTimes,
   onRemove,
 }: {
   newKey: string;
   roles: string[];
+  showTimes: boolean;
   onRemove: () => void;
 }) {
   return (
@@ -226,14 +247,20 @@ function NewRow({
         <label className="label">#</label>
         <input name={`needed[${newKey}]`} type="number" min={1} defaultValue={1} className="input" />
       </div>
-      <div className="col-span-5">
+      <div className={showTimes ? "col-span-4" : "col-span-5"}>
         <label className="label">Role</label>
         <select name={`role[${newKey}]`} className="input" defaultValue="" required>
           <option value="" disabled>-</option>
           {roles.map((r) => (<option key={r} value={r}>{r}</option>))}
         </select>
       </div>
-      <div className="col-span-5">
+      {showTimes && (
+        <div className="col-span-3">
+          <label className="label">Time</label>
+          <PositionTimeControl startFieldName={`startTime[${newKey}]`} endFieldName={`endTime[${newKey}]`} />
+        </div>
+      )}
+      <div className={showTimes ? "col-span-3" : "col-span-5"}>
         <label className="label">Base rate</label>
         <BaseRateControl
           baseRateFieldName={`baseRate[${newKey}]`}
