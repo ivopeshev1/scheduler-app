@@ -1,4 +1,5 @@
 import { db, schema } from "@/db/client";
+import { shiftTimes } from "@/lib/shift-times";
 import { eq, and, gte, inArray, isNull } from "drizzle-orm";
 import { sendEmail } from "@/lib/notifications";
 import { shellWrap, greeting, paragraph, signoff } from "@/lib/email-html";
@@ -66,7 +67,7 @@ async function loadDigestInput(companyId: string, now: Date): Promise<DigestInpu
         eventId: r.ev.id,
         eventClientName: r.ev.clientName,
         eventDate: r.ev.date,
-        eventCheckInTime: r.ev.checkInTime,
+        eventCheckInTime: shiftTimes(r.ev, r.pos).start,
         positionRole: r.pos.role,
         positionNeeded: r.pos.needed,
         positionAcceptedCount: acceptedByPosition.get(r.pos.id) ?? 0,
