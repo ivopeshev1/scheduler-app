@@ -3,6 +3,7 @@ import { and, eq, isNull } from "drizzle-orm";
 // (and + eq imported above; staff_roles lookup added later uses them)
 import { sendEmail, sendSms, escapeHtml } from "@/lib/notifications";
 import { formatTime, formatDate } from "@/lib/format";
+import { withShiftTimes } from "@/lib/shift-times";
 import { shellWrap, kvRow, kvTable, greeting, paragraph, banner, signoff } from "@/lib/email-html";
 import { nanoid } from "nanoid";
 
@@ -34,6 +35,7 @@ export async function sendInvitationEmail(
   const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, companyId));
   const companyName = company?.name ?? "Scheduler";
   const prettyDate = formatDate(event.date);
+  event = withShiftTimes(event, position);
   const timeRange = `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`;
   const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
 
@@ -340,6 +342,7 @@ async function sendPriorityNudgeEmail(
   const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, companyId));
   const companyName = company?.name ?? "Scheduler";
   const prettyDate = formatDate(event.date);
+  event = withShiftTimes(event, position);
   const timeRange = `${formatTime(event.checkInTime)} - ${formatTime(event.endTime)}`;
   const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
   const inviteUrl = `${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}`;
