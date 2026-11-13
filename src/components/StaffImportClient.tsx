@@ -526,7 +526,7 @@ export function StaffImportClient({
 
   return (
     <section className="border rounded-lg bg-white p-6">
-      <h2 className="text-sm font-semibold mb-2">2. Upload your file</h2>
+      <h2 className="text-sm font-semibold mb-2">Upload your file</h2>
       <p className="text-sm text-gray-600 mb-3">
         CSV or Excel. Headers can be in any order, but names must match the template.
       </p>
