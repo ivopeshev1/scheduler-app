@@ -354,7 +354,7 @@ export default async function BulkImportPage({
       />
       <main className="max-w-5xl mx-auto px-6 py-8">
         <Link href="/manager/staff" className="text-sm text-gray-500 hover:underline">← Back to staff</Link>
-        <h1 className="text-2xl font-semibold mt-2 mb-2">Import staff in bulk</h1>
+        <h1 className="text-2xl font-semibold mt-2 mb-2">IMPORT STAFF IN BULK</h1>
         <p className="text-sm text-gray-600 mb-6">
           Download the template, fill it in (or paste from a spreadsheet of your own with matching
           columns), upload it here, review what will be created, and commit the batch.
@@ -406,38 +406,17 @@ export default async function BulkImportPage({
         )}
 
         <section className="border rounded-lg bg-white p-6 mb-6">
-          <h2 className="text-sm font-semibold mb-2">1. Download the template</h2>
-          <p className="text-sm text-gray-600 mb-3">
-            A CSV with the column headers the importer expects and two example rows.
-            You can also upload any CSV or Excel file whose columns match these names.
-          </p>
-          <a
-            href="/manager/staff/import/template"
-            className="btn btn-secondary text-sm inline-block"
-            download
-          >
-            Download CSV template
-          </a>
-          <div className="mt-4 text-xs text-gray-600 space-y-2">
-            <p>
-              <span className="font-semibold">Required columns:</span>{" "}
-              <code>first_name</code>, <code>last_name</code>, <code>email</code>,{" "}
-              <code>primary_role</code>, <code>rate</code>,{" "}
-              <code>rate_type</code> (<code>hourly</code> or <code>flat</code>).
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <p className="text-sm text-gray-600">
+              Need a starting point?{" "}
+              <a href="/manager/staff/import/template" className="underline" download>
+                Download the CSV template
+              </a>.
             </p>
-            <p>
-              Column names are matched loosely — &ldquo;Last Name&rdquo;,
-              &ldquo;surname&rdquo;, &ldquo;family_name&rdquo; all map to the
-              same field; &ldquo;Email Address&rdquo;, &ldquo;mail&rdquo;,
-              &ldquo;work email&rdquo; all map to email; and so on. If your
-              current tool exported extra columns (phone, address, DOB,
-              uniform size, etc.) you can leave them in — we ignore them.
-              Staffers fill those in themselves when they accept the invite.
-            </p>
-            <p>
-              Each imported staffer is auto-assigned every location you (the
-              importing manager) have access to. You can refine per-staffer
-              on the staff detail page afterward.
+            <p className="text-xs text-gray-500">
+              Required: <code>first_name</code>, <code>last_name</code>,{" "}
+              <code>email</code>, <code>primary_role</code>, <code>rate</code>,{" "}
+              <code>rate_type</code>. Extra columns are ignored.
             </p>
           </div>
         </section>
