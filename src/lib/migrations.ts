@@ -528,6 +528,7 @@ export async function runMigrations(): Promise<void> {
   // we can evolve the shape without another migration every time a new
   // notification type ships.
   await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS notification_settings JSONB`;
+  await sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS position_times_enabled BOOLEAN NOT NULL DEFAULT true`;
 
   // Per-company catalog of optional event add-on tasks (van driver, setup
   // crew, etc). Replaces the hardcoded van-driver feature that used to live
