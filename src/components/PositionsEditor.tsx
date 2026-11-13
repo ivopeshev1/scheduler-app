@@ -191,6 +191,7 @@ function ExistingRow({
               endFieldName={`endTime[${key}]`}
               defaultStart={p.startTime}
               defaultEnd={p.endTime}
+              invitedCount={p.invitedStaff.filter((x) => x.status === "pending" || x.status === "accepted").length}
             />
           </div>
         )}
