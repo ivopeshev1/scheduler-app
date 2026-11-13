@@ -405,7 +405,13 @@ export default async function BulkImportPage({
           </div>
         )}
 
-        <section className="border rounded-lg bg-white p-6 mb-6">
+        <StaffImportClient
+          formAction={importStaffAction}
+          knownRoleNames={roleNames}
+          existingEmails={existingEmails}
+        />
+
+        <section className="border rounded-lg bg-white p-6 mt-6">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <p className="text-sm text-gray-600">
               Need a starting point?{" "}
@@ -420,12 +426,6 @@ export default async function BulkImportPage({
             </p>
           </div>
         </section>
-
-        <StaffImportClient
-          formAction={importStaffAction}
-          knownRoleNames={roleNames}
-          existingEmails={existingEmails}
-        />
       </main>
     </div>
   );
