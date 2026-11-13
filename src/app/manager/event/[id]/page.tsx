@@ -8,6 +8,7 @@ import { summarizePosition } from "@/lib/status";
 import { sendEmail, escapeHtml } from "@/lib/notifications";
 import { invitationBlocksDay } from "@/lib/availability";
 import { formatTime, formatDate } from "@/lib/format";
+import { shiftTimes } from "@/lib/shift-times";
 import { notifyCancellation, notifyPayChanged, describeRate } from "@/lib/event-notifications";
 import { shellWrap, kvRow, kvTable, greeting, banner, paragraph, signoff } from "@/lib/email-html";
 import { StaffPicker, type StaffOption } from "@/components/StaffPicker";
@@ -391,7 +392,7 @@ async function activateOnCallAction(formData: FormData) {
   const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, inv.userId));
   const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
   const prettyDate = formatDate(event.date);
-  const timeRange = `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`;
+  const timeRange = (() => { const t = shiftTimes(event, pos); return `${formatTime(t.start)} – ${formatTime(t.end)}`; })();
   const companyName = company?.name ?? "Scheduler";
   const confirmUrl = `${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/activate`;
   if (u) {
@@ -580,7 +581,7 @@ async function sendPendingInvitations(formData: FormData) {
         : "";
 
       const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
-      const timeRange = `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`;
+      const timeRange = (() => { const t = shiftTimes(event, position); return `${formatTime(t.start)} – ${formatTime(t.end)}`; })();
 
       // Base-rate display depends on the position's rate mode:
       //   "standard" - show the staff's onboarded rate (varies per invitee)
@@ -1103,7 +1104,14 @@ export default async function EventDetailPage({ params }: { params: { id: string
                 return (
                   <tr key={p.id} className="border-b align-top">
                     <td className="py-3">{p.needed}</td>
-                    <td className="py-3 font-medium">{p.role}</td>
+                    <td className="py-3 font-medium">
+                      {p.role}
+                      {(p.startTime || p.endTime) && (
+                        <div className="text-xs font-normal text-gray-500">
+                          {(() => { const t = shiftTimes(event, p); return `${formatTime(t.start)} – ${formatTime(t.end)}`; })()}
+                        </div>
+                      )}
+                    </td>
                     <td className="py-3">
                       {s.lines
                         ? s.lines.map((ln, idx) => (
