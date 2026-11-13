@@ -354,7 +354,7 @@ export default async function BulkImportPage({
       />
       <main className="max-w-5xl mx-auto px-6 py-8">
         <Link href="/manager/staff" className="text-sm text-gray-500 hover:underline">← Back to staff</Link>
-        <h1 className="text-2xl font-semibold mt-2 mb-2">IMPORT STAFF IN BULK</h1>
+        <h1 className="text-2xl font-semibold mt-2 mb-2">Import staff in bulk</h1>
         <p className="text-sm text-gray-600 mb-6">
           Download the template, fill it in (or paste from a spreadsheet of your own with matching
           columns), upload it here, review what will be created, and commit the batch.
