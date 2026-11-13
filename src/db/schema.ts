@@ -36,6 +36,9 @@ export const companies = pgTable("companies", {
   // NotificationSettings in src/lib/notification-settings.ts. NULL means
   // "use all defaults".
   notificationSettings: jsonb("notification_settings"),
+  // Show the per-row "Time" control on event positions so a row can have
+  // its own start/end instead of the event check-in/end times. On by default.
+  positionTimesEnabled: boolean("position_times_enabled").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
