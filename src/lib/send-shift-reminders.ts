@@ -180,5 +180,5 @@ async function sendReminderEmail(
     userId: user.id,
     relatedInvitationId: invitationId,
     notificationKey: "shiftReminder",
-  });
+  }).catch((err) => console.error("[sms] reminder text failed:", err));
 }
