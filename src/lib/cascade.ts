@@ -232,6 +232,7 @@ export async function sendInvitationEmail(
   // just a nudge to open the link and respond. sendSms silently no-ops
   // when the staffer isn't opted in or has no verified phone.
   const acceptUrl = `${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/accept`;
+  // A text problem must never stop the email flow (or the rest of the action).
   await sendSms({
     to: profile?.phone,
     body: update
@@ -241,7 +242,7 @@ export async function sendInvitationEmail(
     userId: inv.userId,
     relatedInvitationId: inv.id,
     notificationKey: update ? "eventChanged" : "shiftInvite",
-  });
+  }).catch((err) => console.error("[sms] invite text failed:", err));
 
   // A resend doesn't restart the invite's response window.
   if (!update) {
