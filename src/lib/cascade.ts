@@ -23,6 +23,10 @@ export async function sendInvitationEmail(
   position: PositionRow,
   event: EventRow,
   companyId: string,
+  // Set when re-sending an invite after the manager changed rate, travel or
+  // add-ons on it. Adds a "What changed" list; staff who already accepted
+  // get no Accept/Decline buttons.
+  update?: { changes: Array<{ label: string; before: string; after: string }>; accepted: boolean },
 ) {
   // Silent-backup model: when a cascade promotes a backup, the email that
   // goes out looks identical to a cold initial invite. The backup never
@@ -40,6 +44,13 @@ export async function sendInvitationEmail(
   const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
   // Role, date, check-in, close + every field shared with staff in Settings.
   const detailRows = await sharedDetailRows(event, position, companyId);
+  const leadText = update
+    ? update.accepted
+      ? "Your confirmed shift was updated:"
+      : "Your shift invite was updated:"
+    : "You're invited to work the following shift:";
+  const changeLines = (update?.changes ?? []).map((c) => `${c.label}: ${c.before} → ${c.after}`);
+  const showButtons = !update?.accepted;
 
   // Load any add-on tasks assigned to this specific invitation, with the
   // $ amount the manager typed for this person + this event's description.
@@ -132,7 +143,8 @@ export async function sendInvitationEmail(
 
   const textBody = [
     `Hi ${profile?.firstName ?? ""},`, ``,
-    `You're invited to work the following shift:`, ``,
+    leadText, ``,
+    ...(update ? ["What changed:", ...changeLines.map((c) => `- ${c}`), ""] : []),
     ...detailRows.map(([k, v]) => `${k}: ${v}`),
     TIME_MAY_CHANGE_NOTE, ``,
     ...(requirementLinesText.length > 0 ? ["Shift requirements:", ...requirementLinesText, ""] : []),
@@ -143,8 +155,12 @@ export async function sendInvitationEmail(
     ...taskDescLinesText,
     event.staffNotes ? `Notes: ${event.staffNotes}` : "",
     ``,
-    `Accept: ${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/accept`,
-    `Decline: ${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/decline`,
+    ...(showButtons
+      ? [
+          `Accept: ${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/accept`,
+          `Decline: ${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/decline`,
+        ]
+      : [`You're still confirmed. If this no longer works for you, reach out to your manager.`]),
     ``,
     `– ${companyName}`,
   ].filter(Boolean).join("\n");
@@ -153,7 +169,12 @@ export async function sendInvitationEmail(
     `<tr><td style="padding:4px 16px 4px 0;color:#555;white-space:nowrap;">${label}</td><td style="padding:4px 0;">${value}</td></tr>`;
 
   const htmlBody = shellWrap([
-    greeting(profile?.firstName, "You're invited to work the following shift:"),
+    greeting(profile?.firstName, leadText),
+    update
+      ? `<p style="margin:0 0 8px;font-weight:600;">What changed</p><ul style="margin:0 0 20px;padding-left:20px;color:#111;">${changeLines
+          .map((c) => `<li style="margin:0 0 6px;">${escapeHtml(c)}</li>`)
+          .join("")}</ul>`
+      : "",
     `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 8px;">
       ${detailRows.map(([k, v]) => row(escapeHtml(k), escapeHtml(v))).join("")}
     </table>
@@ -187,22 +208,22 @@ export async function sendInvitationEmail(
       .filter((a) => a.description && a.description.trim())
       .map((a) => `<p style="margin:0 0 12px;"><strong>${escapeHtml(a.name)} notes:</strong> ${escapeHtml(a.description!)}</p>`),
     event.staffNotes ? `<p style="margin:0 0 12px;"><strong>Notes:</strong> ${escapeHtml(event.staffNotes)}</p>` : "",
-    `<p style="margin:24px 0 12px;">
+    showButtons ? `<p style="margin:24px 0 12px;">
       <a href="${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/accept" style="display:inline-block;background:#16a34a;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600;margin-right:8px;">Accept shift</a>
       <a href="${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/decline" style="display:inline-block;background:#dc2626;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600;">Decline</a>
-    </p>`,
+    </p>` : `<p style="margin:24px 0 12px;color:#555;">You're still confirmed. If this no longer works for you, reach out to your manager.</p>`,
     signoff(companyName),
   ].filter(Boolean).join("\n"));
 
   await sendEmail({
     to: u.email,
-    subject: `${companyName} invite to a shift - ${prettyDate}`,
+    subject: update ? `Updated: ${companyName} shift - ${prettyDate}` : `${companyName} invite to a shift - ${prettyDate}`,
     body: textBody,
     html: htmlBody,
     companyId,
     userId: inv.userId,
     relatedInvitationId: inv.id,
-    notificationKey: "shiftInvite",
+    notificationKey: update ? "eventChanged" : "shiftInvite",
   });
 
   // Companion SMS to the shift invite. Short on purpose - a long body
@@ -213,14 +234,19 @@ export async function sendInvitationEmail(
   const acceptUrl = `${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/accept`;
   await sendSms({
     to: profile?.phone,
-    body: `${companyName}: You've been invited to work ${position.role} at ${venue || event.clientName} on ${prettyDate}. Open ${acceptUrl} to accept or decline. Reply STOP to opt out.`,
+    body: update
+      ? `${companyName}: Your ${position.role} shift on ${prettyDate} was updated. Check your email for what changed. Reply STOP to opt out.`
+      : `${companyName}: You've been invited to work ${position.role} at ${venue || event.clientName} on ${prettyDate}. Open ${acceptUrl} to accept or decline. Reply STOP to opt out.`,
     companyId,
     userId: inv.userId,
     relatedInvitationId: inv.id,
-    notificationKey: "shiftInvite",
+    notificationKey: update ? "eventChanged" : "shiftInvite",
   });
 
-  await db.update(schema.invitations).set({ sentAt: new Date() }).where(eq(schema.invitations.id, inv.id));
+  // A resend doesn't restart the invite's response window.
+  if (!update) {
+    await db.update(schema.invitations).set({ sentAt: new Date() }).where(eq(schema.invitations.id, inv.id));
+  }
 }
 
 /**
