@@ -2,7 +2,7 @@ import { db, schema } from "@/db/client";
 import { eq } from "drizzle-orm";
 import { sendEmail } from "@/lib/notifications";
 import { formatTime, formatDate } from "@/lib/format";
-import { shiftTimes } from "@/lib/shift-times";
+import { sharedDetailRows, timeRows, loadFieldConfigs, loadCustomValues } from "@/lib/staff-details";
 import { shellWrap, kvRow, kvTable, greeting, paragraph, banner, signoff } from "@/lib/email-html";
 
 type EventRow = typeof schema.events.$inferSelect;
@@ -20,15 +20,10 @@ async function getCompanyName(companyId: string): Promise<string> {
 export async function notifyCancellation(event: EventRow, companyId: string) {
   const companyName = await getCompanyName(companyId);
   const prettyDate = formatDate(event.date);
-  const rangeFor = (pos: { startTime: string | null; endTime: string | null }) => {
-    const t = shiftTimes(event, pos);
-    return `${formatTime(t.start)} – ${formatTime(t.end)}`;
-  };
   const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
 
   const positions = await db.select().from(schema.positions).where(eq(schema.positions.eventId, event.id));
   for (const p of positions) {
-    const timeRange = rangeFor(p);
     const invites = await db.select().from(schema.invitations).where(eq(schema.invitations.positionId, p.id));
     for (const inv of invites) {
       if (inv.status !== "pending" && inv.status !== "accepted") continue;
@@ -42,7 +37,7 @@ export async function notifyCancellation(event: EventRow, companyId: string) {
         `⚠ This shift has been CANCELLED. You no longer need to attend.`, ``,
         `Role:        ${p.role}`,
         `Date:        ${prettyDate}`,
-        `Approx time: ${timeRange}`,
+        ...timeRows(event, p).map(([k, v]) => `${k}: ${v}`),
         venue ? `Venue:       ${venue}` : "",
         `Client:      ${event.clientName}`, ``,
         `Sorry for the short notice.`, ``,
@@ -55,7 +50,7 @@ export async function notifyCancellation(event: EventRow, companyId: string) {
         kvTable([
           kvRow("Role", p.role),
           kvRow("Date", prettyDate),
-          kvRow("Approx time", timeRange),
+          ...timeRows(event, p).map(([k, v]) => kvRow(k, v)),
           venue ? kvRow("Venue", venue) : "",
           kvRow("Client", event.clientName),
         ]),
@@ -92,10 +87,8 @@ export async function notifyEventDetailsChanged(
 ) {
   const companyName = await getCompanyName(companyId);
   const prettyDate = formatDate(event.date);
-  const rangeFor = (pos: { startTime: string | null; endTime: string | null }) => {
-    const t = shiftTimes(event, pos);
-    return `${formatTime(t.start)} – ${formatTime(t.end)}`;
-  };
+  const fieldConfigs = await loadFieldConfigs(companyId);
+  const customValues = await loadCustomValues(event.id);
   const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
 
   const subjectPrefix = isBigChange ? "⚠ IMPORTANT — " : "Update: ";
@@ -110,7 +103,7 @@ export async function notifyEventDetailsChanged(
 
   const positions = await db.select().from(schema.positions).where(eq(schema.positions.eventId, event.id));
   for (const p of positions) {
-    const timeRange = rangeFor(p);
+    const detailRows = await sharedDetailRows(event, p, companyId, { configs: fieldConfigs, customValues });
     const invites = await db.select().from(schema.invitations).where(eq(schema.invitations.positionId, p.id));
     for (const inv of invites) {
       if (inv.status !== "pending" && inv.status !== "accepted") continue;
@@ -124,11 +117,7 @@ export async function notifyEventDetailsChanged(
         isBigChange ? `⚠ IMPORTANT — the date or time of this shift CHANGED. Double-check it still works for you:` : `The shift you were invited to has been updated:`, ``,
         changeSummary, ``,
         `Current details:`,
-        `Role:        ${p.role}`,
-        `Date:        ${prettyDate}`,
-        `Approx time: ${timeRange}`,
-        venue ? `Venue:       ${venue}` : "",
-        `Client:      ${event.clientName}`, ``,
+        ...detailRows.map(([k, v]) => `${k}: ${v}`), ``,
         `– ${companyName}`,
       ].filter(Boolean).join("\n");
 
@@ -140,13 +129,7 @@ export async function notifyEventDetailsChanged(
         `<p style="margin:0 0 8px;font-weight:600;">What changed</p>`,
         changesHtml,
         `<p style="margin:0 0 8px;font-weight:600;">Current details</p>`,
-        kvTable([
-          kvRow("Role", p.role),
-          kvRow("Date", prettyDate),
-          kvRow("Approx time", timeRange),
-          venue ? kvRow("Venue", venue) : "",
-          kvRow("Client", event.clientName),
-        ]),
+        kvTable(detailRows.map(([k, v]) => kvRow(k, v))),
         signoff(companyName),
       ].join("\n"));
 
@@ -180,7 +163,7 @@ export async function notifyPositionChanged(
   if (changes.length === 0 && !newVanInstructions) return;
   const companyName = await getCompanyName(companyId);
   const prettyDate = formatDate(event.date);
-  const timeRange = (() => { const t = shiftTimes(event, position); return `${formatTime(t.start)} – ${formatTime(t.end)}`; })();
+  const detailRows = await sharedDetailRows(event, position, companyId);
   const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
 
   const invites = await db.select().from(schema.invitations).where(eq(schema.invitations.positionId, position.id));
@@ -197,11 +180,7 @@ export async function notifyPositionChanged(
       ...changes.map((c) => `• ${c}`), ``,
       newVanInstructions ? `Van driving instructions:\n${newVanInstructions}\n` : "",
       `Current details:`,
-      `Role:        ${position.role}`,
-      `Date:        ${prettyDate}`,
-      `Approx time: ${timeRange}`,
-      venue ? `Venue:       ${venue}` : "",
-      `Client:      ${event.clientName}`, ``,
+      ...detailRows.map(([k, v]) => `${k}: ${v}`), ``,
       `– ${companyName}`,
     ].filter(Boolean).join("\n");
 
@@ -220,13 +199,7 @@ export async function notifyPositionChanged(
       changesHtml,
       vanInstructionsHtml,
       `<p style="margin:0 0 8px;font-weight:600;">Current details</p>`,
-      kvTable([
-        kvRow("Role", position.role),
-        kvRow("Date", prettyDate),
-        kvRow("Approx time", timeRange),
-        venue ? kvRow("Venue", venue) : "",
-        kvRow("Client", event.clientName),
-      ]),
+      kvTable(detailRows.map(([k, v]) => kvRow(k, v))),
       signoff(companyName),
     ].join("\n"));
 
