@@ -8,6 +8,9 @@ export type StaffOption = {
   // Flag set upstream when the position's role is 21+ and this
   // staffer doesn't qualify (under 21 or no DOB on file).
   blockedForAge?: boolean;
+  // Hasn't finished onboarding yet: listed so the manager knows they exist,
+  // but locked until they complete it.
+  notOnboarded?: boolean;
   firstName: string;
   lastName: string;
   city: string | null;
@@ -299,7 +302,7 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                 // Lock rules:
                 //  - If staff is already on THIS position → always unlocked (manager needs to be able to remove them)
                 //  - Otherwise, lock if they're busy elsewhere on this date, or they rejected a prior invite here
-                const locked = !alreadyOnThisPosition && (!!s.busyWith || s.currentStatus === "rejected" || !!s.blockedForAge || s.unavailableReason !== undefined && s.unavailableReason !== null);
+                const locked = !alreadyOnThisPosition && (!!s.busyWith || s.currentStatus === "rejected" || !!s.blockedForAge || !!s.notOnboarded || s.unavailableReason !== undefined && s.unavailableReason !== null);
                 const checked = tier !== null && tier !== undefined;
                 const assignedAddOns = addOnAssignments[s.userId] ?? new Map<string, string>();
                 const tChecked = travelChecked[s.userId] ?? false;
@@ -323,6 +326,11 @@ export function StaffPicker({ positionId, eventId, role, needed, mode, staff, on
                           {s.currentStatus === "accepted" && <span className="ml-2 text-status-confirmed font-medium">Accepted</span>}
                           {s.currentStatus === "rejected" && <span className="ml-2">Rejected</span>}
                           {s.currentStatus === "pending" && <span className="ml-2 status-pending">Pending</span>}
+                          {!alreadyOnThisPosition && s.notOnboarded && (
+                            <span className="ml-2 text-amber-700 font-medium">
+                              Not completed onboarding
+                            </span>
+                          )}
                           {!alreadyOnThisPosition && s.blockedForAge && (
                             <span className="ml-2 text-amber-700 font-medium">
                               21+ only - under 21 or no DOB on file
