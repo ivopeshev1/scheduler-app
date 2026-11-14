@@ -1042,6 +1042,9 @@ export default async function EventDetailPage({ params }: { params: { id: string
       return {
         userId: r.user.id,
         blockedForAge,
+        // Invited to the app but hasn't finished onboarding (no accepted
+        // invite and no password yet). Shown in the picker but can't be picked.
+        notOnboarded: !r.user.inviteAcceptedAt && !r.user.passwordHash,
         firstName: r.profile.firstName,
         lastName: r.profile.lastName,
         city: r.profile.city,
