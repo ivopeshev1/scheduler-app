@@ -468,6 +468,11 @@ export const invitations = pgTable(
     // else gets. mode narrows how the number is interpreted.
     rateOverrideAmount: real("rate_override_amount"),
     rateOverrideMode: text("rate_override_mode", { enum: ["flat", "hourly"] }),
+    // Changes the manager made to an already-sent invite (rate, travel,
+    // add-ons like van driver) that haven't been emailed yet. Shown as
+    // "Resend updated invite" on the event page; cleared once sent.
+    // Shape: Array<{ label: string; before: string; after: string }>.
+    pendingChanges: jsonb("pending_changes"),
     // Priority-invite nudge timestamps. The cron fires a mid-window nudge at
     // 50% of the auto-expire window, then a "last call" ~3h before expiry.
     // Each column is set to now() when its nudge goes out so we never double-send.
