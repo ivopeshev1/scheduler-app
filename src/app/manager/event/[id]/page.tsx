@@ -2,12 +2,13 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
 import { summarizePosition } from "@/lib/status";
 import { sendEmail, escapeHtml } from "@/lib/notifications";
 import { invitationBlocksDay } from "@/lib/availability";
 import { formatTime, formatDate } from "@/lib/format";
+import { sendInvitationEmail } from "@/lib/cascade";
 import { shiftTimes } from "@/lib/shift-times";
 import { sharedDetailRows, timeRows, loadFieldConfigs, loadCustomValues, TIME_MAY_CHANGE_NOTE } from "@/lib/staff-details";
 import { notifyCancellation, notifyPayChanged, describeRate } from "@/lib/event-notifications";
@@ -22,6 +23,24 @@ import { revalidatePath } from "next/cache";
  * Draft-save invitations for one position.
  * No emails go out here - manager hits the master "Send invitations" button to fire them.
  */
+type PendingChange = { label: string; before: string; after: string };
+
+/**
+ * Fold new edits into an invite's queued changes. Same label twice keeps the
+ * original "before" and the latest "after"; anything changed back to its
+ * original value drops out. Returns null when nothing is left to send.
+ */
+function mergePendingChanges(prev: unknown, next: PendingChange[]): PendingChange[] | null {
+  const list: PendingChange[] = Array.isArray(prev) ? [...(prev as PendingChange[])] : [];
+  for (const c of next) {
+    const i = list.findIndex((x) => x.label === c.label);
+    if (i >= 0) list[i] = { label: c.label, before: list[i].before, after: c.after };
+    else list.push(c);
+  }
+  const out = list.filter((c) => c.before !== c.after);
+  return out.length ? out : null;
+}
+
 async function saveInvitations(formData: FormData) {
   "use server";
   const session = await getSession();
@@ -87,6 +106,33 @@ async function saveInvitations(formData: FormData) {
       !r.ev.cancelledAt &&
       (r.inv.status === "pending" || r.inv.status === "accepted")
     );
+  }
+
+  // Current add-on assignments per invitation (before this save), so edits to
+  // an already-sent invite (e.g. ticking van driver + $100) can be listed in
+  // the "Resend updated invite" email.
+  const companyAddOnCatalog = await db.select().from(schema.addOns).where(eq(schema.addOns.companyId, session.companyId));
+  const addOnNameById = new Map(companyAddOnCatalog.map((a) => [a.id, a.name]));
+  const existingAddOnRows = existing.length
+    ? await db.select().from(schema.invitationAddOns).where(inArray(schema.invitationAddOns.invitationId, existing.map((e) => e.id)))
+    : [];
+  function addOnChanges(invitationId: string, userId: string): PendingChange[] {
+    if (!(userId in addOnAssignments)) return [];
+    const before = new Map(
+      existingAddOnRows.filter((r) => r.invitationId === invitationId).map((r) => [r.addOnId, r.compensationAmount ?? 0]),
+    );
+    const after = new Map<string, number>();
+    for (const { id, amount } of addOnAssignments[userId] ?? []) {
+      const n = Number((amount ?? "").toString().trim() || "0");
+      after.set(id, Number.isFinite(n) ? Math.max(0, n) : 0);
+    }
+    const out: PendingChange[] = [];
+    for (const id of new Set([...before.keys(), ...after.keys()])) {
+      const b = before.has(id) ? `$${before.get(id)}` : "not assigned";
+      const a = after.has(id) ? `$${after.get(id)}` : "not assigned";
+      if (a !== b) out.push({ label: addOnNameById.get(id) ?? "Add-on", before: b, after: a });
+    }
+    return out;
   }
 
   // StaffPicker encodes "On call" as the sentinel value -1 in selections.
@@ -207,19 +253,22 @@ async function saveInvitations(formData: FormData) {
           })
           .where(eq(schema.invitations.id, current.id));
       } else {
-        // Tier is locked (email sent) but travel + custom rate can still be tweaked
+        // Tier is locked (email sent) but travel, custom rate and add-ons can
+        // still be tweaked. Nothing is emailed here: the changes are queued on
+        // the invite and the event page's button flips to "Resend updated
+        // invite", which emails the staffer what changed.
+        const pendingChanges = mergePendingChanges(current.pendingChanges, [
+          ...payChangeNotes,
+          ...addOnChanges(current.id, userId),
+        ]);
         await db.update(schema.invitations)
           .set({
             travelRate: newTravel,
             rateOverrideAmount: nextOverrideAmount,
             rateOverrideMode: nextOverrideMode,
+            pendingChanges,
           })
           .where(eq(schema.invitations.id, current.id));
-
-        if (payChangeNotes.length > 0) {
-          const notes = payChangeNotes.map((n) => `${n.label}: ${n.before} → ${n.after}`);
-          await notifyPayChanged(userId, event, position, notes, session.companyId);
-        }
       }
     } else {
       // Guard: skip inserting if the same staff is already active on a different position on this date
@@ -754,6 +803,21 @@ async function sendPendingInvitations(formData: FormData) {
     }
   }
 
+  // Resend updated invites: already-sent invites where the manager changed
+  // rate, travel or add-ons afterwards. Each staffer gets one email listing
+  // what changed; the queue is cleared once it goes out.
+  for (const p of positionsForEvent) {
+    const invs = await db.select().from(schema.invitations).where(eq(schema.invitations.positionId, p.id));
+    for (const inv of invs) {
+      if (!inv.sentAt || inv.cancelledAt) continue;
+      if (inv.status !== "pending" && inv.status !== "accepted") continue;
+      const changes = Array.isArray(inv.pendingChanges) ? (inv.pendingChanges as PendingChange[]) : [];
+      if (changes.length === 0) continue;
+      await sendInvitationEmail(inv, p, event, session.companyId, { changes, accepted: inv.status === "accepted" });
+      await db.update(schema.invitations).set({ pendingChanges: null }).where(eq(schema.invitations.id, inv.id));
+    }
+  }
+
   revalidatePath(`/manager/event/${eventId}`);
 }
 
@@ -1003,13 +1067,28 @@ export default async function EventDetailPage({ params }: { params: { id: string
   let pendingPrioritySends = 0;
   let pendingBackupDrafts = 0;
   let alreadySent = 0;
+  let pendingResends = 0;
   for (const invs of Object.values(invitesByPosition)) {
     for (const inv of invs) {
       if (inv.status === "pending" && !inv.sentAt && inv.tier === 0) pendingPrioritySends += 1;
       else if (inv.status === "pending" && !inv.sentAt && inv.tier > 0) pendingBackupDrafts += 1;
       else if (inv.sentAt) alreadySent += 1;
+      if (
+        inv.sentAt && !inv.cancelledAt &&
+        (inv.status === "pending" || inv.status === "accepted") &&
+        Array.isArray(inv.pendingChanges) && inv.pendingChanges.length > 0
+      ) pendingResends += 1;
     }
   }
+  const anythingToSend = pendingPrioritySends + pendingResends > 0;
+  const sendButtonLabel =
+    pendingPrioritySends > 0 && pendingResends > 0
+      ? `Send ${pendingPrioritySends} invite${pendingPrioritySends > 1 ? "s" : ""} + resend ${pendingResends} updated`
+      : pendingPrioritySends > 0
+      ? `Send ${pendingPrioritySends} priority invite${pendingPrioritySends > 1 ? "s" : ""}`
+      : pendingResends > 0
+      ? `Resend ${pendingResends} updated invite${pendingResends > 1 ? "s" : ""}`
+      : "Nothing to send";
 
   return (
     <div>
@@ -1247,17 +1326,20 @@ export default async function EventDetailPage({ params }: { params: { id: string
             ) : (
               <span className="text-gray-500">No invites set up yet. Open the "Invite staff" dropdown on any position above to start.</span>
             )}
+            {pendingResends > 0 && (
+              <div className="mt-1 text-amber-800">
+                {pendingResends} sent invite{pendingResends > 1 ? "s have" : " has"} changes staff haven&apos;t been told about yet.
+              </div>
+            )}
           </div>
           <form action={sendPendingInvitations}>
             <input type="hidden" name="eventId" value={event.id} />
             <button
               type="submit"
-              disabled={pendingPrioritySends === 0}
-              className={`btn ${pendingPrioritySends === 0 ? "btn-secondary opacity-50 cursor-not-allowed" : "btn-primary"}`}
+              disabled={!anythingToSend}
+              className={`btn ${!anythingToSend ? "btn-secondary opacity-50 cursor-not-allowed" : "btn-primary"}`}
             >
-              {pendingPrioritySends === 0
-                ? "Nothing to send"
-                : `Send ${pendingPrioritySends} priority invite${pendingPrioritySends > 1 ? "s" : ""}`}
+              {sendButtonLabel}
             </button>
           </form>
         </section>
