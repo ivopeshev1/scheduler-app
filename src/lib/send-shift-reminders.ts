@@ -23,6 +23,7 @@ import { sendEmail, sendSms } from "@/lib/notifications";
 import { shellWrap, greeting, paragraph, kvRow, kvTable, signoff } from "@/lib/email-html";
 import { formatDate, formatTime } from "@/lib/format";
 import { withShiftTimes } from "@/lib/shift-times";
+import { timeRows } from "@/lib/staff-details";
 
 export async function runShiftReminders(now: Date = new Date()): Promise<{
   checked: number;
@@ -123,7 +124,6 @@ async function sendReminderEmail(
   const companyName = company?.name ?? "Scheduler";
   const prettyDate = formatDate(event.date);
   event = withShiftTimes(event, position);
-  const timeRange = `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`;
   const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
 
   const lead = `Heads up — tomorrow (${prettyDate}) you're on at ${venue || event.clientName}.`;
@@ -133,7 +133,7 @@ async function sendReminderEmail(
     lead, ``,
     `Role:   ${position.role}`,
     `Date:   ${prettyDate}`,
-    `Time:   ${timeRange}`,
+    ...timeRows(event, null).map(([k, v]) => `${k}: ${v}`),
     venue ? `Venue:  ${venue}` : "",
     `Client: ${event.clientName}`, ``,
     event.staffNotes ? `Notes from your manager:\n${event.staffNotes}\n` : "",
@@ -146,7 +146,7 @@ async function sendReminderEmail(
     kvTable([
       kvRow("Role", position.role),
       kvRow("Date", prettyDate),
-      kvRow("Time", timeRange),
+      ...timeRows(event, null).map(([k, v]) => kvRow(k, v)),
       venue ? kvRow("Venue", venue) : "",
       kvRow("Client", event.clientName),
     ]),
