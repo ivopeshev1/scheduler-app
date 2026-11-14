@@ -33,7 +33,7 @@ export const PRESET_FIELDS: PresetFieldDef[] = [
   { key: "cityAddress",       label: "Address / City",       bucket: "required", inputType: "text", lockedEnabled: true, lockedRequired: true },
   { key: "checkInTime",       label: "Staff check-in time",  bucket: "required", inputType: "time", lockedEnabled: true, lockedRequired: true, help: "When staff should arrive on site." },
   { key: "eventStartTime",    label: "Event start time",     bucket: "required", inputType: "time", lockedEnabled: true, lockedRequired: true, help: "When guests arrive / service begins." },
-  { key: "endTime",           label: "Event end time",       bucket: "required", inputType: "time", lockedEnabled: true, lockedRequired: true },
+  { key: "endTime",           label: "Event end time",       bucket: "required", inputType: "time", lockedEnabled: true, help: "Optional. Shows as \"Close time\" in staff emails (n/a when blank)." },
   { key: "eventType",         label: "Event type",           bucket: "required", inputType: "text", lockedEnabled: true, lockedRequired: true },
   { key: "clientName",        label: "Client name",          bucket: "required", inputType: "text", lockedEnabled: true, lockedRequired: true },
   { key: "attachments",       label: "Attachments (BEO, manuals, etc.)", bucket: "required", inputType: "attachments", lockedEnabled: true, help: "PDF, images, xlsx, docs. Shared files go in the invite email." },
