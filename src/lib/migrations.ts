@@ -119,6 +119,11 @@ export async function runMigrations(): Promise<void> {
     related_invitation_id TEXT REFERENCES invitations(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`;
+  // 'muted' = skipped because the recipient turned that notification off or
+  // isn't opted in to texts. The original constraint didn't allow it, so any
+  // muted send crashed the action that triggered it.
+  await sql`ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_status_check`;
+  await sql`ALTER TABLE notifications ADD CONSTRAINT notifications_status_check CHECK (status IN ('queued','sent','failed','dev-logged','muted'))`;
   await sql`CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
