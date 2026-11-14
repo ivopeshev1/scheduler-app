@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
 import { eq, and, asc } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
+import { TimeSelect } from "@/components/TimeSelect";
 import { PositionsEditor, type PositionData, type InvitedStaff } from "@/components/PositionsEditor";
 import { nanoid } from "nanoid";
 import { PRESET_BY_KEY } from "@/lib/event-fields";
@@ -14,6 +15,7 @@ import {
   notifyPositionChanged,
 } from "@/lib/event-notifications";
 import { shiftTimes } from "@/lib/shift-times";
+import { loadFieldConfigs, loadCustomValues, fieldValue } from "@/lib/staff-details";
 import { formatDate, formatTime } from "@/lib/format";
 import { sendEmail } from "@/lib/notifications";
 import { shellWrap, kvRow, kvTable, greeting, paragraph, banner, signoff } from "@/lib/email-html";
@@ -54,13 +56,25 @@ async function saveEventEditAction(formData: FormData) {
     vanDrivingInstructions: event.vanDrivingInstructions ?? null,
   };
 
+  // Change summary for invited staff. Driven by Settings → Event fields:
+  // only fields with "Notify on change" ticked trigger a "shift updated"
+  // email. Custom fields included. Location + staff notes always notify.
   const changes: string[] = [];
   if ((newValues.locationId ?? null) !== (event.locationId ?? null)) changes.push(`Location updated`);
-  if (newValues.date !== event.date) changes.push(`Date: ${event.date} → ${newValues.date}`);
-  if (newValues.checkInTime !== event.checkInTime) changes.push(`Check-in time updated`);
-  if (newValues.endTime !== event.endTime) changes.push(`End time updated`);
-  if (newValues.venue !== event.venue) changes.push(`Venue: ${event.venue ?? ""} → ${newValues.venue ?? ""}`);
-  if (newValues.city !== event.city) changes.push(`City: ${event.city ?? ""} → ${newValues.city ?? ""}`);
+  const fieldConfigs = await loadFieldConfigs(session.companyId);
+  const oldCustomValues = await loadCustomValues(eventId);
+  const newCustomValues = new Map(oldCustomValues);
+  for (const [k, v] of formData.entries()) {
+    const m = /^custom\[(.+)\]$/.exec(k);
+    if (m) newCustomValues.set(m[1], str(v));
+  }
+  const updatedEventLike = { ...event, ...newValues };
+  for (const c of fieldConfigs) {
+    if (!c.enabled || !c.notifyOnChange || c.fieldKey === "attachments") continue;
+    const before = fieldValue(event, c.fieldKey, c.isCustom, oldCustomValues);
+    const after = fieldValue(updatedEventLike, c.fieldKey, c.isCustom, newCustomValues);
+    if (before !== after) changes.push(`${c.label}: ${before || "(blank)"} → ${after || "(blank)"}`);
+  }
   if (newValues.staffNotes !== event.staffNotes) changes.push(`Staff notes updated`);
 
   await db.update(schema.events).set(newValues).where(eq(schema.events.id, eventId));
@@ -564,6 +578,15 @@ export default async function EditEventPage({ params }: { params: { id: string }
 function Field({ label, name, type = "text", required, defaultValue }: {
   label: string; name: string; type?: string; required?: boolean; defaultValue?: string | number;
 }) {
+  if (type === "time") {
+    // Hour / minute / AM-PM picker that starts on PM (fewer clicks for evening events).
+    return (
+      <div>
+        <label className="label" htmlFor={name}>{label}</label>
+        <TimeSelect id={name} name={name} required={required} defaultValue={defaultValue != null ? String(defaultValue) : ""} />
+      </div>
+    );
+  }
   return (
     <div>
       <label className="label" htmlFor={name}>{label}</label>
