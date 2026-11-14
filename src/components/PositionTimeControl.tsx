@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { TimeSelect } from "@/components/TimeSelect";
 
 /**
  * Single-cell "Customize times" control for a position row. Default is "Event times"
@@ -85,31 +86,15 @@ export function PositionTimeControl({
               <span className="w-3 inline-block">{custom ? "•" : ""}</span>
               <span>Custom times for this row</span>
             </div>
-            <div className="flex items-center gap-2 pl-5">
-              <label className="flex-1 min-w-0">
-                <span className="block text-xs text-gray-500 font-normal">Check in</span>
-                <input
-                  type="time"
-                  value={start}
-                  onChange={(e) => setStart(e.target.value)}
-                  className="w-full min-w-0 border border-gray-300 rounded px-1.5 py-1 text-sm outline-none focus:border-gray-500"
-                />
-              </label>
-              <label className="flex-1 min-w-0">
-                <span className="block text-xs text-gray-500 font-normal">End</span>
-                <input
-                  type="time"
-                  value={end}
-                  onChange={(e) => setEnd(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      setOpen(false);
-                    }
-                  }}
-                  className="w-full min-w-0 border border-gray-300 rounded px-1.5 py-1 text-sm outline-none focus:border-gray-500"
-                />
-              </label>
+            <div className="pl-5 space-y-2 font-normal">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-gray-500">Check in</span>
+                <TimeSelect compact value={start} onChange={setStart} />
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-gray-500">End</span>
+                <TimeSelect compact value={end} onChange={setEnd} />
+              </div>
             </div>
             {warn && (
               <p className="pl-5 mt-2 text-xs text-amber-800 font-normal">
