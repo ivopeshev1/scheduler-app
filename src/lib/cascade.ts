@@ -4,6 +4,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { sendEmail, sendSms, escapeHtml } from "@/lib/notifications";
 import { formatTime, formatDate } from "@/lib/format";
 import { withShiftTimes } from "@/lib/shift-times";
+import { sharedDetailRows, timeRows, TIME_MAY_CHANGE_NOTE } from "@/lib/staff-details";
 import { shellWrap, kvRow, kvTable, greeting, paragraph, banner, signoff } from "@/lib/email-html";
 import { nanoid } from "nanoid";
 
@@ -36,8 +37,9 @@ export async function sendInvitationEmail(
   const companyName = company?.name ?? "Scheduler";
   const prettyDate = formatDate(event.date);
   event = withShiftTimes(event, position);
-  const timeRange = `${formatTime(event.checkInTime)} – ${formatTime(event.endTime)}`;
   const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
+  // Role, date, check-in, close + every field shared with staff in Settings.
+  const detailRows = await sharedDetailRows(event, position, companyId);
 
   // Load any add-on tasks assigned to this specific invitation, with the
   // $ amount the manager typed for this person + this event's description.
@@ -131,12 +133,8 @@ export async function sendInvitationEmail(
   const textBody = [
     `Hi ${profile?.firstName ?? ""},`, ``,
     `You're invited to work the following shift:`, ``,
-    `Role:        ${position.role}`,
-    event.eventType ? `Event type:  ${event.eventType}` : "",
-    `Date:        ${prettyDate}`,
-    `Approx time: ${timeRange}`,
-    `Venue:       ${venue}`,
-    `Client:      ${event.clientName}`, ``,
+    ...detailRows.map(([k, v]) => `${k}: ${v}`),
+    TIME_MAY_CHANGE_NOTE, ``,
     ...(requirementLinesText.length > 0 ? ["Shift requirements:", ...requirementLinesText, ""] : []),
     `Compensation:`,
     ...compLinesText, ``,
@@ -156,14 +154,10 @@ export async function sendInvitationEmail(
 
   const htmlBody = shellWrap([
     greeting(profile?.firstName, "You're invited to work the following shift:"),
-    `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 24px;">
-      ${row("Role", escapeHtml(position.role))}
-      ${event.eventType ? row("Event type", escapeHtml(event.eventType)) : ""}
-      ${row("Date", escapeHtml(prettyDate))}
-      ${row("Approx time", escapeHtml(timeRange))}
-      ${row("Venue", escapeHtml(venue))}
-      ${row("Client", escapeHtml(event.clientName))}
-    </table>`,
+    `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 8px;">
+      ${detailRows.map(([k, v]) => row(escapeHtml(k), escapeHtml(v))).join("")}
+    </table>
+    <p style="margin:0 0 24px;color:#555;font-size:13px;font-style:italic;">${escapeHtml(TIME_MAY_CHANGE_NOTE)}</p>`,
     requirementAddOns.length > 0
       ? `<div style="margin:0 0 20px;padding:12px 14px;background:#fef3c7;border-left:4px solid #d97706;border-radius:4px;">
           <p style="margin:0 0 6px;font-weight:600;color:#92400e;">Shift requirements</p>
@@ -343,7 +337,6 @@ async function sendPriorityNudgeEmail(
   const companyName = company?.name ?? "Scheduler";
   const prettyDate = formatDate(event.date);
   event = withShiftTimes(event, position);
-  const timeRange = `${formatTime(event.checkInTime)} - ${formatTime(event.endTime)}`;
   const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
   const inviteUrl = `${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}`;
 
@@ -360,7 +353,7 @@ async function sendPriorityNudgeEmail(
   const kv: Array<[string, string]> = [
     ["Client", event.clientName],
     ["Date", prettyDate],
-    ["Time", timeRange],
+    ...timeRows(event, position),
     ["Role", position.role],
   ];
   if (venue) kv.push(["Venue", venue]);
