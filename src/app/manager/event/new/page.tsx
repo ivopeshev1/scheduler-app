@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import { db, schema } from "@/db/client";
 import { eq, and, asc } from "drizzle-orm";
 import { AppHeader } from "@/components/AppHeader";
+import { TimeSelect } from "@/components/TimeSelect";
 import { PositionRows } from "@/components/PositionRows";
 import { nanoid } from "nanoid";
 import { PRESET_BY_KEY } from "@/lib/event-fields";
@@ -374,6 +375,15 @@ export default async function NewEventPage({ searchParams }: { searchParams: { d
 function Field({ label, name, type = "text", required, defaultValue }: {
   label: string; name: string; type?: string; required?: boolean; defaultValue?: string | number;
 }) {
+  if (type === "time") {
+    // Hour / minute / AM-PM picker that starts on PM (fewer clicks for evening events).
+    return (
+      <div>
+        <label className="label" htmlFor={name}>{label}</label>
+        <TimeSelect id={name} name={name} required={required} defaultValue={defaultValue != null ? String(defaultValue) : ""} />
+      </div>
+    );
+  }
   return (
     <div>
       <label className="label" htmlFor={name}>{label}</label>
