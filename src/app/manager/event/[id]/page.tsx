@@ -9,6 +9,7 @@ import { sendEmail, escapeHtml } from "@/lib/notifications";
 import { invitationBlocksDay } from "@/lib/availability";
 import { formatTime, formatDate } from "@/lib/format";
 import { shiftTimes } from "@/lib/shift-times";
+import { sharedDetailRows, timeRows, loadFieldConfigs, loadCustomValues, TIME_MAY_CHANGE_NOTE } from "@/lib/staff-details";
 import { notifyCancellation, notifyPayChanged, describeRate } from "@/lib/event-notifications";
 import { shellWrap, kvRow, kvTable, greeting, banner, paragraph, signoff } from "@/lib/email-html";
 import { StaffPicker, type StaffOption } from "@/components/StaffPicker";
@@ -392,7 +393,6 @@ async function activateOnCallAction(formData: FormData) {
   const [profile] = await db.select().from(schema.staffProfiles).where(eq(schema.staffProfiles.userId, inv.userId));
   const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, session.companyId));
   const prettyDate = formatDate(event.date);
-  const timeRange = (() => { const t = shiftTimes(event, pos); return `${formatTime(t.start)} – ${formatTime(t.end)}`; })();
   const companyName = company?.name ?? "Scheduler";
   const confirmUrl = `${process.env.PUBLIC_APP_URL ?? ""}/invite/${inv.token}/activate`;
   if (u) {
@@ -403,7 +403,7 @@ async function activateOnCallAction(formData: FormData) {
       ``,
       `Role:   ${pos.role}`,
       `Date:   ${prettyDate}`,
-      `Time:   ${timeRange}`,
+      ...timeRows(event, pos).map(([k, v]) => `${k}: ${v}`),
       `Client: ${event.clientName}`,
       ``,
       `Confirm you can come: ${confirmUrl}`,
@@ -416,7 +416,7 @@ async function activateOnCallAction(formData: FormData) {
       kvTable([
         kvRow("Role", pos.role),
         kvRow("Date", prettyDate),
-        kvRow("Time", timeRange),
+        ...timeRows(event, pos).map(([k, v]) => kvRow(k, v)),
         kvRow("Client", event.clientName),
       ]),
       `<p style="margin:24px 0 12px;"><a href="${confirmUrl}" style="display:inline-block;background:#16a34a;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;font-weight:600;">Confirm I'll be there</a></p>`,
@@ -536,6 +536,9 @@ async function sendPendingInvitations(formData: FormData) {
   const positionsForEvent = await db.select().from(schema.positions).where(eq(schema.positions.eventId, eventId));
   const byPosition = new Map(positionsForEvent.map((p) => [p.id, p]));
   const prettyDate = formatDate(event.date);
+  // Field settings + custom values drive which details staff see.
+  const fieldConfigs = await loadFieldConfigs(session.companyId);
+  const customValues = await loadCustomValues(event.id);
 
   let sentCount = 0;
   for (const p of positionsForEvent) {
@@ -581,7 +584,7 @@ async function sendPendingInvitations(formData: FormData) {
         : "";
 
       const venue = `${event.venue ?? ""}${event.city ? ` (${event.city})` : ""}`.trim();
-      const timeRange = (() => { const t = shiftTimes(event, position); return `${formatTime(t.start)} – ${formatTime(t.end)}`; })();
+      const detailRows = await sharedDetailRows(event, position, session.companyId, { configs: fieldConfigs, customValues });
 
       // Base-rate display depends on the position's rate mode:
       //   "standard" - show the staff's onboarded rate (varies per invitee)
@@ -667,12 +670,8 @@ async function sendPendingInvitations(formData: FormData) {
       const textBody = [
         `Hi ${profile?.firstName ?? ""},`, ``,
         leadLineText, ``,
-        `Role:        ${position.role}`,
-        event.eventType ? `Event type:  ${event.eventType}` : "",
-        `Date:        ${prettyDate}`,
-        `Approx time: ${timeRange}`,
-        `Venue:       ${venue}`,
-        `Client:      ${event.clientName}`, ``,
+        ...detailRows.map(([k, v]) => `${k}: ${v}`),
+        TIME_MAY_CHANGE_NOTE, ``,
         ...(requirementLinesText.length > 0 ? ["Shift requirements:", ...requirementLinesText, ""] : []),
         inv.isOnCall ? `On-call compensation:` : `Compensation:`,
         ...onCallCompNote,
@@ -702,14 +701,10 @@ async function sendPendingInvitations(formData: FormData) {
   <p style="margin:0 0 12px;">Hi ${escapeHtml(profile?.firstName ?? "")},</p>
   <p style="margin:0 0 20px;">${leadLineHtml}</p>
 
-  <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 24px;">
-    ${row("Role", escapeHtml(position.role))}
-    ${event.eventType ? row("Event type", escapeHtml(event.eventType)) : ""}
-    ${row("Date", escapeHtml(prettyDate))}
-    ${row("Approx time", escapeHtml(timeRange))}
-    ${row("Venue", escapeHtml(venue))}
-    ${row("Client", escapeHtml(event.clientName))}
+  <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 8px;">
+    ${detailRows.map(([k, v]) => row(escapeHtml(k), escapeHtml(v))).join("")}
   </table>
+  <p style="margin:0 0 24px;color:#555;font-size:13px;font-style:italic;">${escapeHtml(TIME_MAY_CHANGE_NOTE)}</p>
 
   ${requirementAddOns.length > 0 ? `<div style="margin:0 0 20px;padding:12px 14px;background:#fef3c7;border-left:4px solid #d97706;border-radius:4px;">
     <p style="margin:0 0 6px;font-weight:600;color:#92400e;">Shift requirements</p>
