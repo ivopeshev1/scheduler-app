@@ -167,14 +167,16 @@ export async function runMigrations(): Promise<void> {
   await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS sms_opted_in BOOLEAN`;
   await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS sms_opted_in_at TIMESTAMPTZ`;
   await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS sms_opted_out_at TIMESTAMPTZ`;
-  // One-time backfill: existing staffers who already gave us a phone
-  // number did so for the explicit purpose of shift communication, so
-  // they're opted in by default. Guarded by migration_flags so a later
-  // opt-out doesn't get reverted on the next cold start.
-  const [smsBackfillRow] = await sql`SELECT 1 FROM migration_flags WHERE key = 'sms_opted_in_default_on_v1'` as unknown as Array<{ "?column?": number }>;
-  if (!smsBackfillRow) {
-    await sql`UPDATE staff_profiles SET sms_opted_in = TRUE, sms_opted_in_at = now() WHERE sms_opted_in IS NULL AND phone IS NOT NULL AND phone <> ''`;
-    await sql`INSERT INTO migration_flags(key) VALUES ('sms_opted_in_default_on_v1') ON CONFLICT (key) DO NOTHING`;
+  // One-time reset: an earlier version auto-opted-in every staffer with
+  // a phone number. Carriers require an active opt-in, so clear those
+  // and let each staffer tick "Text me about my shifts" themselves.
+  // No texts had been sent at the time (campaign not yet approved).
+  // Guarded by migration_flags so it runs once and never undoes a
+  // real opt-in made afterwards.
+  const [smsResetRow] = await sql`SELECT 1 FROM migration_flags WHERE key = 'sms_opt_in_reset_v1'` as unknown as Array<{ "?column?": number }>;
+  if (!smsResetRow) {
+    await sql`UPDATE staff_profiles SET sms_opted_in = NULL, sms_opted_in_at = NULL WHERE sms_opted_in = TRUE`;
+    await sql`INSERT INTO migration_flags(key) VALUES ('sms_opt_in_reset_v1') ON CONFLICT (key) DO NOTHING`;
   }
 
   await sql`ALTER TABLE staff_profiles ADD COLUMN IF NOT EXISTS ui_preferences JSONB`;
