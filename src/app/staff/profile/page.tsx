@@ -390,17 +390,17 @@ export default async function StaffProfilePage({
                   Changing it requires a quick 6-digit code to confirm the new number before SMS reminders start.
                 </p>
                 {/*
-                  SMS opt-in — required for Twilio A2P 10DLC. The box is
-                  defaulted ON for existing staffers who gave us a phone
-                  for the explicit purpose of shift communication; they
-                  can un-check to opt out. Unchecked saves smsOptedIn =
-                  false (not null) so sendSms honors the opt-out.
+                  SMS opt-in — required for Twilio A2P 10DLC. Carriers
+                  require consent to be an active choice, so the box is
+                  unchecked unless the staffer already opted in. Unchecked
+                  saves smsOptedIn = false (not null) so sendSms honors it.
+                  Public copy of this checkbox lives at /sms-opt-in.
                 */}
                 <label className="flex items-start gap-2 mt-3 cursor-pointer">
                   <input
                     type="checkbox"
                     name="smsOptedIn"
-                    defaultChecked={profile?.smsOptedIn !== false}
+                    defaultChecked={profile?.smsOptedIn === true}
                     className="mt-0.5"
                   />
                   <span className="text-sm">
